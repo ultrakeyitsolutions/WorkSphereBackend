@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "seed": "tsx src/scripts/seed.ts"
+    "seed": "tsx src/scripts/seed.ts",
+    "patch:permissions": "tsx src/scripts/patch-super-admin-permissions.ts"
   },
 
   "keywords": [],

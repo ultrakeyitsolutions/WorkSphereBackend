@@ -1,5 +1,7 @@
 import { Schema, model } from 'mongoose';
 import { IUserDocument } from './user.types';
+import '../roles/role.model';
+import '../companies/company.model';
 
 const userSchema = new Schema<IUserDocument>(
     {
@@ -23,6 +25,15 @@ const userSchema = new Schema<IUserDocument>(
             type: Schema.Types.ObjectId,
             ref: 'Role',
             required: true,
+        },
+        companyId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Company',
+            default: null,
+        },
+        mustChangePassword: {
+            type: Boolean,
+            default: false,
         },
         isActive: {
             type: Boolean,

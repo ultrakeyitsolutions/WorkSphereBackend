@@ -34,8 +34,8 @@ export const authorizePermissions = (...requiredPermissions: string[]) => {
                 return sendError(res, 'Forbidden: No role assigned to user', 403);
             }
 
-            // Admin role bypasses permission checks
-            if (role.name === 'Admin') {
+            // Admin and SUPER_ADMIN roles bypass permission checks
+            if (role.name === 'Admin' || role.name === 'SUPER_ADMIN') {
                 return next();
             }
 

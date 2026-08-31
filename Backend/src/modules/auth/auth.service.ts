@@ -1,5 +1,6 @@
 import { UserService } from '../users/user.service';
 import { Role } from '../roles/role.model';
+import { Company } from '../companies/company.model';
 import { hashPassword, comparePassword } from '../../utils/password';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../../utils/tokens';
 
@@ -40,6 +41,20 @@ export class AuthService {
             throw new Error('Your account is deactivated');
         }
 
+        // ─── Company Status Check ────────────────────────────────────────────────
+        if (user.companyId) {
+            const company = await Company.findById(user.companyId);
+            if (!company) {
+                throw new Error('Your organization account is not found.');
+            }
+            if (company.status === 'SUSPENDED') {
+                throw new Error('Your organization account is currently suspended.');
+            }
+            if (company.status === 'DELETED' || !company.isActive) {
+                throw new Error('Your organization account is no longer active.');
+            }
+        }
+
         const isMatch = await comparePassword(data.password, user.password || '');
         if (!isMatch) {
             throw new Error('Invalid email or password');
@@ -61,6 +76,7 @@ export class AuthService {
                 name: user.name,
                 email: user.email,
                 role: userRole,
+                companyId: user.companyId,
             },
             accessToken,
             refreshToken,
@@ -75,6 +91,20 @@ export class AuthService {
         }
         if (!user.isActive) {
             throw new Error('User account is deactivated');
+        }
+
+        // ─── Company Status Check ────────────────────────────────────────────────
+        if (user.companyId) {
+            const company = await Company.findById(user.companyId);
+            if (!company) {
+                throw new Error('Your organization account is not found.');
+            }
+            if (company.status === 'SUSPENDED') {
+                throw new Error('Your organization account is currently suspended.');
+            }
+            if (company.status === 'DELETED' || !company.isActive) {
+                throw new Error('Your organization account is no longer active.');
+            }
         }
 
         const userRole = (user.role as any)?.name || 'User';

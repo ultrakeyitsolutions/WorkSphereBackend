@@ -5,6 +5,8 @@ export interface IUser {
     email: string;
     password?: string; // Opt out when resolving user details if not needed, but required in doc
     role: Schema.Types.ObjectId; // Reference to Role model
+    companyId?: Schema.Types.ObjectId; // Reference to Company model (null for SUPER_ADMIN)
+    mustChangePassword?: boolean;
     isActive: boolean;
     status: 'ACTIVE' | 'INACTIVE' | 'DEACTIVATED';
 }

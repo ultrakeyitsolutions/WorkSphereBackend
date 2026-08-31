@@ -1,5 +1,6 @@
 import { Schema, model } from 'mongoose';
 import { IRoleDocument } from './role.types';
+import '../permissions/permission.model';
 
 const roleSchema = new Schema<IRoleDocument>(
     {
