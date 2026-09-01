@@ -62,6 +62,16 @@ describe('Authorization Middleware', () => {
             email: 'admin@example.com',
             role: 'Admin',
         });
+
+        // Default mock so authenticate() can resolve a valid active user for role-only tests.
+        // Permission tests override this with their own mockReturnValue below.
+        (User.findById as any).mockReturnValue({
+            populate: vi.fn().mockResolvedValue({
+                _id: 'user_default',
+                isActive: true,
+                role: { name: 'User', permissions: [] },
+            }),
+        });
     });
 
     describe('Role Authorization', () => {

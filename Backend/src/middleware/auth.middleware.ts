@@ -26,7 +26,7 @@ export const authenticate = async (
 
         // Perform backend check on company status for non-SUPER_ADMIN users
         if (decoded.role !== 'SUPER_ADMIN') {
-            const user = await User.findById(decoded.userId);
+            const user = await (User.findById(decoded.userId) as any).populate('role');
             if (!user) {
                 return sendError(res, 'User context not found', 401);
             }
