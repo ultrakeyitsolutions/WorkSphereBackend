@@ -1,9 +1,11 @@
 import mongoose from 'mongoose';
 import { Company } from './company.model';
-import { User } from '../users/user.model';
-import { Role } from '../roles/role.model';
-import { hashPassword } from '../../utils/password';
+import { User } from '../../users/user.model';
+import { Role } from '../../roles/role.model';
+import { hashPassword } from '../../../utils/password';
 import { CreateCompanyDto } from './company.schema';
+import { AuditLogService } from '../../audit-logs/audit-log.service';
+import { AuditAction } from '../../audit-logs/audit-log.types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,7 +36,7 @@ export class CompanyService {
      * @param dto - Validated CreateCompanyDto from the controller
      * @returns   - { company, admin } without the hashed password
      */
-    static async createWithAdmin(dto: CreateCompanyDto) {
+    static async createWithAdmin(dto: CreateCompanyDto, actorUserId?: string) {
         // ── Guard: duplicate email check (outside tx — fast fail) ────────────
         const existingUser = await User.findOne({ email: dto.adminEmail.toLowerCase() });
         if (existingUser) {
@@ -99,6 +101,18 @@ export class CompanyService {
 
             // ── COMMIT ────────────────────────────────────────────────────────
             await session.commitTransaction();
+
+            // ── Audit log the company creation ────────────────────────────────
+            await AuditLogService.log({
+                action: AuditAction.COMPANY_CREATED,
+                actorId: actorUserId ?? null,
+                companyId: String(company._id),
+                companyName: company.name,
+                targetUserId: String(admin._id),
+                targetEmail: admin.email,
+                success: true,
+                description: `Company "${company.name}" created with admin: ${admin.email}`,
+            });
 
             return {
                 company: {
@@ -201,6 +215,17 @@ export class CompanyService {
         company.suspensionReason = reason;
 
         await company.save();
+
+        await AuditLogService.log({
+            action: AuditAction.COMPANY_SUSPENDED,
+            actorId: actorUserId,
+            companyId: companyId,
+            companyName: company.name,
+            success: true,
+            description: `Company "${company.name}" suspended. Reason: ${reason ?? 'None'}`,
+            metadata: { reason },
+        });
+
         return company;
     }
 
@@ -228,6 +253,16 @@ export class CompanyService {
         company.suspensionReason = undefined;
 
         await company.save();
+
+        await AuditLogService.log({
+            action: AuditAction.COMPANY_ACTIVATED,
+            actorId: actorUserId,
+            companyId: companyId,
+            companyName: company.name,
+            success: true,
+            description: `Company "${company.name}" re-activated`,
+        });
+
         return company;
     }
 
@@ -246,6 +281,16 @@ export class CompanyService {
         company.deletedBy = actorUserId as any;
 
         await company.save();
+
+        await AuditLogService.log({
+            action: AuditAction.COMPANY_DELETED,
+            actorId: actorUserId,
+            companyId: companyId,
+            companyName: company.name,
+            success: true,
+            description: `Company "${company.name}" soft-deleted`,
+        });
+
         return company;
     }
 
@@ -285,6 +330,18 @@ export class CompanyService {
 
             await adminUser.save({ session });
             await session.commitTransaction();
+
+            await AuditLogService.log({
+                action: AuditAction.PASSWORD_RESET,
+                actorId: actorUserId,
+                companyId: companyId,
+                companyName: company.name,
+                targetUserId: String(adminUser._id),
+                targetEmail: adminUser.email,
+                success: true,
+                description: `Password force-reset for company admin: ${adminUser.email} by super-admin`,
+            });
+
             return { success: true };
         } catch (error) {
             await session.abortTransaction();
@@ -292,5 +349,33 @@ export class CompanyService {
         } finally {
             session.endSession();
         }
+    }
+
+    /**
+     * Fetch comprehensive details for a company: Profile, Admin, Subscription (with Plan), and Subscription History (Events).
+     */
+    static async getFullDetails(companyId: string) {
+        const company = await Company.findOne({ _id: companyId }).populate('adminId', 'name email createdAt updatedAt role mustChangePassword status');
+        if (!company) {
+            throw new Error('Company not found');
+        }
+
+        // We load Subscription dynamically to avoid circular dependencies if any
+        const { Subscription } = require('../subscriptions/subscription.model');
+        const { SubscriptionEvent } = require('../subscriptions/subscription-event.model');
+
+        const subscription = await Subscription.findOne({ companyId }).populate('planId');
+
+        const subscriptionEvents = await SubscriptionEvent.find({ companyId })
+            .sort({ createdAt: -1 })
+            .populate('fromPlanId', 'name price billingCycle')
+            .populate('toPlanId', 'name price billingCycle')
+            .populate('performedBy', 'name email');
+
+        return {
+            company,
+            subscription,
+            subscriptionEvents
+        };
     }
 }

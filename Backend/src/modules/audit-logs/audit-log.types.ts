@@ -1,0 +1,56 @@
+import { Document, Types } from 'mongoose';
+
+// ─── Audit Event Types ────────────────────────────────────────────────────────
+export enum AuditAction {
+    // Auth events
+    USER_LOGIN = 'USER_LOGIN',
+    USER_LOGIN_FAILED = 'USER_LOGIN_FAILED',
+    USER_LOGOUT = 'USER_LOGOUT',
+
+    // Password events
+    PASSWORD_CHANGED = 'PASSWORD_CHANGED',     // user changed their own password
+    PASSWORD_RESET = 'PASSWORD_RESET',        // super-admin force-reset
+
+    // Account / company events
+    COMPANY_CREATED = 'COMPANY_CREATED',
+    COMPANY_UPDATED = 'COMPANY_UPDATED',
+    COMPANY_SUSPENDED = 'COMPANY_SUSPENDED',
+    COMPANY_ACTIVATED = 'COMPANY_ACTIVATED',
+    COMPANY_DELETED = 'COMPANY_DELETED',
+
+    // Subscription events
+    SUBSCRIPTION_CREATED = 'SUBSCRIPTION_CREATED',
+    SUBSCRIPTION_UPGRADED = 'SUBSCRIPTION_UPGRADED',
+    SUBSCRIPTION_DOWNGRADED = 'SUBSCRIPTION_DOWNGRADED',
+    SUBSCRIPTION_PAUSED = 'SUBSCRIPTION_PAUSED',
+    SUBSCRIPTION_CANCELLED = 'SUBSCRIPTION_CANCELLED',
+
+    // Generic
+    OTHER = 'OTHER',
+}
+
+// ─── Mongoose Document Interface ──────────────────────────────────────────────
+export interface IAuditLogDocument extends Document {
+    action: AuditAction;
+    /** The user who performed the action (may be null for system events) */
+    actorId: Types.ObjectId | null;
+    actorEmail: string | null;
+    actorRole: string | null;
+    /** Target user affected by the action (e.g. the user whose password was reset) */
+    targetUserId: Types.ObjectId | null;
+    targetEmail: string | null;
+    /** Company context */
+    companyId: Types.ObjectId | null;
+    companyName: string | null;
+    /** Extra context (IP, device, reason, etc.) */
+    metadata: Record<string, any>;
+    /** HTTP request IP address */
+    ipAddress: string | null;
+    userAgent: string | null;
+    /** Whether the action succeeded */
+    success: boolean;
+    /** Human-readable description */
+    description: string;
+    createdAt: Date;
+    updatedAt: Date;
+}

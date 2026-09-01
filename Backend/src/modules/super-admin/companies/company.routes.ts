@@ -17,4 +17,3 @@ router.get('/', CompanyController.getAll);
 router.get('/:id', CompanyController.getOne);
 
 export default router;
-

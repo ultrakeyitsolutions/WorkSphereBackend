@@ -1,8 +1,11 @@
 import { UserService } from '../users/user.service';
 import { Role } from '../roles/role.model';
-import { Company } from '../companies/company.model';
+import { Company } from '../super-admin/companies/company.model';
 import { hashPassword, comparePassword } from '../../utils/password';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../../utils/tokens';
+import { AuditLogService } from '../audit-logs/audit-log.service';
+import { AuditAction } from '../audit-logs/audit-log.types';
+import { Request } from 'express';
 
 export class AuthService {
     static async register(data: any) {
@@ -31,13 +34,30 @@ export class AuthService {
         return user;
     }
 
-    static async login(data: any) {
+    static async login(data: any, req?: Request) {
         const user = await UserService.findByEmail(data.email);
         if (!user) {
+            // Log failed login attempt
+            await AuditLogService.log({
+                action: AuditAction.USER_LOGIN_FAILED,
+                actorEmail: data.email,
+                success: false,
+                description: `Failed login attempt for email: ${data.email} — user not found`,
+                req,
+            });
             throw new Error('Invalid email or password');
         }
 
         if (!user.isActive) {
+            await AuditLogService.log({
+                action: AuditAction.USER_LOGIN_FAILED,
+                actorId: String(user._id),
+                actorEmail: user.email,
+                actorRole: (user.role as any)?.name ?? null,
+                success: false,
+                description: `Failed login — account deactivated for: ${user.email}`,
+                req,
+            });
             throw new Error('Your account is deactivated');
         }
 
@@ -45,18 +65,56 @@ export class AuthService {
         if (user.companyId) {
             const company = await Company.findById(user.companyId);
             if (!company) {
+                await AuditLogService.log({
+                    action: AuditAction.USER_LOGIN_FAILED,
+                    actorId: String(user._id),
+                    actorEmail: user.email,
+                    success: false,
+                    description: `Failed login — organization not found for: ${user.email}`,
+                    req,
+                });
                 throw new Error('Your organization account is not found.');
             }
             if (company.status === 'SUSPENDED') {
+                await AuditLogService.log({
+                    action: AuditAction.USER_LOGIN_FAILED,
+                    actorId: String(user._id),
+                    actorEmail: user.email,
+                    companyId: String(company._id),
+                    companyName: company.name,
+                    success: false,
+                    description: `Failed login — organization suspended for: ${user.email}`,
+                    req,
+                });
                 throw new Error('Your organization account is currently suspended.');
             }
             if (company.status === 'DELETED' || !company.isActive) {
+                await AuditLogService.log({
+                    action: AuditAction.USER_LOGIN_FAILED,
+                    actorId: String(user._id),
+                    actorEmail: user.email,
+                    companyId: String(company._id),
+                    companyName: company.name,
+                    success: false,
+                    description: `Failed login — organization inactive for: ${user.email}`,
+                    req,
+                });
                 throw new Error('Your organization account is no longer active.');
             }
         }
 
         const isMatch = await comparePassword(data.password, user.password || '');
         if (!isMatch) {
+            await AuditLogService.log({
+                action: AuditAction.USER_LOGIN_FAILED,
+                actorId: String(user._id),
+                actorEmail: user.email,
+                actorRole: (user.role as any)?.name ?? null,
+                companyId: user.companyId ? String(user.companyId) : null,
+                success: false,
+                description: `Failed login — wrong password for: ${user.email}`,
+                req,
+            });
             throw new Error('Invalid email or password');
         }
 
@@ -69,6 +127,18 @@ export class AuthService {
 
         const accessToken = generateAccessToken(payload);
         const refreshToken = generateRefreshToken(payload);
+
+        // ── Successful login audit ────────────────────────────────────────────
+        await AuditLogService.log({
+            action: AuditAction.USER_LOGIN,
+            actorId: String(user._id),
+            actorEmail: user.email,
+            actorRole: userRole,
+            companyId: user.companyId ? String(user.companyId) : null,
+            success: true,
+            description: `User logged in: ${user.email}`,
+            req,
+        });
 
         return {
             user: {
@@ -83,7 +153,7 @@ export class AuthService {
         };
     }
 
-    static async refresh(token: string) {
+    static async refresh(token: string, req?: Request) {
         const decoded = verifyRefreshToken(token);
         const user = await UserService.findById(decoded.userId);
         if (!user) {
@@ -116,6 +186,19 @@ export class AuthService {
 
         const accessToken = generateAccessToken(payload);
         const newRefreshToken = generateRefreshToken(payload);
+
+        // Token refresh is the closest thing to a "logout + re-login" we track
+        await AuditLogService.log({
+            action: AuditAction.USER_LOGOUT,
+            actorId: String(user._id),
+            actorEmail: user.email,
+            actorRole: userRole,
+            companyId: user.companyId ? String(user.companyId) : null,
+            success: true,
+            description: `Token refreshed (session continued) for: ${user.email}`,
+            metadata: { note: 'Token refresh — previous session rotated' },
+            req,
+        });
 
         return {
             accessToken,

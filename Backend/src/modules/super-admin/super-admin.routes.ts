@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
 import { authorizeRoles, authorizePermissions } from '../../middleware/authorization.middleware';
-import { CompanyController } from '../companies/company.controller';
-import companyRoutes from '../companies/company.routes';
+import { CompanyController } from './companies/company.controller';
+import companyRoutes from './companies/company.routes';
+import planRouter from './plans/plans.routes';
+import featureRouter from './features/features.routes';
+import subscriptionRoutes from './subscriptions/subscription.routes';
+import auditLogRouter from '../audit-logs/audit-log.routes';
 
 const router = Router();
 
@@ -10,16 +14,12 @@ const router = Router();
 // Every route under /api/super-admin/* MUST:
 //   1. Carry a valid JWT access token  (authenticate)
 //   2. Have the SUPER_ADMIN role       (authorizeRoles)
-//   3. Carry the COMPANY_CREATE perm  (authorizePermissions — applied per sub-router)
-//
-// The permission check is scoped per resource so different sub-routers can
-// require different permissions while sharing the same role guard.
+//   3. Carry the required permission   (authorizePermissions — applied per sub-router)
 
 // ── Apply authentication + role check to ALL super-admin routes ───────────────
 router.use(authenticate, authorizeRoles('SUPER_ADMIN'));
 
 // ── POST /api/super-admin/create-company ──────────────────────────────────────
-// Additional permission required: COMPANY_CREATE (checked before company routes)
 router.use(
     '/create-company',
     authorizePermissions('COMPANY_CREATE'),
@@ -35,6 +35,12 @@ router.get(
 
 // ── Company Management Routes ─────────────────────────────────────────────────
 const companiesRouter = Router();
+
+companiesRouter.get(
+    '/:companyId',
+    authorizePermissions('COMPANY_READ'),
+    CompanyController.getOne
+);
 
 companiesRouter.patch(
     '/:companyId',
@@ -66,6 +72,30 @@ companiesRouter.post(
     CompanyController.resetAdminPassword
 );
 
+companiesRouter.use('/:companyId/subscription', subscriptionRoutes);
 router.use('/companies', companiesRouter);
+
+// ── Plan Management Routes ────────────────────────────────────────────────────
+// GET    /api/super-admin/plans
+// GET    /api/super-admin/plans/:id
+// POST   /api/super-admin/plans
+// PATCH  /api/super-admin/plans/:id
+// DELETE /api/super-admin/plans/:id
+router.use('/plans', planRouter);
+
+// ── Feature Management Routes ─────────────────────────────────────────────────
+// POST   /api/super-admin/features
+// GET    /api/super-admin/features
+// GET    /api/super-admin/features/:id
+// PATCH  /api/super-admin/features/:id
+// DELETE /api/super-admin/features/:id
+router.use('/features', featureRouter);
+
+// ── Audit Log Routes (Super-Admin only) ──────────────────────────────────────
+// GET  /api/super-admin/audit-logs
+// GET  /api/super-admin/audit-logs/stats
+// GET  /api/super-admin/audit-logs/company/:companyId
+// GET  /api/super-admin/audit-logs/:id
+router.use('/audit-logs', auditLogRouter);
 
 export default router;

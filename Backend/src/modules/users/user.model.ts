@@ -1,7 +1,7 @@
 import { Schema, model } from 'mongoose';
 import { IUserDocument } from './user.types';
 import '../roles/role.model';
-import '../companies/company.model';
+import '../super-admin/companies/company.model';
 
 const userSchema = new Schema<IUserDocument>(
     {

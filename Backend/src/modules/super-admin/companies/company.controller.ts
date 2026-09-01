@@ -1,8 +1,8 @@
 import { Response } from 'express';
-import { AuthenticatedRequest } from '../auth/auth.types';
+import { AuthenticatedRequest } from '../../auth/auth.types';
 import { CompanyService } from './company.service';
 import { createCompanySchema, editCompanySchema, suspendCompanySchema, companyAdminPasswordResetSchema } from './company.schema';
-import { sendSuccess, sendError } from '../../utils/response';
+import { sendSuccess, sendError } from '../../../utils/response';
 
 export class CompanyController {
     /**
@@ -24,7 +24,8 @@ export class CompanyController {
 
         try {
             // ── Service call (transaction is handled inside) ───────────────────
-            const result = await CompanyService.createWithAdmin(parsed.data);
+            const actorUserId = req.user?.userId;
+            const result = await CompanyService.createWithAdmin(parsed.data, actorUserId);
 
             return sendSuccess(
                 res,
@@ -46,7 +47,7 @@ export class CompanyController {
     }
 
     /**
-     * GET /api/super-admin/companies
+     * GET /api/super-admin/getcompanies
      *
      * Returns all companies. Protected by SUPER_ADMIN role.
      */
@@ -62,23 +63,24 @@ export class CompanyController {
     /**
      * GET /api/super-admin/companies/:id
      *
-     * Returns a single company. Protected by SUPER_ADMIN role.
+     * Returns a full company details payload including subscriptions and events. Protected by SUPER_ADMIN role.
      */
     static async getOne(req: AuthenticatedRequest, res: Response) {
         try {
-            const { id } = req.params as { id: string };
-            const company = await CompanyService.findById(id);
-            if (!company) {
+            // Check for id or companyId to be safe, depending on route params
+            const companyId = req.params.id || req.params.companyId;
+            const fullDetails = await CompanyService.getFullDetails(companyId as string);
+            return sendSuccess(res, 'Company details fetched successfully', fullDetails);
+        } catch (error: any) {
+            if (error.message === 'Company not found') {
                 return sendError(res, 'Company not found', 404);
             }
-            return sendSuccess(res, 'Company fetched successfully', company);
-        } catch (error: any) {
-            return sendError(res, error.message || 'Failed to fetch company', 500);
+            return sendError(res, error.message || 'Failed to fetch company details', 500);
         }
     }
 
     /**
-     * PATCH /api/v1/super-admin/companies/:companyId
+     * PATCH /api/super-admin/companies/:companyId
      * Edits company profile details.
      */
     static async edit(req: AuthenticatedRequest, res: Response) {
@@ -103,7 +105,7 @@ export class CompanyController {
     }
 
     /**
-     * PATCH /api/v1/super-admin/companies/:companyId/suspend
+     * PATCH /api/super-admin/companies/:companyId/suspend
      * Suspends a company.
      */
     static async suspend(req: AuthenticatedRequest, res: Response) {
@@ -126,7 +128,7 @@ export class CompanyController {
     }
 
     /**
-     * PATCH /api/v1/super-admin/companies/:companyId/activate
+     * PATCH /api/super-admin/companies/:companyId/activate
      * Activates a suspended company.
      */
     static async activate(req: AuthenticatedRequest, res: Response) {
@@ -144,7 +146,7 @@ export class CompanyController {
     }
 
     /**
-     * DELETE /api/v1/super-admin/companies/:companyId
+     * DELETE /api/super-admin/companies/:companyId
      * Soft deletes a company.
      */
     static async delete(req: AuthenticatedRequest, res: Response) {
@@ -162,7 +164,7 @@ export class CompanyController {
     }
 
     /**
-     * POST /api/v1/super-admin/companies/:companyId/admin/reset-password
+     * POST /api/super-admin/companies/:companyId/admin/reset-password
      * Resets company admin password.
      */
     static async resetAdminPassword(req: AuthenticatedRequest, res: Response) {

@@ -35,7 +35,7 @@ export class AuthController {
                 return sendError(res, 'Validation Error', 400, parsed.error.format());
             }
 
-            const result = await AuthService.login(parsed.data);
+            const result = await AuthService.login(parsed.data, req);
             return sendSuccess(res, 'Login successful', result);
         } catch (error: any) {
             return sendError(res, error.message || 'Login failed', 400);
@@ -49,7 +49,7 @@ export class AuthController {
                 return sendError(res, 'Validation Error', 400, parsed.error.format());
             }
 
-            const result = await AuthService.refresh(parsed.data.refreshToken);
+            const result = await AuthService.refresh(parsed.data.refreshToken, req);
             return sendSuccess(res, 'Token refresh successful', result);
         } catch (error: any) {
             return sendError(res, error.message || 'Token refresh failed', 401);

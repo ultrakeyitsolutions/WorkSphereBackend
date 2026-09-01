@@ -30,14 +30,20 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate Limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: env.NODE_ENV === 'test' ? 10000 : 100, // allow more request overhead in tests
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-app.use(limiter);
+// Rate Limiting (Enabled only in Production)
+if (env.NODE_ENV === 'production') {
+    const limiter = rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 100, // Limit each IP to 100 requests per window
+        standardHeaders: true,
+        legacyHeaders: false,
+        skip: (req) => {
+            // Bypass rate limiter for Super Admin endpoints
+            return req.originalUrl.startsWith('/api/super-admin');
+        },
+    });
+    app.use(limiter);
+}
 
 // Root health check endpoint
 app.get('/health', (req, res) => {

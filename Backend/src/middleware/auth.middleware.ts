@@ -3,7 +3,7 @@ import { verifyAccessToken } from '../utils/tokens';
 import { sendError } from '../utils/response';
 import { AuthenticatedRequest } from '../modules/auth/auth.types';
 import { User } from '../modules/users/user.model';
-import { Company } from '../modules/companies/company.model';
+import { Company } from '../modules/super-admin/companies/company.model';
 
 export const authenticate = async (
     req: AuthenticatedRequest,

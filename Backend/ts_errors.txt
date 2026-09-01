@@ -1,0 +1,7 @@
+﻿src/modules/super-admin/subscriptions/subscription.controller.ts(16,79): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/super-admin/subscriptions/subscription.routes.ts(3,33): error TS2307: Cannot find module '../../../middleware/validateRequest' or its corresponding type declarations.
+src/modules/super-admin/subscriptions/subscription.service.ts(2,24): error TS2614: Module '"./subscription.model"' has no exported member 'ISubscriptionDocument'. Did you mean to use 'import ISubscriptionDocument from "./subscription.model"' instead?
+src/modules/super-admin/subscriptions/subscription.service.ts(8,26): error TS2307: Cannot find module '../../../utils/appError' or its corresponding type declarations.
+src/modules/super-admin/subscriptions/subscription.service.ts(25,18): error TS2339: Property 'status' does not exist on type 'Document<unknown, {}, IPlanDocument, {}, DefaultSchemaOptions> & IPlanDocument & Required<{ _id: ObjectId; }> & { ...; } & { ...; }'.
+src/modules/super-admin/subscriptions/subscription.service.ts(78,24): error TS2339: Property 'status' does not exist on type 'Document<unknown, {}, IPlanDocument, {}, DefaultSchemaOptions> & IPlanDocument & Required<{ _id: ObjectId; }> & { ...; } & { ...; }'.
