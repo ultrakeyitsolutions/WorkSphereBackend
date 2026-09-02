@@ -1,7 +1,25 @@
 import { Request, Response, NextFunction } from 'express';
-import { ZodSchema } from 'zod';
+import { ZodSchema, ZodError } from 'zod';
 import { sendError } from '../utils/response';
 
+/**
+ * Validates a payload directly.
+ */
+export const validateData = (
+    schema: ZodSchema<any>,
+    data: unknown
+): { success: true; data: any } | { success: false; errors: any } => {
+    const parsed = schema.safeParse(data);
+    if (!parsed.success) {
+        return { success: false, errors: (parsed.error as ZodError).format() };
+    }
+    return { success: true, data: parsed.data };
+};
+
+/**
+ * Express middleware factory — validates req.body / req.query / req.params
+ * using a Zod schema that wraps all three.
+ */
 export const validateRequest = (schema: ZodSchema<any>) => {
     return (req: Request, res: Response, next: NextFunction) => {
         const parsed = schema.safeParse({
@@ -11,7 +29,7 @@ export const validateRequest = (schema: ZodSchema<any>) => {
         });
 
         if (!parsed.success) {
-            return sendError(res, 'Validation Error', 400, parsed.error.format());
+            return sendError(res, 'Validation Error', 400, (parsed.error as ZodError).format());
         }
 
         // optionally replace req properties with validated ones

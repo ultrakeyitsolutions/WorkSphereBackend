@@ -123,6 +123,8 @@ export class AuthService {
             userId: String(user._id),
             email: user.email,
             role: userRole,
+            // Embed companyId so controllers never trust the request body for it
+            companyId: user.companyId ? String(user.companyId) : undefined,
         };
 
         const accessToken = generateAccessToken(payload);
@@ -182,6 +184,7 @@ export class AuthService {
             userId: String(user._id),
             email: user.email,
             role: userRole,
+            companyId: user.companyId ? String(user.companyId) : undefined,
         };
 
         const accessToken = generateAccessToken(payload);

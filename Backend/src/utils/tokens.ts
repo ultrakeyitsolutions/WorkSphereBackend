@@ -5,6 +5,8 @@ export interface TokenPayload {
     userId: string;
     email: string;
     role: string;
+    /** Set for company-member users so controllers can always derive it from the token */
+    companyId?: string;
 }
 
 export const generateAccessToken = (payload: TokenPayload): string => {
