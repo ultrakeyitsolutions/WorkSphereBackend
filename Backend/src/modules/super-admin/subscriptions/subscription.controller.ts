@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { catchAsync } from '../../../utils/catchAsync';
 import { SubscriptionService } from './subscription.service';
-import { sendError, sendSuccess } from '../../../utils/response';
+import { sendSuccess } from '../../../utils/response';
 import {
     CreateSubscriptionInput,
     ChangePlanInput,
@@ -29,7 +29,7 @@ export class SubscriptionController {
         });
     });
 
-    static createSubscription = catchAsync(async (req: Request<{}, {}, CreateSubscriptionInput>, res: Response) => {
+    static createSubscription = catchAsync(async (req: Request<any, any, CreateSubscriptionInput>, res: Response) => {
         // Here req.params is not typed from the generic Request in express unless we extend it or specify it,
         // let's just cast params to generic Record.
         const { companyId } = req.params as any;
@@ -42,7 +42,7 @@ export class SubscriptionController {
         sendSuccess(res, 'Subscription created successfully', sub, 201);
     });
 
-    static upgradePlan = catchAsync(async (req: Request<{}, {}, ChangePlanInput>, res: Response) => {
+    static upgradePlan = catchAsync(async (req: Request<any, any, ChangePlanInput>, res: Response) => {
         const { companyId } = req.params as any;
         const adminId = (req as any).user.userId;
         const { planId, effectiveImmediate } = req.body;
@@ -51,7 +51,7 @@ export class SubscriptionController {
         sendSuccess(res, 'Plan upgraded successfully', sub, 200);
     });
 
-    static downgradePlan = catchAsync(async (req: Request<{}, {}, ChangePlanInput>, res: Response) => {
+    static downgradePlan = catchAsync(async (req: Request<any, any, ChangePlanInput>, res: Response) => {
         const { companyId } = req.params as any;
         const adminId = (req as any).user.userId;
         const { planId, effectiveImmediate } = req.body;
@@ -60,7 +60,7 @@ export class SubscriptionController {
         sendSuccess(res, 'Plan downgraded successfully', sub, 200);
     });
 
-    static pauseSubscription = catchAsync(async (req: Request<{}, {}, PauseSubscriptionInput>, res: Response) => {
+    static pauseSubscription = catchAsync(async (req: Request<any, any, PauseSubscriptionInput>, res: Response) => {
         const { companyId } = req.params as any;
         const adminId = (req as any).user.userId;
         const { pauseFrom, resumeAt, reason } = req.body;
@@ -72,7 +72,7 @@ export class SubscriptionController {
         sendSuccess(res, 'Subscription paused successfully', sub, 200);
     });
 
-    static resumeSubscription = catchAsync(async (req: Request<{}, {}, ResumeSubscriptionInput>, res: Response) => {
+    static resumeSubscription = catchAsync(async (req: Request<any, any, ResumeSubscriptionInput>, res: Response) => {
         const { companyId } = req.params as any;
         const adminId = (req as any).user.userId;
         const { resumeImmediate } = req.body;
@@ -81,7 +81,7 @@ export class SubscriptionController {
         sendSuccess(res, 'Subscription resumed successfully', sub, 200);
     });
 
-    static cancelSubscription = catchAsync(async (req: Request<{}, {}, CancelSubscriptionInput>, res: Response) => {
+    static cancelSubscription = catchAsync(async (req: Request<any, any, CancelSubscriptionInput>, res: Response) => {
         const { companyId } = req.params as any;
         const adminId = (req as any).user.userId;
         const { cancelImmediate, reason } = req.body;

@@ -52,7 +52,7 @@ export const authorizePermissions = (...requiredPermissions: string[]) => {
             }
 
             return next();
-        } catch (error: any) {
+        } catch {
             return sendError(res, 'Authorization check failed', 500);
         }
     };

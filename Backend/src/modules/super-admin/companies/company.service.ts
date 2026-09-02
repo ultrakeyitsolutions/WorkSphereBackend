@@ -360,9 +360,9 @@ export class CompanyService {
             throw new Error('Company not found');
         }
 
-        // We load Subscription dynamically to avoid circular dependencies if any
-        const { Subscription } = require('../subscriptions/subscription.model');
-        const { SubscriptionEvent } = require('../subscriptions/subscription-event.model');
+        // dynamically load resolving circular dep
+        const Subscription = mongoose.model('Subscription');
+        const SubscriptionEvent = mongoose.model('SubscriptionEvent');
 
         const subscription = await Subscription.findOne({ companyId }).populate('planId');
 

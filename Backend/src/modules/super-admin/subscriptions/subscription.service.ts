@@ -6,6 +6,10 @@ import { SubscriptionEventType } from './subscription-event.types';
 import { Plan } from '../plans/plans.model';
 import { Company } from '../companies/company.model';
 
+import { User } from '../../users/user.model';
+import { Feature } from '../features/features.model';
+import { PlanFeature } from '../plan-features/plan-features.model';
+
 export class SubscriptionService {
     /**
      * Create a new subscription for a company.
@@ -86,19 +90,23 @@ export class SubscriptionService {
         const isUpgrade = (targetPlan.price || 0) > (currentPlan?.price || 0);
 
         if (!isUpgrade) {
-            // It's a downgrade, check limits
-            const { EntitlementService } = require('../entitlements/entitlement.service');
-            const { User } = require('../../users/user.model');
+            // Downgrade guard: ensure current active usage is within target plan limits
+            const userCount = await User.countDocuments({ companyId: new Types.ObjectId(companyId), status: 'ACTIVE' });
 
-            const limitInfo = await EntitlementService.getFeatureLimit(companyId, 'MAX_USERS');
-            // But wait, the limit is on the CURRENT plan. We need the target plan limit.
-            const targetPlanPf = await require('../plan-features/plan-features.model').PlanFeature.findOne({ planId: targetPlanId }).populate('featureId');
-            // This is just a conceptual generic limit check. For production you'd iterate all features.
+            // Look up the target plan limits
+            const maxUsersFeature = await Feature.findOne({ key: 'MAX_USERS' });
+            if (maxUsersFeature) {
+                const planLimit = await PlanFeature.findOne({
+                    planId: targetPlanId,
+                    featureId: maxUsersFeature._id
+                });
 
-            // Checking simple max user limitation:
-            const userCount = await User.countDocuments({ companyId, status: 'ACTIVE' });
-            // In a complete implementation we check ALL target plan limits against CURRENT aggregated usage.
-            // if (usage > newLimit) throw new AppError(`Downgrade blocked. Usage ${usage} exceeds limit ${newLimit}`);
+                if (planLimit && planLimit.enabled && planLimit.limitType === 'LIMITED' && planLimit.value !== null) {
+                    if (userCount > planLimit.value) {
+                        throw new Error(`Downgrade blocked — current user count (${userCount}) exceeds the target plan limit of ${planLimit.value}.`);
+                    }
+                }
+            }
         }
 
         if (immediate) {

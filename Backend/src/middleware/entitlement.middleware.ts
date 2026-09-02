@@ -36,7 +36,7 @@ export const requireFeature = (featureKey: string) => {
             }
 
             return next();
-        } catch (error: any) {
+        } catch {
             return sendError(res, 'Feature entitlement check failed', 500);
         }
     };

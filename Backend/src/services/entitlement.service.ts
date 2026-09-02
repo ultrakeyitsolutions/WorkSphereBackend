@@ -22,7 +22,7 @@ export class EntitlementService {
      * e.g. const sub = await Subscription.findOne({ companyId, status: 'ACTIVE' });
      *      return String(sub.planId);
      */
-    private static async getPlanIdForCompany(companyId: string): Promise<string | null> {
+    private static async getPlanIdForCompany(_companyId: string): Promise<string | null> {
         // TODO: Implement when Subscription model is available
         // const sub = await Subscription.findOne({ companyId, status: 'ACTIVE' }).lean();
         // return sub ? String(sub.planId) : null;
