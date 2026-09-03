@@ -8,6 +8,8 @@ import employeeRoutes from './members/employee.routes';
 import managerRoutes from './members/manager.routes';
 import clientRoutes from './members/client.routes';
 import memberRoutes from './members/member.routes';
+import projectRoutes from './projects/project.routes';
+import taskRoutes from '../tasks/task.routes';
 
 const router = Router();
 
@@ -45,5 +47,11 @@ router.use('/managers', managerRoutes);
 
 // ── /api/v1/company/members ──────────────────────────────────────────────────
 router.use('/members', memberRoutes);
+
+// ── /api/v1/company/projects ──────────────────────────────────────────────────
+router.use('/projects', projectRoutes);
+
+// ── /api/v1/company/tasks ──────────────────────────────────────────────────
+router.use('/tasks', taskRoutes);
 
 export default router;

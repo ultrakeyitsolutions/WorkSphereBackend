@@ -29,13 +29,29 @@ export const validateRequest = (schema: ZodSchema<any>) => {
         });
 
         if (!parsed.success) {
-            return sendError(res, 'Validation Error', 400, (parsed.error as ZodError).format());
+            return sendError(res, 'Validation Error', 422, (parsed.error as ZodError).format());
         }
 
-        // optionally replace req properties with validated ones
-        req.body = parsed.data.body;
-        if (parsed.data.query) req.query = parsed.data.query;
-        if (parsed.data.params) req.params = parsed.data.params;
+        // replace req properties with validated (and stripped/transformed) ones safely
+        if (parsed.data.body !== undefined) {
+            req.body = parsed.data.body;
+        }
+        if (parsed.data.query !== undefined) {
+            Object.defineProperty(req, 'query', {
+                value: parsed.data.query,
+                writable: true,
+                enumerable: true,
+                configurable: true
+            });
+        }
+        if (parsed.data.params !== undefined) {
+            Object.defineProperty(req, 'params', {
+                value: parsed.data.params,
+                writable: true,
+                enumerable: true,
+                configurable: true
+            });
+        }
 
         next();
     };

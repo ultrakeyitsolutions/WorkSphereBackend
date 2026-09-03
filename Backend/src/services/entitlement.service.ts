@@ -1,5 +1,6 @@
 import { PlanFeature } from '../modules/super-admin/plan-features/plan-features.model';
 import { Feature } from '../modules/super-admin/features/features.model';
+import { Subscription } from '../modules/super-admin/subscriptions/subscription.model';
 
 /**
  * EntitlementService
@@ -23,10 +24,11 @@ export class EntitlementService {
      *      return String(sub.planId);
      */
     private static async getPlanIdForCompany(_companyId: string): Promise<string | null> {
-        // TODO: Implement when Subscription model is available
-        // const sub = await Subscription.findOne({ companyId, status: 'ACTIVE' }).lean();
-        // return sub ? String(sub.planId) : null;
-        return null; // placeholder
+        const sub = await Subscription.findOne({ companyId: _companyId }).sort({ createdAt: -1 }).lean();
+        if (sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING' || sub.status === 'PAUSED' || sub.status === 'PAST_DUE')) {
+            return String(sub.planId);
+        }
+        return null;
     }
 
     /**
