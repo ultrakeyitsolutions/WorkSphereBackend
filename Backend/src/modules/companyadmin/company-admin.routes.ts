@@ -10,6 +10,10 @@ import clientRoutes from './members/client.routes';
 import memberRoutes from './members/member.routes';
 import projectRoutes from './projects/project.routes';
 import taskRoutes from '../tasks/task.routes';
+import taskMetaRoutes from '../tasks/task-meta.routes';
+import taskActivityRootRoutes from '../task-activities/task-activity.root.routes';
+import taskBugRootRoutes from '../task-bugs/task-bug.root.routes';
+import taskAttachmentRootRoutes from '../task-attachments/task-attachment.root.routes';
 
 const router = Router();
 
@@ -51,7 +55,19 @@ router.use('/members', memberRoutes);
 // ── /api/v1/company/projects ──────────────────────────────────────────────────
 router.use('/projects', projectRoutes);
 
-// ── /api/v1/company/tasks ──────────────────────────────────────────────────
+// ── /api/v1/company/tasks ────────────────────────────────────────────────────
 router.use('/tasks', taskRoutes);
+
+// ── /api/v1/company/task-activities ──────────────────────────────────────────
+router.use('/task-activities', taskActivityRootRoutes);
+
+// ── /api/v1/company/task-bugs ────────────────────────────────────────────────
+router.use('/task-bugs', taskBugRootRoutes);
+
+// ── /api/v1/company/task-attachments ─────────────────────────────────────────
+router.use('/task-attachments', taskAttachmentRootRoutes);
+
+// ── /api/v1/company/[modules|statuses|stages|task-templates] ─────────────────
+router.use('/', taskMetaRoutes);
 
 export default router;

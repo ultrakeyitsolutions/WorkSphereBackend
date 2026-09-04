@@ -115,6 +115,7 @@ const projectSettingsSchema = new Schema<IProjectSettingsDocument>(
         deliveryDateMandatory: { type: Boolean, default: false },
         isConfidential: { type: Boolean, default: false },
         enableTemplateHierarchy: { type: Boolean, default: false },
+        lastTaskItemNumber: { type: Number, default: 0 },
     },
     { timestamps: true }
 );

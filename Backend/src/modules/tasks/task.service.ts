@@ -1,59 +1,124 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Task } from './task.model';
 import { RecurringRule } from './recurring-rule.model';
 import { Project, ProjectSettings, ProjectTeamMember, ProjectInCharge } from '../companyadmin/projects/project.model';
 import { EntitlementService } from '../../services/entitlement.service';
+import { User } from '../users/user.model';
+import { Stage } from './stage.model';
+import { Status } from './status.model';
+import { TaskAssignment } from './task-assignment.model';
 
 export class TaskService {
+
+    // ─── Shared Task Mapper ───────────────────────────────────────────────────
+    private static mapTaskResponse(t: any, projectName: string) {
+        return {
+            id: t._id,
+            title: t.title,
+            itemNumber: t.itemNumber,
+            taskNumber: t.taskNumber,
+            ticketId: t.ticketId,
+            projectId: t.projectId,
+            projectName,
+            moduleId: t.moduleId ? t.moduleId._id : null,
+            moduleName: t.moduleId ? t.moduleId.name : null,
+            statusId: t.statusId ? t.statusId._id : null,
+            status: t.statusId ? { id: t.statusId._id, name: t.statusId.name } : null,
+            stageId: t.stageId ? t.stageId._id : null,
+            stage: t.stageId ? { id: t.stageId._id, name: t.stageId.name, orderIndex: t.stageId.orderIndex } : null,
+            assignedTo: t.assignedToId
+                ? {
+                    id: t.assignedToId._id,
+                    fullName: t.assignedToId.name || '',
+                    email: t.assignedToId.email,
+                    avatar: t.assignedToId.avatar || null
+                }
+                : null,
+            createdBy: t.createdBy
+                ? {
+                    id: t.createdBy._id,
+                    fullName: t.createdBy.name || '',
+                    email: t.createdBy.email,
+                    avatar: t.createdBy.avatar || null
+                }
+                : null,
+            priority: t.priority,
+            taskType: t.taskType,
+            criticality: t.criticality,
+            startDate: t.startDate || null,
+            endDate: t.endDate || null,
+            dueDate: t.dueDate || null,
+            completedDate: t.completedDate || null,
+            estimatedTime: t.estimatedTime,
+            actualHours: t.actualHours,
+            progress: t.progress,
+            deliveryDate: t.deliveryDate || null,
+            tags: t.tags || [],
+            notesCount: (t.notes || []).length,
+            checklistItemsCount: (t.checklist || []).length,
+            documentCount: (t.attachments || []).length,
+            isUseTemplate: t.isUseTemplate || false,
+            templateId: t.templateId ? t.templateId._id : null,
+            templateName: t.templateId ? t.templateId.name : null,
+            isRecurring: t.isRecurring,
+            recurringRuleId: t.recurringRuleId || null,
+            isPinned: t.isPinned,
+            isActive: t.isActive,
+            isArchived: t.isArchived,
+            createdAt: t.createdAt,
+            updatedAt: t.updatedAt
+        };
+    }
+
+    // ─── Task Context ─────────────────────────────────────────────────────────
     static async getTaskContext(projectId: string, companyId: string, userId: string) {
         const project = await Project.findOne({ _id: projectId, companyId, isArchived: false }).lean();
         if (!project) throw new Error('PROJECT_NOT_FOUND');
 
         const settings = await ProjectSettings.findOne({ projectId }).lean();
 
-        // Members checking
-        const teamMembers = await ProjectTeamMember.find({ projectId }).populate('userId', 'firstName lastName email').lean();
-        const inCharges = await ProjectInCharge.find({ projectId }).populate('userId', 'firstName lastName email').lean();
+        const teamMembers = await ProjectTeamMember.find({ projectId })
+            .populate('userId', 'name email avatar')
+            .lean();
+        const inCharges = await ProjectInCharge.find({ projectId })
+            .populate('userId', 'name email avatar')
+            .lean();
 
-        const allMembers = [];
-        const seen = new Set();
+        const allMembers: any[] = [];
+        const seen = new Set<string>();
 
-        for (const tm of teamMembers) {
-            const uid = tm.userId?._id?.toString();
-            if (uid && !seen.has(uid)) {
-                seen.add(uid);
-                allMembers.push({
-                    id: uid,
-                    name: `${(tm.userId as any)?.firstName || ''} ${(tm.userId as any)?.lastName || ''}`.trim(),
-                    isActive: true,
-                    canCreateTasks: tm.canCreateTasks
-                });
-            }
+        const pushMember = (user: any, role: string, canCreateTasks = true) => {
+            const uid = user?._id?.toString();
+            if (!uid || seen.has(uid)) return;
+            seen.add(uid);
+            allMembers.push({
+                id: uid,
+                fullName: user?.name || '',
+                email: user?.email || '',
+                avatar: user?.avatar || null,
+                role,
+                isActive: true,
+                canCreateTasks
+            });
+        };
+
+        for (const ic of inCharges) pushMember(ic.userId, 'Manager', true);
+        for (const tm of teamMembers) pushMember(tm.userId, 'Member', tm.canCreateTasks);
+
+        // Include project owner
+        const ownerUid = project.createdById?.toString();
+        if (ownerUid && !seen.has(ownerUid)) {
+            allMembers.unshift({ id: ownerUid, fullName: 'Project Owner', role: 'Owner', isActive: true, canCreateTasks: true });
         }
-        for (const ic of inCharges) {
-            const uid = ic.userId?._id?.toString();
-            if (uid && !seen.has(uid)) {
-                seen.add(uid);
-                allMembers.push({
-                    id: uid,
-                    name: `${(ic.userId as any)?.firstName || ''} ${(ic.userId as any)?.lastName || ''}`.trim(),
-                    isActive: true,
-                    canCreateTasks: true
-                });
-            }
-        }
 
-        let canCreateTask = false;
-        if (project.createdById.toString() === userId) {
-            canCreateTask = true;
-        } else {
+        let canCreateTask = project.createdById.toString() === userId;
+        if (!canCreateTask) {
             const isManager = inCharges.some(ic => ic.userId?._id?.toString() === userId);
-            if (isManager) canCreateTask = true;
-            else {
+            if (isManager) {
+                canCreateTask = true;
+            } else {
                 const tm = teamMembers.find(t => t.userId?._id?.toString() === userId);
-                if (tm && tm.canCreateTasks && settings?.allowTeamMembersToCreateTasks) {
-                    canCreateTask = true;
-                } else if (tm && !settings) {
+                if (tm && tm.canCreateTasks && (settings?.allowTeamMembersToCreateTasks ?? true)) {
                     canCreateTask = true;
                 }
             }
@@ -62,100 +127,451 @@ export class TaskService {
         const recurringTasksFeature = await EntitlementService.hasFeature(companyId, 'RECURRING_TASKS');
 
         return {
-            project: {
-                id: project._id,
-                name: project.name,
-                allowTeamMembersToCreateTasks: settings?.allowTeamMembersToCreateTasks ?? true,
-            },
-            modules: [
-                { id: 'general', name: 'General', isActive: true }
-            ],
+            project: { id: project._id, name: project.name },
+            modules: [{ id: 'general', name: 'General', isActive: true }],
             members: allMembers,
-            permissions: { canCreateTask },
-            features: { recurringTasks: recurringTasksFeature }
+            stages: [],           // Extend when Stage model is added
+            taskTemplates: [],    // Extend when TaskTemplate model is added
+            priorities: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'],
+            features: { recurringTasks: recurringTasksFeature },
+            permissions: { canCreateTask }
         };
     }
 
+    // ─── Create Task ──────────────────────────────────────────────────────────
     static async createTask(data: any, companyId: string, userId: string) {
-        const { projectId, moduleId, assignedToId, isRecurring, recurrence, ...taskData } = data;
+        const {
+            projectId,
+            moduleId,
+            assignedToId,
+            isRecurring,
+            recurrence,
+            ...taskData
+        } = data;
 
-        const project = await Project.findOne({ _id: projectId, companyId, isArchived: false, isActive: true }).lean();
+        // 1. Validate project belongs to company
+        const project = await Project.findOne({ _id: projectId, companyId, isArchived: false }).lean();
         if (!project) throw new Error('PROJECT_NOT_FOUND');
 
-        const isOwner = project.createdById.toString() === userId;
-        const isInCharge = await ProjectInCharge.exists({ projectId, userId });
-        const tm = await ProjectTeamMember.findOne({ projectId, userId }).lean();
+        // 2. Check create permission
         const settings = await ProjectSettings.findOne({ projectId }).lean();
-
-        let canCreateTask = isOwner || !!isInCharge;
-        if (!canCreateTask && tm) {
-            canCreateTask = settings ? (settings.allowTeamMembersToCreateTasks && tm.canCreateTasks) : true;
-        }
-
-        if (!canCreateTask) throw new Error('PERMISSION_DENIED');
-
-        if (assignedToId) {
-            const assignedInCharge = await ProjectInCharge.exists({ projectId, userId: assignedToId });
-            const assignedTm = await ProjectTeamMember.exists({ projectId, userId: assignedToId });
-            const assignedOwner = project.createdById.toString() === assignedToId;
-            if (!assignedInCharge && !assignedTm && !assignedOwner) {
-                throw new Error('ASSIGNEE_NOT_IN_PROJECT');
+        let canCreate = project.createdById.toString() === userId;
+        if (!canCreate) {
+            const isManager = await ProjectInCharge.exists({ projectId, userId });
+            if (isManager) {
+                canCreate = true;
+            } else {
+                const tm = await ProjectTeamMember.findOne({ projectId, userId }).lean();
+                if (tm && tm.canCreateTasks && (settings?.allowTeamMembersToCreateTasks ?? true)) {
+                    canCreate = true;
+                }
             }
         }
+        if (!canCreate) throw new Error('PERMISSION_DENIED');
+
+        // 3. Validate assignedToId is a project member
+        if (assignedToId) {
+            const isOwner = project.createdById.toString() === assignedToId;
+            const isInCharge = await ProjectInCharge.exists({ projectId, userId: assignedToId });
+            const isMember = await ProjectTeamMember.exists({ projectId, userId: assignedToId });
+            if (!isOwner && !isInCharge && !isMember) throw new Error('ASSIGNEE_NOT_IN_PROJECT');
+        }
+
+        // 4. Resolve effective moduleId
+        const effectiveModuleId = moduleId && moduleId !== 'general' ? moduleId : undefined;
+
+        // 4.5 Resolve initial stage and status
+        let initialStageId = taskData.stageId;
+        if (!initialStageId) {
+            const defaultStage = await Stage.findOne({ projectId, isDefault: true }).lean();
+            if (defaultStage) initialStageId = defaultStage._id;
+        }
+
+        let initialStatusId = taskData.statusId;
+        if (!initialStatusId) {
+            const defaultStatus = await Status.findOne({ companyId, isMaster: true, orderIndex: 1 }).lean();
+            if (defaultStatus) initialStatusId = defaultStatus._id;
+        }
+
+        // 5. Generate item number
+        const itemNumber = await this.getNextItemNumber(projectId);
+        const taskNumber = String(itemNumber).padStart(3, '0');
 
         if (isRecurring) {
+            // 6a. Recurring task — check entitlement first
             const hasRecurring = await EntitlementService.hasFeature(companyId, 'RECURRING_TASKS');
-            if (!hasRecurring) {
-                throw new Error('FEATURE_NOT_AVAILABLE');
+            if (!hasRecurring) throw new Error('FEATURE_NOT_AVAILABLE');
+
+            const session = await mongoose.startSession();
+            session.startTransaction();
+            try {
+                // Recurrence fields take priority over task-level fields
+                const recModuleId = recurrence.moduleId && recurrence.moduleId !== 'general'
+                    ? recurrence.moduleId
+                    : effectiveModuleId;
+
+                const rule = new RecurringRule({
+                    companyId,
+                    projectId,
+                    moduleId: recModuleId,
+                    createdBy: userId,
+                    assignedToId: recurrence.assignedToId || assignedToId,
+                    title: taskData.title,
+                    priority: recurrence.priority || taskData.priority || 'MEDIUM',
+                    taskType: recurrence.taskType || taskData.taskType || 'TASK',
+                    criticality: recurrence.criticality || taskData.criticality || 'NON_CRITICAL',
+                    estimatedTime: recurrence.estimatedTime || taskData.estimatedTime,
+                    tags: recurrence.tags || taskData.tags,
+                    notes: recurrence.notes || taskData.notes,
+                    attachments: recurrence.attachments || [],
+                    checklist: recurrence.checklist || [],
+                    pattern: recurrence.pattern,
+                    repeatEvery: recurrence.repeatEvery ?? 1,
+                    daysOfWeek: recurrence.daysOfWeek,
+                    dayOfMonth: recurrence.dayOfMonth,
+                    month: recurrence.month,
+                    startDateTime: new Date(recurrence.startDateTime),
+                    endDateTime: recurrence.endDateTime ? new Date(recurrence.endDateTime) : undefined,
+                    maxOccurrences: recurrence.maxOccurrences,
+                    templateId: recurrence.templateId || taskData.templateId
+                });
+                await rule.save({ session });
+
+                const task = new Task({
+                    ...taskData,
+                    companyId,
+                    projectId,
+                    moduleId: effectiveModuleId,
+                    stageId: initialStageId,
+                    statusId: initialStatusId,
+                    createdBy: userId,
+                    assignedToId,
+                    itemNumber,
+                    taskNumber,
+                    isUseTemplate: !!taskData.templateId || !!recurrence.templateId,
+                    templateId: recurrence.templateId || taskData.templateId,
+                    isRecurring: true,
+                    recurringRuleId: rule._id
+                });
+                await task.save({ session });
+
+                if (assignedToId) {
+                    const assignedUser = await User.findById(assignedToId).lean();
+                    if (assignedUser) {
+                        await TaskAssignment.create([{
+                            companyId,
+                            projectId,
+                            taskId: task._id,
+                            assignedToId,
+                            assignedToName: assignedUser.name || '',
+                            assignedById: userId
+                        }], { session });
+                    }
+                }
+
+                await session.commitTransaction();
+                session.endSession();
+
+                const loadedTask = await Task.findById(task._id)
+                    .populate('assignedToId', 'name email avatar')
+                    .populate('createdBy', 'name email avatar')
+                    .populate('stageId', 'name orderIndex')
+                    .populate('statusId', 'name')
+                    .populate('moduleId', 'name')
+                    .populate('templateId', 'name')
+                    .lean();
+
+                return { task: this.mapTaskResponse(loadedTask, project.name), rule };
+            } catch (error) {
+                await session.abortTransaction();
+                session.endSession();
+                throw error;
+            }
+        } else {
+            // 6b. Normal task
+            const task = await Task.create({
+                ...taskData,
+                companyId,
+                projectId,
+                moduleId: effectiveModuleId,
+                stageId: initialStageId,
+                statusId: initialStatusId,
+                createdBy: userId,
+                assignedToId,
+                itemNumber,
+                taskNumber,
+                isUseTemplate: !!taskData.templateId,
+                isRecurring: false
+            });
+
+            if (assignedToId) {
+                const assignedUser = await User.findById(assignedToId).lean();
+                if (assignedUser) {
+                    await TaskAssignment.create({
+                        companyId,
+                        projectId,
+                        taskId: task._id,
+                        assignedToId,
+                        assignedToName: assignedUser.name || '',
+                        assignedById: userId
+                    });
+                }
             }
 
-            const rule = await RecurringRule.create({
-                projectId,
-                moduleId: moduleId && moduleId !== 'general' ? moduleId : undefined,
-                createdBy: userId,
-                assignedToId,
-                title: taskData.title,
-                description: taskData.description,
-                type: recurrence.type,
-                interval: recurrence.interval,
-                daysOfWeek: recurrence.daysOfWeek,
-                dayOfMonth: recurrence.dayOfMonth,
-                startDate: new Date(recurrence.startDate),
-                endDate: recurrence.endDate ? new Date(recurrence.endDate) : undefined,
-                maxOccurrences: recurrence.maxOccurrences,
-                useSpecificTime: recurrence.useSpecificTime,
-                startTime: recurrence.startTime,
-                endTime: recurrence.endTime
-            });
+            const loadedTask = await Task.findById(task._id)
+                .populate('assignedToId', 'name email avatar')
+                .populate('createdBy', 'name email avatar')
+                .populate('stageId', 'name orderIndex')
+                .populate('statusId', 'name')
+                .populate('moduleId', 'name')
+                .populate('templateId', 'name')
+                .lean();
 
-            const task = await Task.create({
-                ...taskData,
-                projectId,
-                moduleId: moduleId && moduleId !== 'general' ? moduleId : undefined,
-                createdBy: userId,
-                assignedToId,
-                isRecurring: true,
-                recurringRuleId: rule._id,
-                itemNumber: await this.getNextItemNumber(projectId)
-            });
-
-            return { task, rule };
-        } else {
-            const task = await Task.create({
-                ...taskData,
-                projectId,
-                moduleId: moduleId && moduleId !== 'general' ? moduleId : undefined,
-                createdBy: userId,
-                assignedToId,
-                isRecurring: false,
-                itemNumber: await this.getNextItemNumber(projectId)
-            });
-            return { task };
+            return { task: this.mapTaskResponse(loadedTask, project.name) };
         }
     }
 
+
+    static async getTasksByProject(projectId: string, companyId: string, query: any = {}) {
+        const project = await Project.findOne({ _id: projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        const page = query.page || 1;
+        const pageSize = query.pageSize || 50;
+        const skip = (page - 1) * pageSize;
+
+        const filter: any = { projectId, companyId, isArchived: false };
+        if (query.stageId) filter.stageId = query.stageId;
+        if (query.priority) filter.priority = query.priority;
+        if (query.isRecurring !== undefined) filter.isRecurring = query.isRecurring;
+        if (query.search) filter.title = { $regex: query.search, $options: 'i' };
+
+        const [tasks, total] = await Promise.all([
+            Task.find(filter)
+                .populate('assignedToId', 'name email avatar')
+                .populate('createdBy', 'name email avatar')
+                .populate('stageId', 'name orderIndex')
+                .populate('statusId', 'name')
+                .populate('moduleId', 'name')
+                .populate('templateId', 'name')
+                .sort({ orderIndex: 1, createdAt: -1 })
+                .skip(skip)
+                .limit(pageSize)
+                .lean(),
+            Task.countDocuments(filter)
+        ]);
+
+        const mapped = tasks.map(t => this.mapTaskResponse(t, project.name));
+
+        return {
+            tasks: mapped,
+            pagination: {
+                page,
+                pageSize,
+                total,
+                totalPages: Math.ceil(total / pageSize)
+            }
+        };
+    }
+
+    // ─── Get Task by ID ───────────────────────────────────────────────────────
+    static async getTaskById(taskId: string, companyId: string) {
+        const task = await Task.findOne({ _id: taskId, isArchived: false })
+            .populate('assignedToId', 'name email avatar')
+            .populate('createdBy', 'name email avatar')
+            .populate('stageId', 'name orderIndex')
+            .populate('statusId', 'name')
+            .populate('moduleId', 'name')
+            .lean();
+        if (!task) throw new Error('TASK_NOT_FOUND');
+
+        const project = await Project.findOne({ _id: task.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        return this.mapTaskResponse(task, project.name);
+    }
+
+    // ─── Update Task ──────────────────────────────────────────────────────────
+    static async updateTask(taskId: string, data: any, companyId: string, userId: string) {
+        const task = await Task.findOne({ _id: taskId, isArchived: false });
+        if (!task) throw new Error('TASK_NOT_FOUND');
+
+        const project = await Project.findOne({ _id: task.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        const { isRecurring, recurrence, ...taskData } = data;
+
+        if (data.assignedToId) {
+            const isOwner = project.createdById.toString() === data.assignedToId;
+            const isInCharge = await ProjectInCharge.exists({ projectId: task.projectId, userId: data.assignedToId });
+            const isMember = await ProjectTeamMember.exists({ projectId: task.projectId, userId: data.assignedToId });
+            if (!isOwner && !isInCharge && !isMember) throw new Error('ASSIGNEE_NOT_IN_PROJECT');
+        }
+
+        let newRule: any = null;
+        let createdNewRule = false;
+
+        if (isRecurring !== undefined) {
+            if (isRecurring === true && !task.isRecurring) {
+                const hasRecurring = await EntitlementService.hasFeature(companyId, 'RECURRING_TASKS');
+                if (!hasRecurring) throw new Error('FEATURE_NOT_AVAILABLE');
+
+                newRule = new RecurringRule({
+                    companyId,
+                    projectId: task.projectId,
+                    moduleId: (recurrence?.moduleId || taskData.moduleId) && (recurrence?.moduleId || taskData.moduleId) !== 'general'
+                        ? (recurrence?.moduleId || taskData.moduleId)
+                        : undefined,
+                    createdBy: userId,
+                    assignedToId: recurrence?.assignedToId || taskData.assignedToId || task.assignedToId,
+                    title: taskData.title || task.title,
+                    priority: taskData.priority || task.priority,
+                    taskType: taskData.taskType || task.taskType,
+                    criticality: taskData.criticality || task.criticality,
+                    estimatedTime: taskData.estimatedTime || task.estimatedTime,
+                    notes: recurrence?.notes ?? taskData.notes,
+                    attachments: recurrence?.attachments ?? [],
+                    checklist: recurrence?.checklist ?? [],
+                    pattern: recurrence?.pattern || 'WEEKLY',
+                    repeatEvery: recurrence?.repeatEvery ?? 1,
+                    daysOfWeek: recurrence?.daysOfWeek,
+                    dayOfMonth: recurrence?.dayOfMonth,
+                    startDateTime: recurrence?.startDateTime ? new Date(recurrence.startDateTime) : new Date(),
+                    endDateTime: recurrence?.endDateTime ? new Date(recurrence.endDateTime) : undefined
+                });
+                task.isRecurring = true;
+                task.recurringRuleId = newRule._id as Types.ObjectId;
+                createdNewRule = true;
+
+            } else if (isRecurring === false && task.isRecurring) {
+                if (task.recurringRuleId) {
+                    await RecurringRule.updateOne({ _id: task.recurringRuleId }, { isActive: false });
+                }
+                task.isRecurring = false;
+                task.recurringRuleId = null as any;
+            }
+        }
+
+        // Update existing rule fields
+        if (recurrence && task.isRecurring && task.recurringRuleId && !createdNewRule) {
+            const existingRule = await RecurringRule.findOne({ _id: task.recurringRuleId });
+            if (existingRule) {
+                const pick = (a: any, b: any) => (a !== undefined ? a : b);
+                Object.assign(existingRule, {
+                    pattern: pick(recurrence.pattern, existingRule.pattern),
+                    repeatEvery: pick(recurrence.repeatEvery, existingRule.repeatEvery),
+                    daysOfWeek: pick(recurrence.daysOfWeek, existingRule.daysOfWeek),
+                    dayOfMonth: pick(recurrence.dayOfMonth, existingRule.dayOfMonth),
+                    startDateTime: recurrence.startDateTime ? new Date(recurrence.startDateTime) : existingRule.startDateTime,
+                    endDateTime: recurrence.endDateTime ? new Date(recurrence.endDateTime) : existingRule.endDateTime,
+                    notes: pick(recurrence.notes, existingRule.notes),
+                    attachments: pick(recurrence.attachments, existingRule.attachments),
+                    checklist: pick(recurrence.checklist, existingRule.checklist),
+                    assignedToId: pick(recurrence.assignedToId, existingRule.assignedToId),
+                    moduleId: pick(recurrence.moduleId, existingRule.moduleId)
+                });
+                await existingRule.save();
+            }
+        }
+
+        Object.assign(task, taskData);
+
+        if (createdNewRule) {
+            const session = await mongoose.startSession();
+            session.startTransaction();
+            try {
+                await newRule.save({ session });
+                await task.save({ session });
+                await session.commitTransaction();
+            } catch (error) {
+                await session.abortTransaction();
+                throw error;
+            } finally {
+                session.endSession();
+            }
+        } else {
+            await task.save();
+        }
+
+        return task;
+    }
+
+    // ─── Soft Delete Task ─────────────────────────────────────────────────────
+    static async deleteTask(taskId: string, companyId: string) {
+        const task = await Task.findOne({ _id: taskId, isArchived: false });
+        if (!task) throw new Error('TASK_NOT_FOUND');
+        const project = await Project.findOne({ _id: task.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        task.isArchived = true;
+        task.isActive = false;
+        await task.save();
+
+        if (task.recurringRuleId) {
+            await RecurringRule.updateOne({ _id: task.recurringRuleId }, { isActive: false });
+        }
+        return true;
+    }
+
+    // ─── Recurrence Management ────────────────────────────────────────────────
+    static async getTaskRecurrence(taskId: string, companyId: string) {
+        const task = await Task.findOne({ _id: taskId, isArchived: false }).lean();
+        if (!task) throw new Error('TASK_NOT_FOUND');
+        const project = await Project.findOne({ _id: task.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+        if (!task.recurringRuleId) return null;
+        return RecurringRule.findOne({ _id: task.recurringRuleId }).lean();
+    }
+
+    static async updateTaskRecurrence(taskId: string, recurrence: any, companyId: string) {
+        const task = await Task.findOne({ _id: taskId, isArchived: false }).lean();
+        if (!task) throw new Error('TASK_NOT_FOUND');
+        if (!task.isRecurring || !task.recurringRuleId) throw new Error('NOT_RECURRING');
+        const project = await Project.findOne({ _id: task.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+        const rule = await RecurringRule.findOne({ _id: task.recurringRuleId });
+        if (!rule) throw new Error('RULE_NOT_FOUND');
+
+        const pick = (a: any, b: any) => (a !== undefined ? a : b);
+        Object.assign(rule, {
+            pattern: pick(recurrence.pattern, rule.pattern),
+            repeatEvery: pick(recurrence.repeatEvery, rule.repeatEvery),
+            daysOfWeek: pick(recurrence.daysOfWeek, rule.daysOfWeek),
+            dayOfMonth: pick(recurrence.dayOfMonth, rule.dayOfMonth),
+            startDateTime: recurrence.startDateTime ? new Date(recurrence.startDateTime) : rule.startDateTime,
+            endDateTime: recurrence.endDateTime ? new Date(recurrence.endDateTime) : rule.endDateTime,
+            maxOccurrences: pick(recurrence.maxOccurrences, rule.maxOccurrences),
+            notes: pick(recurrence.notes, rule.notes),
+            attachments: pick(recurrence.attachments, rule.attachments),
+            checklist: pick(recurrence.checklist, rule.checklist),
+            assignedToId: pick(recurrence.assignedToId, rule.assignedToId),
+            moduleId: pick(recurrence.moduleId, rule.moduleId)
+        });
+        await rule.save();
+        return rule;
+    }
+
+    static async deleteTaskRecurrence(taskId: string, companyId: string) {
+        const task = await Task.findOne({ _id: taskId, isArchived: false });
+        if (!task) throw new Error('TASK_NOT_FOUND');
+        const project = await Project.findOne({ _id: task.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+        if (task.recurringRuleId) {
+            await RecurringRule.updateOne({ _id: task.recurringRuleId }, { isActive: false });
+        }
+        task.isRecurring = false;
+        task.recurringRuleId = null as any;
+        await task.save();
+        return true;
+    }
+
+    // ─── Atomic Item Number Generator ─────────────────────────────────────────
     private static async getNextItemNumber(projectId: string): Promise<number> {
-        const lastTask = await Task.findOne({ projectId }).sort({ itemNumber: -1 }).lean();
-        return lastTask && lastTask.itemNumber ? lastTask.itemNumber + 1 : 1;
+        const settings = await ProjectSettings.findOneAndUpdate(
+            { projectId },
+            { $inc: { lastTaskItemNumber: 1 } },
+            { new: true, upsert: true }
+        );
+        return settings.lastTaskItemNumber;
     }
 }

@@ -56,6 +56,7 @@ export interface IProjectSettings {
     deliveryDateMandatory: boolean;
     isConfidential: boolean;
     enableTemplateHierarchy: boolean;
+    lastTaskItemNumber: number;
 }
 
 export interface IProjectSettingsDocument extends IProjectSettings, Document { }

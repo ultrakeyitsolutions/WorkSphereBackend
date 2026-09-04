@@ -38,6 +38,10 @@ export enum AuditAction {
 
     // Generic
     OTHER = 'OTHER',
+
+    // Impersonation
+    IMPERSONATION_STARTED = 'IMPERSONATION_STARTED',
+    IMPERSONATION_ENDED = 'IMPERSONATION_ENDED',
 }
 
 // ─── Mongoose Document Interface ──────────────────────────────────────────────

@@ -25,7 +25,7 @@ import {
     getManagerSelector,
     getClientSelector,
 } from './project-selector.controller';
-import { getTaskContext } from '../../tasks/task.controller';
+import { getTaskContext, getTasksByProject, createTask } from '../../tasks/task.controller';
 
 const router = Router();
 
@@ -68,6 +68,20 @@ router.get(
     '/:projectId/task-context',
     validateRequest(projectParamSchema),
     getTaskContext
+);
+
+// ── GET    /api/v1/company/projects/:projectId/tasks ─────────────────────────────
+router.get(
+    '/:projectId/tasks',
+    validateRequest(projectParamSchema),
+    getTasksByProject
+);
+
+// ── POST   /api/v1/company/projects/:projectId/tasks ─────────────────────────────
+router.post(
+    '/:projectId/tasks',
+    validateRequest(projectParamSchema),
+    createTask
 );
 
 // ── PATCH  /api/v1/company/projects/:projectId   Edit project ───────────────────
