@@ -31,8 +31,7 @@ export class InvitationController {
                 userId
             );
 
-            const statusCode = result.failed > 0 && result.created === 0 ? 422 : 207;
-            return res.status(statusCode).json({ success: true, message: 'Invitation batch processed', data: result });
+            return res.status(200).json({ success: true, message: 'Invitation batch processed', data: result });
         } catch (err) {
             next(err);
         }
