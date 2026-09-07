@@ -16,6 +16,23 @@ interface UserSummary {
     name: string;
 }
 
+interface ExtendedUserSummary extends UserSummary {
+    email?: string;
+    role?: string;
+    status?: string;
+}
+
+export interface MemberDetailSummary {
+    id: string;
+    name: string;
+    email?: string;
+    role?: string;
+    status?: string;
+    addedBy: UserSummary | null;
+    addedAt: Date;
+    canCreateTasks?: boolean;
+}
+
 interface ProjectSettingsOutput {
     allowTeamMembersToCreateTasks: boolean;
     showTaskItemNumber: boolean;
@@ -35,9 +52,9 @@ export interface CreateProjectResponse {
     startDate: string;
     endDate: string;
     createdBy: UserSummary;
-    projectManager: UserSummary;
-    teamMembers: UserSummary[];
-    clients: UserSummary[];
+    projectManager: MemberDetailSummary | null;
+    teamMembers: MemberDetailSummary[];
+    clients: MemberDetailSummary[];
     settings: ProjectSettingsOutput;
     stats: {
         teamMembers: number;
@@ -87,7 +104,7 @@ async function validateCompanyUsers(
     userIds: string[],
     companyId: string,
     label: string
-): Promise<Map<string, UserSummary>> {
+): Promise<Map<string, ExtendedUserSummary>> {
     if (userIds.length === 0) return new Map();
 
     const objectIds = userIds.map((id) => {
@@ -102,7 +119,10 @@ async function validateCompanyUsers(
         companyId: new Types.ObjectId(companyId),
         isActive: true,
         status: { $ne: 'DEACTIVATED' },
-    }).select('_id name companyId isActive status').lean();
+    })
+    .select('_id name companyId isActive status email role')
+    .populate<{ role: { name: string } }>('role', 'name')
+    .lean();
 
     // Check all IDs were found — produce targeted error messages
     const foundIds = new Set(users.map((u) => String(u._id)));
@@ -122,9 +142,15 @@ async function validateCompanyUsers(
         }
     }
 
-    const map = new Map<string, UserSummary>();
+    const map = new Map<string, ExtendedUserSummary>();
     for (const u of users) {
-        map.set(String(u._id), { id: String(u._id), name: u.name });
+        map.set(String(u._id), { 
+            id: String(u._id), 
+            name: u.name,
+            email: u.email,
+            status: u.status,
+            role: (u.role as any)?.name
+        });
     }
     return map;
 }
@@ -369,8 +395,8 @@ export class ProjectService {
         });
 
         // ── 11. Build response ────────────────────────────────────────────────
-        const teamMembers = filteredTeamMemberIds.map((id) => teamMemberMap.get(id)!);
-        const clients = uniqueClientIds.map((id) => clientMap.get(id)!);
+        const teamMembersRaw = filteredTeamMemberIds.map((id) => teamMemberMap.get(id)!);
+        const clientsRaw = uniqueClientIds.map((id) => clientMap.get(id)!);
         const settings: ProjectSettingsOutput = {
             allowTeamMembersToCreateTasks: (settingsInput['allowTeamMembersToCreateTasks'] as boolean) ?? true,
             showTaskItemNumber: (settingsInput['showTaskItemNumber'] as boolean) ?? true,
@@ -379,6 +405,27 @@ export class ProjectService {
             isConfidential: (settingsInput['isConfidential'] as boolean) ?? false,
             enableTemplateHierarchy: (settingsInput['enableTemplateHierarchy'] as boolean) ?? false,
         };
+
+        const creatorSummary = { id: String(creatorDoc._id), name: creatorDoc.name };
+
+        const projectManagerDetailed: MemberDetailSummary = {
+            ...projectManager,
+            addedBy: creatorSummary,
+            addedAt: projectCreatedAt,
+        };
+
+        const teamMembersDetailed: MemberDetailSummary[] = teamMembersRaw.map(tm => ({
+            ...tm,
+            addedBy: creatorSummary,
+            addedAt: projectCreatedAt,
+            canCreateTasks: settings.allowTeamMembersToCreateTasks,
+        }));
+
+        const clientsDetailed: MemberDetailSummary[] = clientsRaw.map(c => ({
+            ...c,
+            addedBy: creatorSummary,
+            addedAt: projectCreatedAt,
+        }));
 
         return {
             id: String(projectId),
@@ -389,14 +436,14 @@ export class ProjectService {
             status: projectStatus,
             startDate: projectStartDate.toISOString().split('T')[0],
             endDate: projectEndDate.toISOString().split('T')[0],
-            createdBy: { id: String(creatorDoc._id), name: creatorDoc.name },
-            projectManager,
-            teamMembers,
-            clients,
+            createdBy: creatorSummary,
+            projectManager: projectManagerDetailed,
+            teamMembers: teamMembersDetailed,
+            clients: clientsDetailed,
             settings,
             stats: {
-                teamMembers: teamMembers.length,
-                clients: clients.length,
+                teamMembers: teamMembersRaw.length,
+                clients: clientsRaw.length,
                 tasks: 0,
                 modules: 0,
                 documents: 0,
@@ -542,20 +589,28 @@ export class ProjectService {
 
         if (!project) throw AppError.notFound('Project not found');
 
+        type PopulatedUser = { _id: Types.ObjectId; name: string; email: string; status: string; role: { _id: Types.ObjectId; name: string } };
+        
         const [settings, inCharges, teamMembers, clients] = await Promise.all([
             ProjectSettings.findOne({ projectId: new Types.ObjectId(projectId) }).lean(),
             ProjectInCharge.find({ projectId: new Types.ObjectId(projectId) })
-                .populate<{ userId: { _id: Types.ObjectId; name: string } }>('userId', 'name')
+                .populate<{ userId: PopulatedUser }>({ path: 'userId', select: 'name email status role', populate: { path: 'role', select: 'name' } })
+                .populate<{ addedById: { _id: Types.ObjectId; name: string } }>('addedById', 'name')
                 .lean(),
             ProjectTeamMember.find({ projectId: new Types.ObjectId(projectId) })
-                .populate<{ userId: { _id: Types.ObjectId; name: string } }>('userId', 'name')
+                .populate<{ userId: PopulatedUser }>({ path: 'userId', select: 'name email status role', populate: { path: 'role', select: 'name' } })
+                .populate<{ addedById: { _id: Types.ObjectId; name: string } }>('addedById', 'name')
                 .lean(),
             ProjectClient.find({ projectId: new Types.ObjectId(projectId) })
-                .populate<{ userId: { _id: Types.ObjectId; name: string } }>('userId', 'name')
+                .populate<{ userId: PopulatedUser }>({ path: 'userId', select: 'name email status role', populate: { path: 'role', select: 'name' } })
+                .populate<{ addedById: { _id: Types.ObjectId; name: string } }>('addedById', 'name')
                 .lean(),
         ]);
 
-        const managerUser = inCharges[0]?.userId as any;
+        const inChargeDoc = inCharges[0];
+        const managerUser = inChargeDoc?.userId as any;
+        const managerAddedBy = inChargeDoc?.addedById as any;
+        
         const creatorUser = project.createdById as any;
 
         return {
@@ -571,15 +626,42 @@ export class ProjectService {
                 ? { id: String(creatorUser._id), name: creatorUser.name }
                 : { id: String(project.createdById), name: 'Unknown' },
             projectManager: managerUser
-                ? { id: String(managerUser._id), name: managerUser.name }
-                : { id: '', name: 'Unknown' },
+                ? {
+                      id: String(managerUser._id),
+                      name: managerUser.name,
+                      email: managerUser.email,
+                      role: managerUser.role?.name,
+                      status: managerUser.status,
+                      addedBy: managerAddedBy ? { id: String(managerAddedBy._id), name: managerAddedBy.name } : null,
+                      addedAt: inChargeDoc.addedAt as Date,
+                  }
+                : null,
             teamMembers: teamMembers.map((m) => {
                 const u = m.userId as any;
-                return { id: String(u._id), name: u.name };
+                const addedBy = m.addedById as any;
+                return {
+                    id: String(u._id),
+                    name: u.name,
+                    email: u.email,
+                    role: u.role?.name,
+                    status: u.status,
+                    addedBy: addedBy ? { id: String(addedBy._id), name: addedBy.name } : null,
+                    addedAt: m.addedAt as Date,
+                    canCreateTasks: m.canCreateTasks,
+                };
             }),
             clients: clients.map((c) => {
                 const u = c.userId as any;
-                return { id: String(u._id), name: u.name };
+                const addedBy = c.addedById as any;
+                return {
+                    id: String(u._id),
+                    name: u.name,
+                    email: u.email,
+                    role: u.role?.name,
+                    status: u.status,
+                    addedBy: addedBy ? { id: String(addedBy._id), name: addedBy.name } : null,
+                    addedAt: c.addedAt as Date,
+                };
             }),
             settings: {
                 allowTeamMembersToCreateTasks: settings?.allowTeamMembersToCreateTasks ?? true,
