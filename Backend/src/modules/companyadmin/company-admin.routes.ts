@@ -14,6 +14,7 @@ import taskMetaRoutes from '../tasks/task-meta.routes';
 import taskActivityRootRoutes from '../task-activities/task-activity.root.routes';
 import taskBugRootRoutes from '../task-bugs/task-bug.root.routes';
 import taskAttachmentRootRoutes from '../task-attachments/task-attachment.root.routes';
+import permissionsRoutes from './permissions.routes';
 
 const router = Router();
 
@@ -42,6 +43,9 @@ router.use('/invitations', inviteLimiter, invitationRoutes);
 
 // ── /api/v1/company/employees ────────────────────────────────────────────────
 router.use('/employees', employeeRoutes);
+
+// ── /api/v1/company/users/permissions ────────────────────────────────────────
+router.use('/users/permissions', permissionsRoutes);
 
 // ── /api/v1/company/clients ──────────────────────────────────────────────────
 router.use('/clients', clientRoutes);

@@ -34,21 +34,35 @@ export const authorizePermissions = (...requiredPermissions: string[]) => {
                 return sendError(res, 'Forbidden: No role assigned to user', 403);
             }
 
-            // Admin, SUPER_ADMIN and COMPANY_ADMIN bypass all permission checks
+            // Admin and SUPER_ADMIN bypass all permission checks.
+            // COMPANY_ADMIN must be explicitly granted permissions via Role or User grants.
             if (
                 role.name === 'Admin' ||
-                role.name === 'SUPER_ADMIN' ||
-                role.name === 'COMPANY_ADMIN'
+                role.name === 'SUPER_ADMIN'
             ) {
                 return next();
             }
 
-            const userPermissions: string[] = (role.permissions || []).map(
+            const baseRolePermissions: string[] = (role.permissions || []).map(
                 (perm: any) => (typeof perm === 'object' && perm ? perm.name : '')
             ).filter(Boolean);
 
+            const grantedPermissions: string[] = ((user as any).grantedPermissions || []).map(
+                (perm: any) => (typeof perm === 'object' && perm ? perm.name : '')
+            ).filter(Boolean);
+
+            const revokedPermissions: string[] = ((user as any).revokedPermissions || []).map(
+                (perm: any) => (typeof perm === 'object' && perm ? perm.name : '')
+            ).filter(Boolean);
+
+            const effectivePermissionsSet = new Set(baseRolePermissions);
+            grantedPermissions.forEach(perm => effectivePermissionsSet.add(perm));
+            revokedPermissions.forEach(perm => effectivePermissionsSet.delete(perm));
+
+            const effectivePermissions = Array.from(effectivePermissionsSet);
+
             const hasAllPermissions = requiredPermissions.every((perm) =>
-                userPermissions.includes(perm)
+                effectivePermissions.includes(perm)
             );
 
             if (!hasAllPermissions) {

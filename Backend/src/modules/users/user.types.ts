@@ -9,6 +9,8 @@ export interface IUser {
     mustChangePassword?: boolean;
     isActive: boolean;
     status: 'ACTIVE' | 'INACTIVE' | 'DEACTIVATED';
+    grantedPermissions?: Types.ObjectId[]; // Reference to Permission model
+    revokedPermissions?: Types.ObjectId[]; // Reference to Permission model
 }
 
 export interface IUserDocument extends IUser, Document {

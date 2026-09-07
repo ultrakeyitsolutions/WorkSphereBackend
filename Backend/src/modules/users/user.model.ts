@@ -45,6 +45,18 @@ const userSchema = new Schema<IUserDocument>(
             default: 'ACTIVE',
             required: true,
         },
+        grantedPermissions: [
+            {
+                type: Schema.Types.ObjectId,
+                ref: 'Permission',
+            }
+        ],
+        revokedPermissions: [
+            {
+                type: Schema.Types.ObjectId,
+                ref: 'Permission',
+            }
+        ],
     },
     {
         timestamps: true,

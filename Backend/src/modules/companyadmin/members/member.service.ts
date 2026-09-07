@@ -116,6 +116,23 @@ export class MemberService {
                     invitation: { $arrayElemAt: ["$invitationRecord", 0] }
                 }
             },
+            // Lookup permissions to convert ObjectIds to string names
+            {
+                $lookup: {
+                    from: 'permissions',
+                    localField: 'user.grantedPermissions',
+                    foreignField: '_id',
+                    as: 'grantedPermDocs'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'permissions',
+                    localField: 'user.revokedPermissions',
+                    foreignField: '_id',
+                    as: 'revokedPermDocs'
+                }
+            },
             // Format actual members
             {
                 $project: {
@@ -133,6 +150,8 @@ export class MemberService {
                     userStatus: '$user.status',
                     lastLoginAt: '$user.lastLoginAt',
                     lastLoginStatus: '$user.lastLoginStatus',
+                    grantedPermissions: { $ifNull: ['$grantedPermDocs.name', []] },
+                    revokedPermissions: { $ifNull: ['$revokedPermDocs.name', []] },
                     createdAt: 1,
                     isInvitation: { $literal: false }
                 }
@@ -159,6 +178,8 @@ export class MemberService {
                                 userStatus: { $literal: 'NOT_REGISTERED' },
                                 lastLoginAt: { $literal: null },
                                 lastLoginStatus: { $literal: 'NEVER_LOGGED_IN' },
+                                grantedPermissions: { $literal: [] },
+                                revokedPermissions: { $literal: [] },
                                 createdAt: 1,
                                 isInvitation: { $literal: true }
                             }
@@ -211,6 +232,8 @@ export class MemberService {
                     userStatus: 1,
                     lastLoginStatus: 1,
                     lastLoginAt: 1,
+                    grantedPermissions: 1,
+                    revokedPermissions: 1,
                     createdAt: 1,
                     isInvitation: 1
                 }
@@ -261,7 +284,7 @@ export class MemberService {
             _id: memberId,
             companyId
         })
-            .populate('userId', 'name email phoneNumber avatar status lastLoginAt lastLoginStatus')
+            .populate('userId', 'name email phoneNumber avatar status lastLoginAt lastLoginStatus grantedPermissions revokedPermissions')
             .populate('roleId', 'name')
             .populate('designationId', 'name');
 
@@ -288,7 +311,9 @@ export class MemberService {
                 phoneNumber: user.phoneNumber,
                 avatar: user.avatar,
                 status: user.status,
-                lastLoginAt: user.lastLoginAt
+                lastLoginAt: user.lastLoginAt,
+                grantedPermissions: (user.grantedPermissions || []).map((p: any) => p.name || p),
+                revokedPermissions: (user.revokedPermissions || []).map((p: any) => p.name || p)
             },
             company: {
                 id: companyId

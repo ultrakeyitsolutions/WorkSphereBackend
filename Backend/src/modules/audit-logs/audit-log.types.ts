@@ -38,6 +38,7 @@ export enum AuditAction {
 
     // Generic
     OTHER = 'OTHER',
+    USER_PERMISSIONS_UPDATED = 'USER_PERMISSIONS_UPDATED',
 
     // Impersonation
     IMPERSONATION_STARTED = 'IMPERSONATION_STARTED',

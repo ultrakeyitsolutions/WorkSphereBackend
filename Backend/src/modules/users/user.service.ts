@@ -3,21 +3,27 @@ import { IUser } from './user.types';
 
 export class UserService {
     static async findByEmail(email: string) {
-        return User.findOne({ email }).populate({
-            path: 'role',
-            populate: {
-                path: 'permissions',
-            },
-        });
+        return User.findOne({ email })
+            .populate({
+                path: 'role',
+                populate: {
+                    path: 'permissions',
+                },
+            })
+            .populate('grantedPermissions')
+            .populate('revokedPermissions');
     }
 
     static async findById(id: string) {
-        return User.findById(id).populate({
-            path: 'role',
-            populate: {
-                path: 'permissions',
-            },
-        });
+        return User.findById(id)
+            .populate({
+                path: 'role',
+                populate: {
+                    path: 'permissions',
+                },
+            })
+            .populate('grantedPermissions')
+            .populate('revokedPermissions');
     }
 
     static async createUser(data: Partial<IUser> & { password: string }) {

@@ -3,6 +3,7 @@ import authRoutes from '../modules/auth/auth.routes';
 import superAdminRoutes from '../modules/super-admin/super-admin.routes';
 import companyAdminRoutes from '../modules/companyadmin/company-admin.routes';
 import publicInvitationRoutes from '../modules/companyadmin/invitations/public-invitation.routes';
+import permissionRoutes from '../modules/permissions/permission.routes';
 import { env } from '../config/env';
 
 const router = Router();
@@ -24,6 +25,9 @@ router.use('/auth', authRoutes);
 // POST /api/v1/invitations/accept
 // POST /api/v1/invitations/register
 router.use('/v1/invitations', publicInvitationRoutes);
+
+// ── Permissions Route (auth required) ─────────────────────────────────────────
+router.use('/v1/permissions', permissionRoutes);
 
 // ── Company Admin Routes (auth required) ──────────────────────────────────────
 // POST   /api/v1/company/roles

@@ -119,6 +119,16 @@ export class AuthService {
         }
 
         const userRole = (user.role as any)?.name || 'User';
+        
+        const rolePermissions = ((user.role as any)?.permissions || []).map((p: any) => p.name).filter(Boolean);
+        const grantedPermissions = ((user as any).grantedPermissions || []).map((p: any) => p.name).filter(Boolean);
+        const revokedPermissions = ((user as any).revokedPermissions || []).map((p: any) => p.name).filter(Boolean);
+        
+        const effectivePermissionsSet = new Set(rolePermissions);
+        grantedPermissions.forEach((p: string) => effectivePermissionsSet.add(p));
+        revokedPermissions.forEach((p: string) => effectivePermissionsSet.delete(p));
+        const finalPermissions = Array.from(effectivePermissionsSet);
+
         const payload = {
             userId: String(user._id),
             email: user.email,
@@ -148,6 +158,7 @@ export class AuthService {
                 name: user.name,
                 email: user.email,
                 role: userRole,
+                permissions: finalPermissions,
                 companyId: user.companyId,
             },
             accessToken,
@@ -180,6 +191,16 @@ export class AuthService {
         }
 
         const userRole = (user.role as any)?.name || 'User';
+
+        const rolePermissions = ((user.role as any)?.permissions || []).map((p: any) => p.name).filter(Boolean);
+        const grantedPermissions = ((user as any).grantedPermissions || []).map((p: any) => p.name).filter(Boolean);
+        const revokedPermissions = ((user as any).revokedPermissions || []).map((p: any) => p.name).filter(Boolean);
+        
+        const effectivePermissionsSet = new Set(rolePermissions);
+        grantedPermissions.forEach((p: string) => effectivePermissionsSet.add(p));
+        revokedPermissions.forEach((p: string) => effectivePermissionsSet.delete(p));
+        const finalPermissions = Array.from(effectivePermissionsSet);
+
         const payload = {
             userId: String(user._id),
             email: user.email,
@@ -204,6 +225,14 @@ export class AuthService {
         });
 
         return {
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: userRole,
+                permissions: finalPermissions,
+                companyId: user.companyId,
+            },
             accessToken,
             refreshToken: newRefreshToken,
         };

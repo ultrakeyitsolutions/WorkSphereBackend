@@ -13,6 +13,20 @@ const permissionSchema = new Schema<IPermissionDocument>(
             type: String,
             trim: true,
         },
+        category: {
+            type: String,
+            trim: true,
+            default: 'GENERAL',
+        },
+        scope: {
+            type: String,
+            enum: ['COMPANY_MEMBER', 'SYSTEM'],
+            default: 'COMPANY_MEMBER',
+        },
+        assignableBy: {
+            type: [String],
+            default: [],
+        }
     },
     {
         timestamps: true,
