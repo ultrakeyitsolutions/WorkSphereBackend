@@ -33,47 +33,22 @@ export class PermissionsController {
                 return sendError(res, 'A permission cannot be both granted and revoked in the same request', 400);
             }
 
-            // Resolve dependencies dynamically
-            const PERMISSION_DEPENDENCIES: Record<string, string> = {
-                'PROJECT_CREATE': 'PROJECT_READ',
-                'PROJECT_UPDATE': 'PROJECT_READ',
-                'PROJECT_DELETE': 'PROJECT_READ',
-                'TASK_CREATE': 'TASK_READ',
-                'TASK_UPDATE': 'TASK_READ',
-                'TASK_DELETE': 'TASK_READ',
-                'TASK_ASSIGN': 'TASK_READ',
-                'MEETING_CREATE': 'MEETING_READ',
-                'MEETING_UPDATE': 'MEETING_READ',
-                'MEETING_DELETE': 'MEETING_READ',
-                'QUICK_MEETING_CREATE': 'MEETING_READ',
-                'MEETING_INVITE_ANYONE': 'MEETING_READ',
-                'REPORT_EXPORT': 'REPORT_READ',
-            };
+            const ALLOWED_PERMISSIONS = [
+                'QUICK_MEETING_CREATE',
+                'LIVE_MONITORING_READ',
+                'USER_REVIEW_READ'
+            ];
 
-            // If a child is granted, ensure parent is granted
-            for (const g of [...grants]) {
-                const parent = PERMISSION_DEPENDENCIES[g];
-                if (parent && !grants.includes(parent)) {
-                    grants.push(parent);
-                }
-            }
-
-            // If a parent is revoked, ensure all children are revoked
-            for (const r of [...revokes]) {
-                const children = Object.keys(PERMISSION_DEPENDENCIES).filter(child => PERMISSION_DEPENDENCIES[child] === r);
-                for (const child of children) {
-                    if (!revokes.includes(child)) {
-                        revokes.push(child);
-                    }
-                }
-            }
-
-            // Remove any duplicates after dependency resolution
             const finalGrants = [...new Set(grants)];
             const finalRevokes = [...new Set(revokes)];
-            
-            // Resolve string names to ObjectIds
+
             const allPermissionNames = [...new Set([...finalGrants, ...finalRevokes])];
+
+            const isValid = allPermissionNames.every(p => ALLOWED_PERMISSIONS.includes(p));
+            if (!isValid) {
+                return sendError(res, 'One or more requested permissions are not allowed to be managed via this API', 400);
+            }
+            
             let permissionDocs: any[] = [];
             if (allPermissionNames.length > 0) {
                 permissionDocs = await Permission.find({ name: { $in: allPermissionNames } });
