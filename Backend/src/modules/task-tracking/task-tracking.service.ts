@@ -105,4 +105,197 @@ export class TaskTrackingService {
             taskId
         }).sort({ createdAt: -1 }).lean();
     }
+
+    /**
+     * Common helper for validating task/project access.
+     */
+    private static async validateTaskAccess(companyId: string, userId: string, taskId: string) {
+        const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).lean();
+        if (!task) throw AppError.notFound('TASK_NOT_FOUND_OR_INACTIVE');
+
+        const projectId = task.projectId.toString();
+        const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
+        if (!canAccess) throw AppError.forbidden('UNAUTHORIZED_PROJECT_ACCESS');
+
+        return task;
+    }
+
+    /**
+     * Pause an active tracking session.
+     */
+    static async pauseTracking(companyId: string, userId: string, taskId: string): Promise<ITimeTracking> {
+        await this.validateTaskAccess(companyId, userId, taskId);
+
+        const session = await TimeTracking.findOne({ companyId, userId, taskId, state: TrackingState.TRACKING });
+        if (!session) throw AppError.conflict('TRACKING_SESSION_NOT_FOUND_OR_INVALID_STATE');
+
+        const originalState = session.state;
+        const now = new Date();
+        const activeInterval = session.intervals[session.intervals.length - 1];
+
+        if (activeInterval && activeInterval.type === IntervalType.WORK && !activeInterval.endedAt) {
+            activeInterval.endedAt = now;
+            const workedDuration = Math.floor((now.getTime() - activeInterval.startedAt.getTime()) / 1000);
+            session.workedSeconds += Math.max(0, workedDuration);
+        }
+
+        session.state = TrackingState.PAUSED;
+        session.intervals.push({ type: IntervalType.BREAK, startedAt: now });
+
+        const updated = await TimeTracking.findOneAndUpdate(
+            { _id: session._id, state: originalState, __v: session.__v },
+            {
+                $set: { state: session.state, intervals: session.intervals, workedSeconds: session.workedSeconds },
+                $inc: { __v: 1 }
+            },
+            { new: true }
+        );
+
+        if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
+
+        await TaskActivity.create({
+            companyId, projectId: session.projectId, taskId, userId,
+            type: ActivityType.TASK_PAUSED, content: 'Task tracking paused.'
+        });
+
+        return updated;
+    }
+
+    /**
+     * Put an active tracking session on hold.
+     */
+    static async holdTracking(companyId: string, userId: string, taskId: string, reason: string): Promise<ITimeTracking> {
+        if (!reason || reason.trim() === '') {
+            throw AppError.badRequest('HOLD_REASON_REQUIRED');
+        }
+
+        await this.validateTaskAccess(companyId, userId, taskId);
+
+        const session = await TimeTracking.findOne({ companyId, userId, taskId, state: TrackingState.TRACKING });
+        if (!session) throw AppError.conflict('TRACKING_SESSION_NOT_FOUND_OR_INVALID_STATE');
+
+        const originalState = session.state;
+        const now = new Date();
+        const activeInterval = session.intervals[session.intervals.length - 1];
+
+        if (activeInterval && activeInterval.type === IntervalType.WORK && !activeInterval.endedAt) {
+            activeInterval.endedAt = now;
+            const workedDuration = Math.floor((now.getTime() - activeInterval.startedAt.getTime()) / 1000);
+            session.workedSeconds += Math.max(0, workedDuration);
+        }
+
+        session.state = TrackingState.ON_HOLD;
+        session.intervals.push({ type: IntervalType.HOLD, startedAt: now, reason: reason.trim() });
+
+        const updated = await TimeTracking.findOneAndUpdate(
+            { _id: session._id, state: originalState, __v: session.__v },
+            {
+                $set: { state: session.state, intervals: session.intervals, workedSeconds: session.workedSeconds },
+                $inc: { __v: 1 }
+            },
+            { new: true }
+        );
+
+        if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
+
+        await TaskActivity.create({
+            companyId, projectId: session.projectId, taskId, userId,
+            type: ActivityType.TASK_HELD, content: `Task tracking on hold. Reason: ${reason}`
+        });
+
+        return updated;
+    }
+
+    /**
+     * Resume a paused or held tracking session.
+     */
+    static async resumeTracking(companyId: string, userId: string, taskId: string): Promise<ITimeTracking> {
+        await this.validateTaskAccess(companyId, userId, taskId);
+
+        const session = await TimeTracking.findOne({ 
+            companyId, userId, taskId, 
+            state: { $in: [TrackingState.PAUSED, TrackingState.ON_HOLD] } 
+        });
+        if (!session) throw AppError.conflict('TRACKING_SESSION_NOT_FOUND_OR_INVALID_STATE');
+
+        const originalState = session.state;
+        const now = new Date();
+        const activeInterval = session.intervals[session.intervals.length - 1];
+
+        if (activeInterval && !activeInterval.endedAt) {
+            activeInterval.endedAt = now; // Do not add duration to workedSeconds for BREAK/HOLD
+        }
+
+        session.state = TrackingState.TRACKING;
+        session.intervals.push({ type: IntervalType.WORK, startedAt: now });
+
+        const updated = await TimeTracking.findOneAndUpdate(
+            { _id: session._id, state: originalState, __v: session.__v },
+            {
+                $set: { state: session.state, intervals: session.intervals }, // no change to workedSeconds
+                $inc: { __v: 1 }
+            },
+            { new: true }
+        );
+
+        if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
+
+        await TaskActivity.create({
+            companyId, projectId: session.projectId, taskId, userId,
+            type: ActivityType.TASK_RESUMED, content: 'Task tracking resumed.'
+        });
+
+        return updated;
+    }
+
+    /**
+     * Complete a tracking session.
+     */
+    static async completeTracking(companyId: string, userId: string, taskId: string): Promise<ITimeTracking> {
+        await this.validateTaskAccess(companyId, userId, taskId);
+
+        const session = await TimeTracking.findOne({ 
+            companyId, userId, taskId, 
+            state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] } 
+        });
+        if (!session) throw AppError.conflict('TRACKING_SESSION_NOT_FOUND_OR_INVALID_STATE');
+
+        const originalState = session.state;
+        const now = new Date();
+        const activeInterval = session.intervals[session.intervals.length - 1];
+
+        if (activeInterval && !activeInterval.endedAt) {
+            activeInterval.endedAt = now;
+            if (originalState === TrackingState.TRACKING) {
+                const workedDuration = Math.floor((now.getTime() - activeInterval.startedAt.getTime()) / 1000);
+                session.workedSeconds += Math.max(0, workedDuration);
+            }
+        }
+
+        session.state = TrackingState.COMPLETED;
+        session.endedAt = now;
+
+        const updated = await TimeTracking.findOneAndUpdate(
+            { _id: session._id, state: originalState, __v: session.__v },
+            {
+                $set: { 
+                    state: session.state, 
+                    endedAt: session.endedAt,
+                    intervals: session.intervals, 
+                    workedSeconds: session.workedSeconds 
+                },
+                $inc: { __v: 1 }
+            },
+            { new: true }
+        );
+
+        if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
+
+        await TaskActivity.create({
+            companyId, projectId: session.projectId, taskId, userId,
+            type: ActivityType.TASK_COMPLETED, content: 'Task tracking completed.'
+        });
+
+        return updated;
+    }
 }

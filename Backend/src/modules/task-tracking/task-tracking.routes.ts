@@ -14,6 +14,11 @@ const trackingLimiter = rateLimit({
 });
 
 router.post('/start', trackingLimiter, TaskTrackingController.startTracking);
+router.post('/pause', TaskTrackingController.pauseTracking);
+router.post('/hold', TaskTrackingController.holdTracking);
+router.post('/resume', TaskTrackingController.resumeTracking);
+router.post('/complete', TaskTrackingController.completeTracking);
+
 router.get('/current', TaskTrackingController.getCurrentTracking);
 router.get('/task/:taskId', TaskTrackingController.getTrackingByTask);
 

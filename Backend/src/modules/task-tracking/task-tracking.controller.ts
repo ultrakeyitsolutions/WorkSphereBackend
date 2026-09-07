@@ -64,4 +64,73 @@ export class TaskTrackingController {
         
         sendSuccess(res, 'Task tracking retrieved', tracking || null, 200);
     });
+
+    /**
+     * Pause tracking a task
+     * POST /api/v1/company/task-tracking/pause
+     * Body: { taskId: string }
+     */
+    static pauseTracking = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const taskId = req.body.taskId as string;
+
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+        if (!taskId) throw AppError.badRequest('taskId is required');
+
+        const tracking = await TaskTrackingService.pauseTracking(companyId, userId, taskId);
+        sendSuccess(res, 'Task paused successfully.', { tracking }, 200);
+    });
+
+    /**
+     * Put task tracking on hold
+     * POST /api/v1/company/task-tracking/hold
+     * Body: { taskId: string, reason: string }
+     */
+    static holdTracking = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const { taskId, reason } = req.body;
+
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+        if (!taskId) throw AppError.badRequest('taskId is required');
+        if (!reason) throw AppError.badRequest('reason is required');
+
+        const tracking = await TaskTrackingService.holdTracking(companyId, userId, taskId as string, reason as string);
+        sendSuccess(res, 'Task placed on hold.', { tracking }, 200);
+    });
+
+    /**
+     * Resume tracking a paused/held task
+     * POST /api/v1/company/task-tracking/resume
+     * Body: { taskId: string }
+     */
+    static resumeTracking = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const taskId = req.body.taskId as string;
+
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+        if (!taskId) throw AppError.badRequest('taskId is required');
+
+        const tracking = await TaskTrackingService.resumeTracking(companyId, userId, taskId);
+        sendSuccess(res, 'Task resumed successfully.', { tracking }, 200);
+    });
+
+    /**
+     * Complete task tracking
+     * POST /api/v1/company/task-tracking/complete
+     * Body: { taskId: string }
+     */
+    static completeTracking = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const taskId = req.body.taskId as string;
+
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+        if (!taskId) throw AppError.badRequest('taskId is required');
+
+        const tracking = await TaskTrackingService.completeTracking(companyId, userId, taskId);
+        sendSuccess(res, 'Task completed successfully.', { tracking }, 200);
+    });
 }
