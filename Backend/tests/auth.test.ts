@@ -93,15 +93,12 @@ describe('Authentication & Health API tests', () => {
 
     describe('POST /api/auth/register', () => {
         it('should register a new user successfully', async () => {
-            const mockQueryFindOne = {
-                populate: vi.fn().mockResolvedValue(null),
-            };
+            const mockQueryFindOne = { populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve(null).then(resolve); } };
             (User.findOne as any).mockReturnValue(mockQueryFindOne);
 
             (Role.findOne as any).mockResolvedValue({ _id: 'role_123', name: 'User' });
 
-            const mockQueryFindById = {
-                populate: vi.fn().mockResolvedValue({
+            const mockQueryFindById = { populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve({
                     _id: 'user_123',
                     name: 'New User',
                     email: 'newuser@example.com',
@@ -111,8 +108,7 @@ describe('Authentication & Health API tests', () => {
                         name: 'User',
                         permissions: [],
                     },
-                }),
-            };
+                }).then(resolve); } };
             (User.findById as any).mockReturnValue(mockQueryFindById);
 
             const res = await request(app)
@@ -129,9 +125,7 @@ describe('Authentication & Health API tests', () => {
         });
 
         it('should fail registration if email is already taken', async () => {
-            const mockQueryFindOne = {
-                populate: vi.fn().mockResolvedValue({ _id: 'existing_user' }),
-            };
+            const mockQueryFindOne = { populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve({ _id: 'existing_user' }).then(resolve); } };
             (User.findOne as any).mockReturnValue(mockQueryFindOne);
 
             const res = await request(app)
@@ -177,9 +171,7 @@ describe('Authentication & Health API tests', () => {
                 },
             };
 
-            const mockQueryFindOne = {
-                populate: vi.fn().mockResolvedValue(mockUser),
-            };
+            const mockQueryFindOne = { populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve(mockUser).then(resolve); } };
             (User.findOne as any).mockReturnValue(mockQueryFindOne);
 
             const res = await request(app)
@@ -208,9 +200,7 @@ describe('Authentication & Health API tests', () => {
                 },
             };
 
-            const mockQueryFindOne = {
-                populate: vi.fn().mockResolvedValue(mockUser),
-            };
+            const mockQueryFindOne = { populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve(mockUser).then(resolve); } };
             (User.findOne as any).mockReturnValue(mockQueryFindOne);
 
             const res = await request(app)
@@ -226,3 +216,4 @@ describe('Authentication & Health API tests', () => {
         });
     });
 });
+

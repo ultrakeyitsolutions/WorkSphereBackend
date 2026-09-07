@@ -107,9 +107,7 @@ describe('Authorization Middleware', () => {
                 },
             };
 
-            (User.findById as any).mockReturnValue({
-                populate: vi.fn().mockResolvedValue(mockAdminUser),
-            });
+            (User.findById as any).mockReturnValue({ populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve(mockAdminUser).then(resolve); } });
 
             const res = await request(appTest)
                 .get('/write-users')
@@ -132,9 +130,7 @@ describe('Authorization Middleware', () => {
                 },
             };
 
-            (User.findById as any).mockReturnValue({
-                populate: vi.fn().mockResolvedValue(mockRegularUser),
-            });
+            (User.findById as any).mockReturnValue({ populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve(mockRegularUser).then(resolve); } });
 
             const res = await request(appTest)
                 .get('/write-users')
@@ -157,9 +153,7 @@ describe('Authorization Middleware', () => {
                 },
             };
 
-            (User.findById as any).mockReturnValue({
-                populate: vi.fn().mockResolvedValue(mockRegularUserWithoutPerm),
-            });
+            (User.findById as any).mockReturnValue({ populate: vi.fn().mockReturnThis(), then: function(resolve: any) { return Promise.resolve(mockRegularUserWithoutPerm).then(resolve); } });
 
             const res = await request(appTest)
                 .get('/write-users')
@@ -171,3 +165,4 @@ describe('Authorization Middleware', () => {
         });
     });
 });
+
