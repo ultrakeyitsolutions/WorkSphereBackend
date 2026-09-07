@@ -18,7 +18,9 @@ const mocks = vi.hoisted(() => ({
     stageFindOne: vi.fn(),
     statusFindOne: vi.fn(),
     userFindById: vi.fn(),
-    assignmentCreate: vi.fn()
+    assignmentCreate: vi.fn(),
+    userHasPermission: vi.fn(),
+    projectCanAccess: vi.fn(),
 }));
 
 vi.mock('../src/modules/tasks/task.model', () => ({
@@ -42,7 +44,10 @@ vi.mock('../src/modules/tasks/recurring-rule.model', () => ({
 }));
 
 vi.mock('../src/modules/companyadmin/projects/project.model', () => ({
-    Project: { findOne: mocks.projectFindOne },
+    Project: { 
+        findOne: mocks.projectFindOne,
+        find: vi.fn().mockReturnValue({ select: vi.fn().mockReturnThis(), lean: vi.fn().mockResolvedValue([]) }) 
+    },
     ProjectSettings: {
         findOne: mocks.settingsFindOne,
         findOneAndUpdate: mocks.settingsFindOneAndUpdate
@@ -55,11 +60,23 @@ vi.mock('../src/modules/companyadmin/projects/project.model', () => ({
         exists: mocks.teamMemberExists,
         findOne: mocks.teamMemberFindOne,
         find: mocks.teamMemberFind
+    },
+    ProjectClient: {
+        exists: vi.fn().mockResolvedValue(null),
+        find: vi.fn().mockReturnValue({ select: vi.fn().mockReturnThis(), populate: vi.fn().mockReturnThis(), lean: vi.fn().mockResolvedValue([]) })
     }
 }));
 
 vi.mock('../src/services/entitlement.service', () => ({
     EntitlementService: { hasFeature: mocks.entitlementHasFeature }
+}));
+
+vi.mock('../src/modules/users/user.service', () => ({
+    UserService: { hasPermission: mocks.userHasPermission }
+}));
+
+vi.mock('../src/modules/companyadmin/projects/project.service', () => ({
+    ProjectService: { canAccessProject: mocks.projectCanAccess }
 }));
 
 vi.mock('../src/middleware/auth.middleware', () => ({
@@ -93,12 +110,23 @@ describe('Tasks API', () => {
 
         mocks.stageFindOne.mockReturnValue({ lean: vi.fn().mockResolvedValue({ _id: 'stage1', name: 'New' }) });
         mocks.statusFindOne.mockReturnValue({ lean: vi.fn().mockResolvedValue({ _id: 'status1', name: 'New' }) });
-        mocks.userFindById.mockReturnValue({ lean: vi.fn().mockResolvedValue({ _id: 'user1', name: 'User' }) });
+        const userPopulateMock = {
+            populate: vi.fn().mockReturnThis(),
+            lean: vi.fn().mockResolvedValue({ 
+                _id: 'user1', 
+                name: 'User',
+                grantedPermissions: [{ name: 'TASK_CREATE' }, { name: 'PROJECT_READ' }]
+            })
+        };
+        mocks.userFindById.mockReturnValue(userPopulateMock);
         mocks.assignmentCreate.mockResolvedValue({});
 
         // Mock populate chain
-        const mockPopulateChain = { lean: vi.fn().mockResolvedValue({ _id: 'task_111', title: 'Normal Task', itemNumber: 1 }) };
-        mockPopulateChain.populate = vi.fn().mockReturnValue(mockPopulateChain);
+        const mockPopulateChain: { lean: ReturnType<typeof vi.fn>; populate: ReturnType<typeof vi.fn> } = {
+            lean: vi.fn().mockResolvedValue({ _id: 'task_111', title: 'Normal Task', itemNumber: 1 }),
+            populate: vi.fn()
+        };
+        mockPopulateChain.populate.mockReturnValue(mockPopulateChain);
         mocks.taskFindById.mockReturnValue(mockPopulateChain);
 
         // Default safe responses
@@ -106,11 +134,22 @@ describe('Tasks API', () => {
         mocks.settingsFindOne.mockReturnValue({ lean: vi.fn().mockResolvedValue(null) });
         mocks.settingsFindOneAndUpdate.mockResolvedValue({ lastTaskItemNumber: 1 });
         mocks.inChargeExists.mockResolvedValue(null);
-        mocks.inChargeFind.mockReturnValue({ populate: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) });
+        mocks.inChargeFind.mockReturnValue({ 
+            select: vi.fn().mockReturnThis(), 
+            populate: vi.fn().mockReturnThis(), 
+            lean: vi.fn().mockResolvedValue([]) 
+        });
         mocks.teamMemberExists.mockResolvedValue(null);
         mocks.teamMemberFindOne.mockReturnValue({ lean: vi.fn().mockResolvedValue(null) });
-        mocks.teamMemberFind.mockReturnValue({ populate: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) });
+        mocks.teamMemberFind.mockReturnValue({ 
+            select: vi.fn().mockReturnThis(), 
+            populate: vi.fn().mockReturnThis(), 
+            lean: vi.fn().mockResolvedValue([]) 
+        });
         mocks.entitlementHasFeature.mockResolvedValue(true);
+        // Default: user has permission and project access
+        mocks.userHasPermission.mockResolvedValue(true);
+        mocks.projectCanAccess.mockResolvedValue(true);
     });
 
     describe(`POST /api/v1/company/projects/${PROJECT_ID}/tasks`, () => {

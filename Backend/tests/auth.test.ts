@@ -4,6 +4,12 @@ import { app } from '../src/app';
 import { User } from '../src/modules/users/user.model';
 import { Role } from '../src/modules/roles/role.model';
 
+vi.mock('../src/modules/audit-logs/audit-log.model', () => ({
+    AuditLog: {
+        create: vi.fn()
+    }
+}));
+
 vi.mock('../src/modules/users/user.model', () => {
     class MockUser {
         _id = 'user_123';

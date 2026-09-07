@@ -38,12 +38,12 @@ export class AuditLogService {
         try {
             await AuditLog.create({
                 action: payload.action,
-                actorId: payload.actorId ? new Types.ObjectId(payload.actorId) : null,
+                actorId: payload.actorId && Types.ObjectId.isValid(payload.actorId) ? new Types.ObjectId(payload.actorId) : null,
                 actorEmail: payload.actorEmail ?? null,
                 actorRole: payload.actorRole ?? null,
-                targetUserId: payload.targetUserId ? new Types.ObjectId(payload.targetUserId) : null,
+                targetUserId: payload.targetUserId && Types.ObjectId.isValid(payload.targetUserId) ? new Types.ObjectId(payload.targetUserId) : null,
                 targetEmail: payload.targetEmail ?? null,
-                companyId: payload.companyId ? new Types.ObjectId(payload.companyId) : null,
+                companyId: payload.companyId && Types.ObjectId.isValid(payload.companyId) ? new Types.ObjectId(payload.companyId) : null,
                 companyName: payload.companyName ?? null,
                 metadata: payload.metadata ?? {},
                 success: payload.success ?? true,
