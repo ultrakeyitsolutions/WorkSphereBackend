@@ -75,6 +75,11 @@ import taskTrackingRoutes from '../task-tracking/task-tracking.routes';
 
 import taskIntelligenceRoutes from '../task-intelligence/task-intelligence.routes';
 
+import attendanceRoutes from '../attendance/attendance.routes';
+
+// ── /api/v1/company/attendance ───────────────────────────────────────────────
+router.use('/attendance', attendanceRoutes);
+
 // ── /api/v1/company/task-tracking ────────────────────────────────────────────
 router.use('/task-tracking', taskTrackingRoutes);
 
