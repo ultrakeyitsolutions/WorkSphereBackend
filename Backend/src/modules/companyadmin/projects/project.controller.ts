@@ -37,11 +37,11 @@ export const createProject = catchAsync(async (req: AuthenticatedRequest, res: R
 // ─── GET /api/v1/company/projects ────────────────────────────────────────────
 
 export const listProjects = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-    const { companyId } = getActor(req);
+    const { companyId, userId } = getActor(req);
     const qs = (val: unknown): string | undefined =>
         typeof val === 'string' ? val : Array.isArray(val) ? val[0] : undefined;
 
-    const result = await ProjectService.listProjects(companyId, {
+    const result = await ProjectService.listProjects(companyId, userId, {
         page: req.query.page ? parseInt(qs(req.query.page) ?? '1', 10) : undefined,
         limit: req.query.limit ? parseInt(qs(req.query.limit) ?? '20', 10) : undefined,
         status: qs(req.query.status),
@@ -54,8 +54,8 @@ export const listProjects = catchAsync(async (req: AuthenticatedRequest, res: Re
 // ─── GET /api/v1/company/projects/:projectId ─────────────────────────────────
 
 export const getProjectById = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-    const { companyId } = getActor(req);
-    const project = await ProjectService.getProjectById(getProjectId(req), companyId);
+    const { companyId, userId } = getActor(req);
+    const project = await ProjectService.getProjectById(getProjectId(req), companyId, userId);
     return sendSuccess(res, 'Project fetched successfully', project);
 });
 

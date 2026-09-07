@@ -35,4 +35,32 @@ export class UserService {
         }
         return populatedUser;
     }
+
+    static async hasPermission(userId: string, requiredPermission: string): Promise<boolean> {
+        const user = await this.findById(userId);
+        if (!user) return false;
+
+        const role = user.role as any;
+        if (role?.name === 'Admin' || role?.name === 'SUPER_ADMIN') {
+            return true;
+        }
+
+        const baseRolePermissions: string[] = (role?.permissions || []).map(
+            (perm: any) => (typeof perm === 'object' && perm ? perm.name : '')
+        ).filter(Boolean);
+
+        const grantedPermissions: string[] = ((user as any).grantedPermissions || []).map(
+            (perm: any) => (typeof perm === 'object' && perm ? perm.name : '')
+        ).filter(Boolean);
+
+        const revokedPermissions: string[] = ((user as any).revokedPermissions || []).map(
+            (perm: any) => (typeof perm === 'object' && perm ? perm.name : '')
+        ).filter(Boolean);
+
+        const effectivePermissionsSet = new Set(baseRolePermissions);
+        grantedPermissions.forEach(perm => effectivePermissionsSet.add(perm));
+        revokedPermissions.forEach(perm => effectivePermissionsSet.delete(perm));
+
+        return effectivePermissionsSet.has(requiredPermission);
+    }
 }

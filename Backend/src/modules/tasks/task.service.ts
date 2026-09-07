@@ -1,9 +1,11 @@
 import mongoose, { Types } from 'mongoose';
 import { Task } from './task.model';
 import { RecurringRule } from './recurring-rule.model';
-import { Project, ProjectSettings, ProjectTeamMember, ProjectInCharge } from '../companyadmin/projects/project.model';
+import { Project, ProjectTeamMember, ProjectInCharge, ProjectSettings } from '../companyadmin/projects/project.model';
+import { ProjectService } from '../companyadmin/projects/project.service';
 import { EntitlementService } from '../../services/entitlement.service';
 import { User } from '../users/user.model';
+import { UserService } from '../users/user.service';
 import { Stage } from './stage.model';
 import { Status } from './status.model';
 import { TaskAssignment } from './task-assignment.model';
@@ -153,21 +155,15 @@ export class TaskService {
         const project = await Project.findOne({ _id: projectId, companyId, isArchived: false }).lean();
         if (!project) throw new Error('PROJECT_NOT_FOUND');
 
-        // 2. Check create permission
-        const settings = await ProjectSettings.findOne({ projectId }).lean();
-        let canCreate = project.createdById.toString() === userId;
-        if (!canCreate) {
-            const isManager = await ProjectInCharge.exists({ projectId, userId });
-            if (isManager) {
-                canCreate = true;
-            } else {
-                const tm = await ProjectTeamMember.findOne({ projectId, userId }).lean();
-                if (tm && tm.canCreateTasks && (settings?.allowTeamMembersToCreateTasks ?? true)) {
-                    canCreate = true;
-                }
-            }
+        // 2. Check create permission: Must have Project Access AND TASK_CREATE permission
+        const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
+        if (!canAccess) throw new Error('PERMISSION_DENIED'); // Uses PERMISSION_DENIED to map to 403 Forbidden in controller
+
+        const hasTaskCreate = await UserService.hasPermission(userId, 'TASK_CREATE');
+        if (!hasTaskCreate) {
+            // Reusing PERMISSION_DENIED to map to existing controller error handling
+            throw new Error('PERMISSION_DENIED');
         }
-        if (!canCreate) throw new Error('PERMISSION_DENIED');
 
         // 3. Validate assignedToId is a project member
         if (assignedToId) {

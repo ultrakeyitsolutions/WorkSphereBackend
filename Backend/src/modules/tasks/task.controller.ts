@@ -53,7 +53,7 @@ export const createTask = async (req: AuthenticatedRequest, res: Response) => {
             return res.status(404).json({ success: false, message: 'Project not found' });
         }
         if (error.message === 'PERMISSION_DENIED') {
-            return res.status(403).json({ success: false, message: 'Cannot create tasks in this project' });
+            return res.status(403).json({ success: false, message: 'You do not have permission to create tasks for this project' });
         }
         if (error.message === 'ASSIGNEE_NOT_IN_PROJECT') {
             return res.status(400).json({ success: false, message: 'Assigned user is not part of the project' });

@@ -5,6 +5,7 @@ import { User } from '../../users/user.model';
 import { Company } from '../../super-admin/companies/company.model';
 import { AuditLogService } from '../../audit-logs/audit-log.service';
 import { AuditAction } from '../../audit-logs/audit-log.types';
+import { UserService } from '../../users/user.service';
 import { CreateProjectBody } from './project.validator';
 import { AppError } from '../../../utils/AppError';
 
@@ -145,6 +146,45 @@ function buildSettings(settingsInput: Record<string, boolean | undefined>): Proj
 // ─── ProjectService ───────────────────────────────────────────────────────────
 
 export class ProjectService {
+    // ─── Access Control Helpers ───────────────────────────────────────────────────
+
+    /**
+     * Determines which project IDs a user can access.
+     * Returns `null` if the user has global access (e.g. PROJECT_READ permission).
+     * Otherwise returns an array of `Types.ObjectId` representing assigned projects.
+     */
+    static async getAccessibleProjectIds(companyId: string, userId: string): Promise<Types.ObjectId[] | null> {
+        // If user has explicit PROJECT_READ, they can access all company projects
+        const hasGlobalRead = await UserService.hasPermission(userId, 'PROJECT_READ');
+        if (hasGlobalRead) return null;
+
+        const uId = new Types.ObjectId(userId);
+        
+        const [created, managed, team, clients] = await Promise.all([
+            Project.find({ companyId, createdById: uId }).select('_id').lean(),
+            ProjectInCharge.find({ userId: uId }).select('projectId').lean(),
+            ProjectTeamMember.find({ userId: uId }).select('projectId').lean(),
+            ProjectClient.find({ userId: uId }).select('projectId').lean(),
+        ]);
+
+        const projectIds = new Set<string>();
+        created.forEach(p => projectIds.add(String(p._id)));
+        managed.forEach(p => projectIds.add(String(p.projectId)));
+        team.forEach(p => projectIds.add(String(p.projectId)));
+        clients.forEach(p => projectIds.add(String(p.projectId)));
+
+        return Array.from(projectIds).map(id => new Types.ObjectId(id));
+    }
+
+    /**
+     * Reusable helper to check if a user can access a specific project.
+     */
+    static async canAccessProject(companyId: string, userId: string, projectId: string): Promise<boolean> {
+        const accessibleIds = await this.getAccessibleProjectIds(companyId, userId);
+        if (accessibleIds === null) return true; // unrestricted access
+        
+        return accessibleIds.some(id => String(id) === projectId);
+    }
     /**
      * Create a new project atomically inside a transaction.
      * All sub-operations (settings, in-charge, team members, clients)
@@ -372,6 +412,7 @@ export class ProjectService {
      */
     static async listProjects(
         companyId: string,
+        userId: string,
         query: {
             page?: number;
             limit?: number;
@@ -388,6 +429,20 @@ export class ProjectService {
             companyId: new Types.ObjectId(companyId),
             isActive: true,
         };
+        
+        // Enforce project visibility access control
+        const accessibleIds = await this.getAccessibleProjectIds(companyId, userId);
+        if (accessibleIds !== null) {
+            if (accessibleIds.length === 0) {
+                // User is not assigned to any projects and lacks PROJECT_READ
+                return {
+                    data: [],
+                    pagination: { page, limit, total: 0, totalPages: 0 }
+                };
+            }
+            filter['_id'] = { $in: accessibleIds };
+        }
+
         if (query.status) filter['status'] = query.status;
         if (query.priority) filter['priority'] = query.priority;
         if (query.search) {
@@ -465,10 +520,16 @@ export class ProjectService {
      */
     static async getProjectById(
         projectId: string,
-        companyId: string
+        companyId: string,
+        userId: string
     ): Promise<CreateProjectResponse> {
         if (!Types.ObjectId.isValid(projectId)) {
             throw AppError.unprocessable('Invalid project ID');
+        }
+
+        const canAccess = await this.canAccessProject(companyId, userId, projectId);
+        if (!canAccess) {
+            throw AppError.forbidden('You do not have permission to access this project');
         }
 
         const project: any = await Project.findOne({
