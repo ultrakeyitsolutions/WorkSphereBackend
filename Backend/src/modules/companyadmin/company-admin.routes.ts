@@ -71,6 +71,16 @@ router.use('/task-bugs', taskBugRootRoutes);
 // ── /api/v1/company/task-attachments ─────────────────────────────────────────
 router.use('/task-attachments', taskAttachmentRootRoutes);
 
+import taskTrackingRoutes from '../task-tracking/task-tracking.routes';
+
+import taskIntelligenceRoutes from '../task-intelligence/task-intelligence.routes';
+
+// ── /api/v1/company/task-tracking ────────────────────────────────────────────
+router.use('/task-tracking', taskTrackingRoutes);
+
+// ── /api/v1/company/task-intelligence ────────────────────────────────────────
+router.use('/task-intelligence', taskIntelligenceRoutes);
+
 // ── /api/v1/company/[modules|statuses|stages|task-templates] ─────────────────
 router.use('/', taskMetaRoutes);
 

@@ -3,7 +3,13 @@ import { Schema, model, Document, Types } from 'mongoose';
 export enum ActivityType {
     COMMENT = 'COMMENT',
     DOUBT = 'DOUBT',
-    SYSTEM = 'SYSTEM'
+    SYSTEM = 'SYSTEM',
+    TASK_STARTED = 'TASK_STARTED',
+    TASK_PAUSED = 'TASK_PAUSED',
+    TASK_RESUMED = 'TASK_RESUMED',
+    TASK_HELD = 'TASK_HELD',
+    TASK_COMPLETED = 'TASK_COMPLETED',
+    TASK_CANCELLED = 'TASK_CANCELLED'
 }
 
 export interface ITaskActivity extends Document {
