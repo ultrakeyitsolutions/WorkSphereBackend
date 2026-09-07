@@ -52,7 +52,9 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "ajv": "^8.17.2",
+    "@vercel/static-config": {
+      "ajv": "^8.17.2"
+    },
     "path-to-regexp": "^6.3.0",
     "undici": "^6.27.1"
   }
