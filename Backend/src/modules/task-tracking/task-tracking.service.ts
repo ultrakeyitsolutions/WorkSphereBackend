@@ -4,7 +4,7 @@ import { Attendance, AttendanceStatus } from '../attendance/attendance.model';
 import { Task } from '../tasks/task.model';
 import { ProjectService } from '../companyadmin/projects/project.service';
 import { TaskActivity, ActivityType } from '../task-activities/task-activity.model';
-
+import { TaskExplanationRatingService } from '../task-explanation-rating/task-explanation-rating.service';
 import { AppError } from '../../utils/AppError';
 
 export class TaskTrackingService {
@@ -34,6 +34,12 @@ export class TaskTrackingService {
         const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
         if (!canAccess) {
             throw AppError.forbidden('UNAUTHORIZED_PROJECT_ACCESS');
+        }
+
+        // 3. Verify user has rated the task explanation
+        const hasRated = await TaskExplanationRatingService.hasUserRatedTask(companyId, userId, taskId);
+        if (!hasRated) {
+            throw AppError.forbidden('RATING_REQUIRED');
         }
 
         const startedAt = new Date();

@@ -77,6 +77,8 @@ import taskIntelligenceRoutes from '../task-intelligence/task-intelligence.route
 
 import attendanceRoutes from '../attendance/attendance.routes';
 
+import taskExplanationRatingRoutes from '../task-explanation-rating/task-explanation-rating.routes';
+
 // ── /api/v1/company/attendance ───────────────────────────────────────────────
 router.use('/attendance', attendanceRoutes);
 
@@ -85,6 +87,9 @@ router.use('/task-tracking', taskTrackingRoutes);
 
 // ── /api/v1/company/task-intelligence ────────────────────────────────────────
 router.use('/task-intelligence', taskIntelligenceRoutes);
+
+// ── /api/v1/company/task-explanation-ratings ─────────────────────────────────
+router.use('/task-explanation-ratings', taskExplanationRatingRoutes);
 
 // ── /api/v1/company/[modules|statuses|stages|task-templates] ─────────────────
 router.use('/', taskMetaRoutes);
