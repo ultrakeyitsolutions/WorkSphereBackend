@@ -9,6 +9,7 @@ import {
     // Templates
     listTemplates, getTemplateById, createTemplate, updateTemplate, deleteTemplate
 } from './task-meta.controller';
+import { getProjectMembers } from './task.controller';
 import { validateRequest } from '../../middleware/validateRequest';
 import {
     paramProjectIdSchema,
@@ -64,5 +65,12 @@ router.get('/task-templates/:templateId', validateRequest(paramTemplateIdSchema)
 router.post('/task-templates', validateRequest(createTaskTemplateSchema), createTemplate);
 router.put('/task-templates/:templateId', validateRequest(updateTaskTemplateSchema), updateTemplate);
 router.delete('/task-templates/:templateId', validateRequest(paramTemplateIdSchema), deleteTemplate);
+
+// ══════════════════════════════════════════════
+//  PROJECT MEMBERS  — /api/v1/company/projects/:projectId/members
+// (Used by the reopen task flow to list assignable members)
+// ══════════════════════════════════════════════
+
+router.get('/projects/:projectId/members', validateRequest(paramProjectIdSchema), getProjectMembers);
 
 export default router;

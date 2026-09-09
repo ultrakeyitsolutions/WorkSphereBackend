@@ -23,6 +23,7 @@ export interface IChecklistItem {
     isCompleted: boolean;
     completedById?: Types.ObjectId;
     completedAt?: Date;
+    notes?: string;
 }
 
 export interface ITask extends Document {
@@ -75,6 +76,13 @@ export interface ITask extends Document {
     isRecurring: boolean;
     recurringRuleId?: Types.ObjectId;
 
+    // Reopen tracking
+    isReopen: boolean;
+    reopenedFromTaskId?: Types.ObjectId;
+    reopenedFromTaskNumber?: string;
+    reopenReason?: string;
+    completedDate?: Date;
+
     isPinned: boolean;
     isActive: boolean;
     isArchived: boolean;
@@ -90,7 +98,8 @@ const checklistItemSchema = new Schema<IChecklistItem>(
         title: { type: String, required: true },
         isCompleted: { type: Boolean, default: false },
         completedById: { type: Schema.Types.ObjectId, ref: 'User' },
-        completedAt: { type: Date }
+        completedAt: { type: Date },
+        notes: { type: String, default: null }
     },
     { _id: true }
 );
@@ -154,6 +163,13 @@ const taskSchema = new Schema<ITask>(
 
         isRecurring: { type: Boolean, default: false },
         recurringRuleId: { type: Schema.Types.ObjectId, ref: 'RecurringRule' },
+
+        // Reopen tracking
+        isReopen: { type: Boolean, default: false },
+        reopenedFromTaskId: { type: Schema.Types.ObjectId, ref: 'Task' },
+        reopenedFromTaskNumber: { type: String },
+        reopenReason: { type: String, trim: true },
+        completedDate: { type: Date },
 
         isPinned: { type: Boolean, default: false },
         isActive: { type: Boolean, default: true },

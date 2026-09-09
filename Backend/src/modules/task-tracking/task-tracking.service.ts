@@ -3,8 +3,10 @@ import { TimeTracking, TrackingState, IntervalType, ITimeTracking } from './time
 import { Attendance, AttendanceStatus } from '../attendance/attendance.model';
 import { Task } from '../tasks/task.model';
 import { ProjectService } from '../companyadmin/projects/project.service';
+import { Project, ProjectInCharge } from '../companyadmin/projects/project.model';
 import { TaskActivity, ActivityType } from '../task-activities/task-activity.model';
 import { TaskExplanationRatingService } from '../task-explanation-rating/task-explanation-rating.service';
+import { UserService } from '../users/user.service';
 import { AppError } from '../../utils/AppError';
 
 export class TaskTrackingService {
@@ -300,6 +302,102 @@ export class TaskTrackingService {
         await TaskActivity.create({
             companyId, projectId: session.projectId, taskId, userId,
             type: ActivityType.TASK_COMPLETED, content: 'Task tracking completed.'
+        });
+
+        return updated;
+    }
+
+    /**
+     * Admin hold — put a member's active tracking session on hold on their behalf.
+     * The caller (adminId) must be role 'Admin', a ProjectInCharge, or the project owner.
+     *
+     * POST /api/v1/company/task-tracking/admin-hold
+     * Body: { taskId, targetUserId, reason }
+     */
+    static async adminHoldTracking(
+        companyId: string,
+        adminId: string,
+        taskId: string,
+        targetUserId: string | undefined,
+        reason: string
+    ): Promise<ITimeTracking> {
+        if (!reason || reason.trim() === '') {
+            throw AppError.badRequest('HOLD_REASON_REQUIRED');
+        }
+
+        // 1. Verify caller has admin/manager authority
+        const isAdmin = await UserService.hasPermission(adminId, 'TASK_HOLD_OVERRIDE');
+        if (!isAdmin) {
+            // Fallback: check if caller is ProjectInCharge or project owner
+            const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).lean();
+            if (!task) throw AppError.notFound('TASK_NOT_FOUND_OR_INACTIVE');
+
+            const project = await Project.findOne({ _id: task.projectId, companyId }).lean();
+            if (!project) throw AppError.notFound('PROJECT_NOT_FOUND');
+
+            const isOwner = project.createdById?.toString() === adminId;
+            const isInCharge = await ProjectInCharge.exists({ projectId: task.projectId, userId: adminId });
+
+            if (!isOwner && !isInCharge) {
+                throw AppError.forbidden('ADMIN_OR_MANAGER_REQUIRED');
+            }
+        }
+
+        // 2. Verify the task exists within this company
+        const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).lean();
+        if (!task) throw AppError.notFound('TASK_NOT_FOUND_OR_INACTIVE');
+
+        // 3. Find the tracking session (either for specific targetUserId or any active/paused session on this task)
+        const sessionQuery: any = {
+            companyId,
+            taskId,
+            state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED] }
+        };
+        if (targetUserId) {
+            sessionQuery.userId = targetUserId;
+        }
+
+        const session = await TimeTracking.findOne(sessionQuery);
+
+        if (!session) {
+            throw AppError.conflict('NO_ACTIVE_TRACKING_SESSION_FOR_TASK');
+        }
+
+        // 4. Transition to ON_HOLD
+        const originalState = session.state;
+        const now = new Date();
+        const activeInterval = session.intervals[session.intervals.length - 1];
+
+        if (activeInterval && !activeInterval.endedAt) {
+            activeInterval.endedAt = now;
+            if (activeInterval.type === IntervalType.WORK) {
+                const workedDuration = Math.floor((now.getTime() - activeInterval.startedAt.getTime()) / 1000);
+                session.workedSeconds += Math.max(0, workedDuration);
+            }
+        }
+
+        session.state = TrackingState.ON_HOLD;
+        session.intervals.push({ type: IntervalType.HOLD, startedAt: now, reason: reason.trim() });
+
+        const updated = await TimeTracking.findOneAndUpdate(
+            { _id: session._id, state: originalState, __v: session.__v },
+            {
+                $set: { state: session.state, intervals: session.intervals, workedSeconds: session.workedSeconds },
+                $inc: { __v: 1 }
+            },
+            { new: true }
+        );
+
+        if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
+
+        // 5. Log task activity (shows who placed the hold)
+        await TaskActivity.create({
+            companyId,
+            projectId: session.projectId,
+            taskId,
+            userId: adminId,
+            type: ActivityType.TASK_HELD,
+            content: `Task placed on hold by admin on behalf of member. Reason: ${reason.trim()}`
         });
 
         return updated;

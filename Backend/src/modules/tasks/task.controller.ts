@@ -179,3 +179,40 @@ export const deleteTaskRecurrence = async (req: AuthenticatedRequest, res: Respo
         return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
     }
 };
+
+export const reopenTask = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const taskId = req.params.taskId as string;
+        if (!companyId || !userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const result = await TaskService.reopenTask(
+            taskId,
+            req.body,
+            companyId as string,
+            userId as string
+        );
+        return res.status(201).json({ success: true, data: result });
+    } catch (error: any) {
+        if (error.message === 'TASK_NOT_FOUND') return res.status(404).json({ success: false, message: 'Task not found' });
+        if (error.message === 'PROJECT_NOT_FOUND') return res.status(404).json({ success: false, message: 'Project not found' });
+        if (error.message === 'TASK_NOT_COMPLETED') return res.status(400).json({ success: false, message: 'Task can only be reopened when it is in the Completed stage' });
+        if (error.message === 'ASSIGNEE_NOT_IN_PROJECT') return res.status(400).json({ success: false, message: 'Assigned user is not part of the project' });
+        return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+    }
+};
+
+export const getProjectMembers = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const companyId = req.user?.companyId;
+        const projectId = req.params.projectId as string;
+        if (!companyId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const members = await TaskService.getProjectMembers(projectId, companyId as string);
+        return res.status(200).json({ success: true, data: members });
+    } catch (error: any) {
+        if (error.message === 'PROJECT_NOT_FOUND') return res.status(404).json({ success: false, message: 'Project not found' });
+        return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+    }
+};

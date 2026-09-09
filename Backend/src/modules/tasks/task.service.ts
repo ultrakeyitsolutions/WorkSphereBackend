@@ -57,6 +57,15 @@ export class TaskService {
             deliveryDate: t.deliveryDate || null,
             tags: t.tags || [],
             notesCount: (t.notes || []).length,
+            checklist: (t.checklist || []).map((item: any) => ({
+                _id: item._id ? item._id.toString() : undefined,
+                id: item._id ? item._id.toString() : undefined,
+                title: item.title,
+                isCompleted: Boolean(item.isCompleted),
+                notes: item.notes || null,
+                completedById: item.completedById ? item.completedById.toString() : null,
+                completedAt: item.completedAt || null
+            })),
             checklistItemsCount: (t.checklist || []).length,
             documentCount: (t.attachments || []).length,
             isUseTemplate: t.isUseTemplate || false,
@@ -64,6 +73,11 @@ export class TaskService {
             templateName: t.templateId ? t.templateId.name : null,
             isRecurring: t.isRecurring,
             recurringRuleId: t.recurringRuleId || null,
+            // Reopen tracking
+            isReopen: t.isReopen || false,
+            reopenedFromTaskId: t.reopenedFromTaskId || null,
+            reopenedFromTaskNumber: t.reopenedFromTaskNumber || null,
+            reopenReason: t.reopenReason || null,
             isPinned: t.isPinned,
             isActive: t.isActive,
             isArchived: t.isArchived,
@@ -569,5 +583,162 @@ export class TaskService {
             { new: true, upsert: true }
         );
         return settings.lastTaskItemNumber;
+    }
+
+    // ─── Reopen Task ──────────────────────────────────────────────────────────
+    /**
+     * Reopens a completed task by creating a new task that references the original.
+     * Only available when the task's current stage is named "Completed".
+     * The assignee must be a member of the project.
+     */
+    static async reopenTask(
+        taskId: string,
+        data: { reopenReason: string; assignedToId?: string },
+        companyId: string,
+        userId: string
+    ) {
+        // 1. Load the original task
+        const originalTask = await Task.findOne({ _id: taskId, companyId, isArchived: false })
+            .populate('stageId', 'name')
+            .lean();
+        if (!originalTask) throw new Error('TASK_NOT_FOUND');
+
+        // 2. Validate project
+        const project = await Project.findOne({ _id: originalTask.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        // 3. Task must be in the "Completed" stage
+        const stageName = (originalTask.stageId as any)?.name || '';
+        if (stageName !== 'Completed') {
+            throw new Error('TASK_NOT_COMPLETED');
+        }
+
+        // 4. Validate assignee is a project member (if provided)
+        const assignedToId = data.assignedToId;
+        if (assignedToId) {
+            const isOwner = project.createdById.toString() === assignedToId;
+            const isInCharge = await ProjectInCharge.exists({ projectId: originalTask.projectId, userId: assignedToId });
+            const isMember = await ProjectTeamMember.exists({ projectId: originalTask.projectId, userId: assignedToId });
+            if (!isOwner && !isInCharge && !isMember) throw new Error('ASSIGNEE_NOT_IN_PROJECT');
+        }
+
+        // 5. Generate a new task number
+        const itemNumber = await this.getNextItemNumber(String(originalTask.projectId));
+        const taskNumber = String(itemNumber).padStart(3, '0');
+
+        // 6. Resolve the default "New" / initial stage for the project
+        const defaultStage = await Stage.findOne({ projectId: originalTask.projectId, isDefault: true }).lean();
+
+        // 7. Resolve the initial status
+        const defaultStatus = await Status.findOne({ companyId, isMaster: true, orderIndex: 1 }).lean();
+
+        // 8. Create the reopened task
+        const reopenedTask = await Task.create({
+            companyId,
+            projectId: originalTask.projectId,
+            moduleId: originalTask.moduleId,
+            title: originalTask.title,
+            ticketId: originalTask.ticketId,
+            taskType: originalTask.taskType,
+            criticality: originalTask.criticality,
+            priority: originalTask.priority,
+            tags: originalTask.tags,
+            estimatedTime: originalTask.estimatedTime,
+            // Stage: go back to the default ("New") stage
+            stageId: defaultStage?._id,
+            // Status: back to the first status (orderIndex 1 = "New")
+            statusId: defaultStatus?._id,
+            createdBy: userId,
+            assignedToId: assignedToId || originalTask.assignedToId,
+            itemNumber,
+            taskNumber,
+            // Reopen tracking
+            isReopen: true,
+            reopenedFromTaskId: originalTask._id,
+            reopenedFromTaskNumber: originalTask.taskNumber,
+            reopenReason: data.reopenReason,
+            isRecurring: false,
+            isUseTemplate: false
+        });
+
+        // 9. Track assignment history
+        const effectiveAssigneeId = assignedToId || (originalTask.assignedToId ? String(originalTask.assignedToId) : null);
+        if (effectiveAssigneeId) {
+            const assignedUser = await User.findById(effectiveAssigneeId).lean();
+            if (assignedUser) {
+                await TaskAssignment.create({
+                    companyId,
+                    projectId: originalTask.projectId,
+                    taskId: reopenedTask._id,
+                    assignedToId: effectiveAssigneeId,
+                    assignedToName: assignedUser.name || '',
+                    assignedById: userId
+                });
+            }
+        }
+
+        // 10. Load and return the full task
+        const loadedTask = await Task.findById(reopenedTask._id)
+            .populate('assignedToId', 'name email avatar')
+            .populate('createdBy', 'name email avatar')
+            .populate('stageId', 'name orderIndex')
+            .populate('statusId', 'name')
+            .populate('moduleId', 'name')
+            .lean();
+
+        return {
+            id: loadedTask!._id,
+            taskNumber: loadedTask!.taskNumber,
+            reopenedFromTaskId: originalTask._id,
+            reopenedFromTaskNumber: originalTask.taskNumber,
+            isReopen: true,
+            status: 1,
+            statusName: 'Reopened',
+            stageId: (loadedTask!.stageId as any)?._id || null,
+            reopenReason: data.reopenReason,
+            removedFromDelivery: false,
+            message: 'Task reopened successfully',
+            task: this.mapTaskResponse(loadedTask, project.name)
+        };
+    }
+
+    // ─── Get Project Members (for reopen assignment) ───────────────────────────
+    static async getProjectMembers(projectId: string, companyId: string) {
+        const project = await Project.findOne({ _id: projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        const teamMembers = await ProjectTeamMember.find({ projectId })
+            .populate('userId', 'name email avatar')
+            .lean();
+        const inCharges = await ProjectInCharge.find({ projectId })
+            .populate('userId', 'name email avatar')
+            .lean();
+
+        const members: any[] = [];
+        const seen = new Set<string>();
+
+        const push = (user: any, role: string) => {
+            const uid = user?._id?.toString();
+            if (!uid || seen.has(uid)) return;
+            seen.add(uid);
+            members.push({
+                id: uid,
+                fullName: user?.name || '',
+                email: user?.email || '',
+                avatar: user?.avatar || null,
+                role
+            });
+        };
+
+        for (const ic of inCharges) push(ic.userId, 'Manager');
+        for (const tm of teamMembers) push(tm.userId, 'Member');
+
+        // Include project owner
+        const ownerUid = project.createdById?.toString();
+        if (ownerUid && !seen.has(ownerUid)) {
+            members.unshift({ id: ownerUid, fullName: 'Project Owner', role: 'Owner', email: '', avatar: null });
+        }
+
+        return members;
     }
 }

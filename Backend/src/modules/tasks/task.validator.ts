@@ -14,8 +14,13 @@ const attachmentSchema = z.object({
 });
 
 const checklistItemSchema = z.object({
+    _id: z.string().optional(),
+    id: z.string().optional(),
     title: z.string().min(1),
-    isCompleted: z.boolean().default(false)
+    isCompleted: z.boolean().default(false),
+    notes: z.string().optional().nullable(),
+    completedById: z.string().optional().nullable(),
+    completedAt: z.string().or(z.date()).optional().nullable()
 });
 
 const estimatedTimeSchema = z.object({
@@ -144,4 +149,18 @@ export const projectTaskListSchema = z.object({
         isRecurring: z.string().optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
         search: z.string().optional()
     }).optional()
+});
+
+// ─── Reopen Task ──────────────────────────────────────────────────────────
+export const reopenTaskSchema = z.object({
+    params: z.object({ taskId: idSchema }),
+    body: z.object({
+        reopenReason: z.string().min(1, 'Reopen reason is required'),
+        assignedToId: idSchema.optional()
+    })
+});
+
+// ─── Project Members Param ──────────────────────────────────────────────────
+export const projectMembersParamSchema = z.object({
+    params: z.object({ projectId: idSchema })
 });

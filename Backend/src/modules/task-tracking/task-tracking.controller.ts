@@ -133,4 +133,30 @@ export class TaskTrackingController {
         const tracking = await TaskTrackingService.completeTracking(companyId, userId, taskId);
         sendSuccess(res, 'Task completed successfully.', { tracking }, 200);
     });
+
+    /**
+     * Admin hold — put a member's task on hold on their behalf
+     * POST /api/v1/company/task-tracking/admin-hold
+     * Body: { taskId: string, targetUserId: string, reason: string }
+     * Auth: Caller must be Admin role, ProjectInCharge, or project owner
+     */
+    static adminHoldTracking = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const adminId = req.user?.userId;   // the company admin / manager making the request
+        const { taskId, targetUserId, reason } = req.body;
+
+        if (!companyId || !adminId) throw AppError.unauthorized('Unauthorized');
+        if (!taskId) throw AppError.badRequest('taskId is required');
+        if (!reason) throw AppError.badRequest('reason is required');
+
+        const tracking = await TaskTrackingService.adminHoldTracking(
+            companyId,
+            adminId,
+            taskId as string,
+            targetUserId as string | undefined,
+            reason as string
+        );
+
+        sendSuccess(res, 'Task placed on hold by admin.', { tracking }, 200);
+    });
 }
