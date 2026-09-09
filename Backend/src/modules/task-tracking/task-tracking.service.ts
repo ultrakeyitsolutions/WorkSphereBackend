@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import { TimeTracking, TrackingState, IntervalType, ITimeTracking } from './time-tracking.model';
 import { Attendance, AttendanceStatus } from '../attendance/attendance.model';
 import { Task } from '../tasks/task.model';
+import { Stage } from '../tasks/stage.model';
+import { Status } from '../tasks/status.model';
 import { ProjectService } from '../companyadmin/projects/project.service';
 import { Project, ProjectInCharge } from '../companyadmin/projects/project.model';
 import { TaskActivity, ActivityType } from '../task-activities/task-activity.model';
@@ -303,6 +305,21 @@ export class TaskTrackingService {
             companyId, projectId: session.projectId, taskId, userId,
             type: ActivityType.TASK_COMPLETED, content: 'Task tracking completed.'
         });
+
+        // Advance task to completed stage and set completedDate
+        const completedStage = await Stage.findOne({ 
+            projectId: session.projectId, 
+            name: { $regex: /^completed$/i } 
+        }).lean();
+        const completedStatus = await Status.findOne({ 
+            companyId, 
+            name: { $regex: /^completed$/i } 
+        }).lean();
+
+        const updateFields: any = { completedDate: now };
+        if (completedStage) updateFields.stageId = completedStage._id;
+        if (completedStatus) updateFields.statusId = completedStatus._id;
+        await Task.updateOne({ _id: taskId }, { $set: updateFields });
 
         return updated;
     }

@@ -9,6 +9,8 @@ import { UserService } from '../users/user.service';
 import { Stage } from './stage.model';
 import { Status } from './status.model';
 import { TaskAssignment } from './task-assignment.model';
+import { TimeTracking, TrackingState } from '../task-tracking/time-tracking.model';
+import { TaskActivity, ActivityType } from '../task-activities/task-activity.model';
 
 export class TaskService {
 
@@ -523,6 +525,60 @@ export class TaskService {
         return true;
     }
 
+    // ─── Cancel Task ──────────────────────────────────────────────────────────
+    static async cancelTask(taskId: string, companyId: string, userId: string, reason?: string) {
+        const task = await Task.findOne({ _id: taskId, companyId, isArchived: false });
+        if (!task) throw new Error('TASK_NOT_FOUND');
+
+        const project = await Project.findOne({ _id: task.projectId, companyId, isArchived: false }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        const cancelledStatus = await Status.findOne({ companyId, name: { $regex: /^cancelled$/i } }).lean();
+        if (cancelledStatus) {
+            task.statusId = cancelledStatus._id;
+        }
+
+        const cancelledStage = await Stage.findOne({ projectId: task.projectId, name: { $regex: /^cancelled$/i } }).lean();
+        if (cancelledStage) {
+            task.stageId = cancelledStage._id;
+        }
+
+        const now = new Date();
+        const sessions = await TimeTracking.find({
+            taskId,
+            companyId,
+            state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] }
+        });
+
+        for (const session of sessions) {
+            const originalState = session.state;
+            const activeInterval = session.intervals[session.intervals.length - 1];
+            if (activeInterval && !activeInterval.endedAt) {
+                activeInterval.endedAt = now;
+                if (originalState === TrackingState.TRACKING) {
+                    const workedDuration = Math.floor((now.getTime() - activeInterval.startedAt.getTime()) / 1000);
+                    session.workedSeconds += Math.max(0, workedDuration);
+                }
+            }
+            session.state = TrackingState.CANCELLED;
+            session.endedAt = now;
+            await session.save();
+        }
+
+        await task.save();
+
+        await TaskActivity.create({
+            companyId,
+            projectId: task.projectId,
+            taskId: task._id,
+            userId,
+            type: ActivityType.TASK_CANCELLED,
+            content: reason ? `Task cancelled. Reason: ${reason}` : 'Task cancelled.'
+        });
+
+        return task;
+    }
+
     // ─── Recurrence Management ────────────────────────────────────────────────
     static async getTaskRecurrence(taskId: string, companyId: string) {
         const task = await Task.findOne({ _id: taskId, isArchived: false }).lean();
@@ -600,6 +656,7 @@ export class TaskService {
         // 1. Load the original task
         const originalTask = await Task.findOne({ _id: taskId, companyId, isArchived: false })
             .populate('stageId', 'name')
+            .populate('statusId', 'name')
             .lean();
         if (!originalTask) throw new Error('TASK_NOT_FOUND');
 
@@ -607,10 +664,26 @@ export class TaskService {
         const project = await Project.findOne({ _id: originalTask.projectId, companyId, isArchived: false }).lean();
         if (!project) throw new Error('PROJECT_NOT_FOUND');
 
-        // 3. Task must be in the "Completed" stage
+        // 3. Task must be in "Completed" or "Cancelled" state
         const stageName = (originalTask.stageId as any)?.name || '';
-        if (stageName !== 'Completed') {
-            throw new Error('TASK_NOT_COMPLETED');
+        const statusName = (originalTask.statusId as any)?.name || '';
+
+        const trackingSession = await TimeTracking.findOne({ taskId, companyId }).sort({ updatedAt: -1 }).lean();
+        const trackingState = trackingSession?.state;
+
+        const isCompleted =
+            Boolean(stageName.match(/completed/i)) ||
+            Boolean(statusName.match(/completed/i)) ||
+            trackingState === TrackingState.COMPLETED ||
+            Boolean(originalTask.completedDate);
+
+        const isCancelled =
+            Boolean(stageName.match(/cancelled/i)) ||
+            Boolean(statusName.match(/cancelled/i)) ||
+            trackingState === TrackingState.CANCELLED;
+
+        if (!isCompleted && !isCancelled) {
+            throw new Error('TASK_NOT_COMPLETED_OR_CANCELLED');
         }
 
         // 4. Validate assignee is a project member (if provided)

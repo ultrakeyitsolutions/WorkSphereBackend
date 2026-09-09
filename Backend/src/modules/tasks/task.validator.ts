@@ -164,3 +164,12 @@ export const reopenTaskSchema = z.object({
 export const projectMembersParamSchema = z.object({
     params: z.object({ projectId: idSchema })
 });
+
+// ─── Cancel Task ────────────────────────────────────────────────────────────
+export const cancelTaskSchema = z.object({
+    params: z.object({ taskId: idSchema }),
+    body: z.object({
+        reason: z.string().optional()
+    }).optional()
+});
+

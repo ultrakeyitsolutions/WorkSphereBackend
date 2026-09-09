@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validateRequest } from '../../middleware/validateRequest';
-import { createTaskSchema, updateTaskSchema, updateRecurrenceSchema, taskParamSchema, reopenTaskSchema, projectMembersParamSchema } from './task.validator';
-import { createTask, getTaskById, updateTask, deleteTask, getTaskRecurrence, updateTaskRecurrence, deleteTaskRecurrence, reopenTask, getProjectMembers } from './task.controller';
+import { createTaskSchema, updateTaskSchema, updateRecurrenceSchema, taskParamSchema, reopenTaskSchema, projectMembersParamSchema, cancelTaskSchema } from './task.validator';
+import { createTask, getTaskById, updateTask, deleteTask, getTaskRecurrence, updateTaskRecurrence, deleteTaskRecurrence, reopenTask, getProjectMembers, cancelTask } from './task.controller';
 import taskActivityRoutes from '../task-activities/task-activity.routes';
 import taskBugRoutes from '../task-bugs/task-bug.routes';
 import taskAttachmentRoutes from '../task-attachments/task-attachment.routes';
@@ -34,8 +34,11 @@ router.put('/:taskId/recurrence', validateRequest(updateRecurrenceSchema), updat
 // DELETE /api/v1/company/tasks/:taskId/recurrence
 router.delete('/:taskId/recurrence', validateRequest(taskParamSchema), deleteTaskRecurrence);
 
+// POST /api/v1/company/tasks/:taskId/cancel
+router.post('/:taskId/cancel', validateRequest(cancelTaskSchema), cancelTask);
+
 // POST /api/v1/company/tasks/:taskId/reopen
-// Only available for tasks in the "Completed" stage
+// Only available for tasks in Completed or Cancelled state
 router.post('/:taskId/reopen', validateRequest(reopenTaskSchema), reopenTask);
 
 export default router;
