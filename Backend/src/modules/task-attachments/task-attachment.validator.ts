@@ -8,12 +8,17 @@ export const createAttachmentSchema = z.object({
     }),
     body: z.object({
         fileName: z.string().min(1),
-        originalName: z.string().min(1),
-        storageKey: z.string().min(1),
-        url: z.string().url(),
-        mimeType: z.string().min(1),
-        size: z.number().min(1),
-        type: z.enum(['IMAGE', 'DOCUMENT', 'VIDEO', 'AUDIO', 'OTHER']).default('OTHER')
+        originalName: z.string().optional(),
+        filePath: z.string().optional(),
+        url: z.string().optional(),
+        storageKey: z.string().optional(),
+        fileType: z.string().optional(),
+        type: z.string().optional(),
+        fileSize: z.number().optional(),
+        size: z.number().optional(),
+        contentType: z.string().optional(),
+        mimeType: z.string().optional(),
+        youtubeVideoId: z.string().nullable().optional()
     })
 });
 

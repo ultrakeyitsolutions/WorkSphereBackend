@@ -16,12 +16,18 @@ export interface ITaskAttachment extends Document {
     bugId?: Types.ObjectId;
     uploadedBy: Types.ObjectId;
     fileName: string;
-    originalName: string;
-    storageKey: string;
-    url: string;
-    mimeType: string;
-    size: number;
+    originalName?: string;
+    storageKey?: string;
+    url?: string;
+    filePath?: string;
+    fileType?: string;
+    fileSize?: number;
+    contentType?: string;
+    mimeType?: string;
+    size?: number;
     type: AttachmentType;
+    youtubeVideoId?: string | null;
+    uploadedAt?: Date;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -35,12 +41,18 @@ const taskAttachmentSchema = new Schema<ITaskAttachment>(
         bugId: { type: Schema.Types.ObjectId, ref: 'TaskBug', default: null },
         uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
         fileName: { type: String, required: true },
-        originalName: { type: String, required: true },
-        storageKey: { type: String, required: true },
-        url: { type: String, required: true },
-        mimeType: { type: String, required: true },
-        size: { type: Number, required: true },
+        originalName: { type: String },
+        storageKey: { type: String },
+        url: { type: String },
+        filePath: { type: String },
+        fileType: { type: String, default: 'document' },
+        fileSize: { type: Number, default: 0 },
+        contentType: { type: String },
+        mimeType: { type: String },
+        size: { type: Number, default: 0 },
         type: { type: String, enum: Object.values(AttachmentType), default: AttachmentType.OTHER },
+        youtubeVideoId: { type: String, default: null },
+        uploadedAt: { type: Date, default: Date.now }
     },
     { timestamps: true }
 );
