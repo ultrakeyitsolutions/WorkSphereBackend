@@ -37,7 +37,7 @@ export const createProject = catchAsync(async (req: AuthenticatedRequest, res: R
 // ─── GET /api/v1/company/projects ────────────────────────────────────────────
 
 export const listProjects = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-    const { companyId, userId } = getActor(req);
+    const { companyId, userId, role } = getActor(req);
     const qs = (val: unknown): string | undefined =>
         typeof val === 'string' ? val : Array.isArray(val) ? val[0] : undefined;
 
@@ -47,15 +47,15 @@ export const listProjects = catchAsync(async (req: AuthenticatedRequest, res: Re
         status: qs(req.query.status),
         priority: qs(req.query.priority),
         search: qs(req.query.search),
-    });
+    }, role);
     return sendSuccess(res, 'Projects fetched successfully', result);
 });
 
 // ─── GET /api/v1/company/projects/:projectId ─────────────────────────────────
 
 export const getProjectById = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-    const { companyId, userId } = getActor(req);
-    const project = await ProjectService.getProjectById(getProjectId(req), companyId, userId);
+    const { companyId, userId, role } = getActor(req);
+    const project = await ProjectService.getProjectById(getProjectId(req), companyId, userId, role);
     return sendSuccess(res, 'Project fetched successfully', project);
 });
 
@@ -124,5 +124,13 @@ export const activateProject = catchAsync(async (req: AuthenticatedRequest, res:
 export const deactivateProject = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
     const { userId, companyId, email, role } = getActor(req);
     const result = await ProjectService.deactivateProject(getProjectId(req), companyId, userId, email, role);
+    return sendSuccess(res, result.message, { id: result.id });
+});
+
+// ─── PATCH /api/v1/company/projects/:projectId/hold ──────────────────────────
+
+export const holdProject = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+    const { userId, companyId, email, role } = getActor(req);
+    const result = await ProjectService.holdProject(getProjectId(req), companyId, userId, email, role);
     return sendSuccess(res, result.message, { id: result.id });
 });

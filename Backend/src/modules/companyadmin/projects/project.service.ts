@@ -63,6 +63,8 @@ export interface CreateProjectResponse {
         modules: number;
         documents: number;
     };
+    canEdit: boolean;
+    isEdit: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -79,6 +81,8 @@ export interface ListProjectItem {
         teamMembers: number;
         tasks: number;
     };
+    canEdit: boolean;
+    isEdit: boolean;
     createdAt: Date;
 }
 
@@ -210,6 +214,46 @@ export class ProjectService {
         if (accessibleIds === null) return true; // unrestricted access
         
         return accessibleIds.some(id => String(id) === projectId);
+    }
+
+    /**
+     * Check if a role string represents an administrative user.
+     */
+    static isAdminRole(role?: string): boolean {
+        const r = (role || '').toUpperCase();
+        return r === 'COMPANY_ADMIN' || r === 'SUPER_ADMIN' || r === 'ADMIN';
+    }
+
+    /**
+     * Determines if a user has permission to edit project details.
+     * Currently restricted to Company Admin / Super Admin (and users with PROJECT_UPDATE).
+     * Designed to be easily extended for Project Managers or other delegated roles in the future.
+     */
+    static async canUserEditProject(
+        companyId: string,
+        userId: string,
+        projectId: string | Types.ObjectId,
+        userRole?: string
+    ): Promise<boolean> {
+        // 1. Company Admin, Super Admin, and Admin can always edit
+        if (this.isAdminRole(userRole)) {
+            return true;
+        }
+
+        // 2. Explicit permission check (e.g. PROJECT_UPDATE granted to user or custom role)
+        const hasUpdatePerm = await UserService.hasPermission(userId, 'PROJECT_UPDATE');
+        if (hasUpdatePerm) {
+            return true;
+        }
+
+        // 3. Future extension: If allowed in company policy, Project Manager or Creator can edit:
+        // const isManager = await ProjectInCharge.exists({
+        //     projectId: new Types.ObjectId(projectId),
+        //     userId: new Types.ObjectId(userId)
+        // });
+        // if (isManager) return true;
+
+        return false;
     }
     /**
      * Create a new project atomically inside a transaction.
@@ -448,6 +492,8 @@ export class ProjectService {
                 modules: 0,
                 documents: 0,
             },
+            canEdit: true,
+            isEdit: true,
             createdAt: projectCreatedAt,
             updatedAt: projectUpdatedAt,
         };
@@ -466,7 +512,8 @@ export class ProjectService {
             status?: string;
             priority?: string;
             search?: string;
-        }
+        },
+        userRole?: string
     ): Promise<{ data: ListProjectItem[]; pagination: object }> {
         const page = Math.max(1, query.page ?? 1);
         const limit = Math.min(100, Math.max(1, query.limit ?? 20));
@@ -474,7 +521,7 @@ export class ProjectService {
 
         const filter: Record<string, any> = {
             companyId: new Types.ObjectId(companyId),
-            isActive: true,
+            deletedAt: null,
         };
         
         // Enforce project visibility access control
@@ -535,19 +582,25 @@ export class ProjectService {
             memberCountMap.set(String(mc._id), mc.count);
         }
 
-        const data: ListProjectItem[] = projects.map((p) => ({
-            id: String(p._id),
-            name: p.name,
-            status: p.status,
-            priority: p.priority,
-            startDate: (p.startDate as Date).toISOString().split('T')[0],
-            endDate: (p.endDate as Date).toISOString().split('T')[0],
-            projectManager: managerByProjectId.get(String(p._id)) ?? null,
-            stats: {
-                teamMembers: memberCountMap.get(String(p._id)) ?? 0,
-                tasks: 0,
-            },
-            createdAt: (p as any).createdAt as Date,
+        const isAdmin = this.isAdminRole(userRole);
+        const data: ListProjectItem[] = await Promise.all(projects.map(async (p) => {
+            const canEdit = isAdmin ? true : await this.canUserEditProject(companyId, userId, p._id as Types.ObjectId, userRole);
+            return {
+                id: String(p._id),
+                name: p.name,
+                status: p.status,
+                priority: p.priority,
+                startDate: (p.startDate as Date).toISOString().split('T')[0],
+                endDate: (p.endDate as Date).toISOString().split('T')[0],
+                projectManager: managerByProjectId.get(String(p._id)) ?? null,
+                stats: {
+                    teamMembers: memberCountMap.get(String(p._id)) ?? 0,
+                    tasks: 0,
+                },
+                canEdit,
+                isEdit: canEdit,
+                createdAt: (p as any).createdAt as Date,
+            };
         }));
 
         return {
@@ -568,7 +621,8 @@ export class ProjectService {
     static async getProjectById(
         projectId: string,
         companyId: string,
-        userId: string
+        userId: string,
+        userRole?: string
     ): Promise<CreateProjectResponse> {
         if (!Types.ObjectId.isValid(projectId)) {
             throw AppError.unprocessable('Invalid project ID');
@@ -582,7 +636,7 @@ export class ProjectService {
         const project: any = await Project.findOne({
             _id: new Types.ObjectId(projectId),
             companyId: new Types.ObjectId(companyId),
-            isActive: true,
+            deletedAt: null,
         })
             .populate<{ createdById: { _id: Types.ObjectId; name: string } }>('createdById', 'name')
             .lean();
@@ -678,6 +732,8 @@ export class ProjectService {
                 modules: 0,
                 documents: 0,
             },
+            canEdit: await this.canUserEditProject(companyId, userId, projectId, userRole),
+            isEdit: await this.canUserEditProject(companyId, userId, projectId, userRole),
             createdAt: project.createdAt as Date,
             updatedAt: project.updatedAt as Date,
         };
@@ -712,6 +768,11 @@ export class ProjectService {
         actorEmail: string,
         actorRole: string
     ): Promise<{ id: string; message: string }> {
+        const canEdit = await this.canUserEditProject(companyId, actorId, projectId, actorRole);
+        if (!canEdit) {
+            throw AppError.forbidden('You do not have permission to edit this project');
+        }
+
         const project = await ProjectService.resolveProject(projectId, companyId);
 
         // Check name uniqueness if name is being changed
@@ -732,6 +793,17 @@ export class ProjectService {
         if (input.description !== undefined) projectUpdate.description = input.description?.trim() ?? null;
         if (input.type) projectUpdate.type = input.type;
         if (input.priority) projectUpdate.priority = input.priority;
+        if (input.status) {
+            projectUpdate.status = input.status;
+            if (input.status === 'OnHold') {
+                projectUpdate.isActive = false;
+            } else if (input.status === 'Active') {
+                projectUpdate.isActive = true;
+                projectUpdate.isArchived = false;
+            } else if (input.status === 'Archived') {
+                projectUpdate.isArchived = true;
+            }
+        }
         if (input.startDate) projectUpdate.startDate = new Date(input.startDate);
         if (input.endDate) projectUpdate.endDate = new Date(input.endDate);
 
@@ -740,6 +812,29 @@ export class ProjectService {
         const resolvedEnd = projectUpdate.endDate ?? project.endDate;
         if (resolvedEnd < resolvedStart) {
             throw AppError.unprocessable('endDate must not be earlier than startDate');
+        }
+
+        // Validate manager if provided
+        if (input.projectManagerId) {
+            await validateCompanyUsers([input.projectManagerId], companyId, 'Project manager');
+        }
+
+        // Validate team members if provided
+        let filteredTeamMemberIds: string[] | undefined = undefined;
+        if (input.teamMemberIds !== undefined) {
+            const uniqueTeamMemberIds = deduplicateIds(input.teamMemberIds);
+            const managerIdToCheck = input.projectManagerId || undefined;
+            filteredTeamMemberIds = managerIdToCheck
+                ? uniqueTeamMemberIds.filter(id => id !== managerIdToCheck)
+                : uniqueTeamMemberIds;
+            await validateCompanyUsers(filteredTeamMemberIds, companyId, 'Team member');
+        }
+
+        // Validate clients if provided
+        let uniqueClientIds: string[] | undefined = undefined;
+        if (input.clientIds !== undefined) {
+            uniqueClientIds = deduplicateIds(input.clientIds);
+            await validateCompanyUsers(uniqueClientIds, companyId, 'Client');
         }
 
         const session = await mongoose.startSession();
@@ -773,6 +868,58 @@ export class ProjectService {
                 }
             }
 
+            const now = new Date();
+
+            // Update manager if provided
+            if (input.projectManagerId) {
+                await ProjectInCharge.deleteMany(
+                    { projectId: new Types.ObjectId(projectId) },
+                    { session }
+                );
+                const inChargeDoc = new ProjectInCharge({
+                    projectId: new Types.ObjectId(projectId),
+                    userId: new Types.ObjectId(input.projectManagerId),
+                    addedById: new Types.ObjectId(actorId),
+                    addedAt: now,
+                });
+                await inChargeDoc.save({ session });
+            }
+
+            // Update team members if provided
+            if (filteredTeamMemberIds !== undefined) {
+                await ProjectTeamMember.deleteMany(
+                    { projectId: new Types.ObjectId(projectId) },
+                    { session }
+                );
+                for (const memberId of filteredTeamMemberIds) {
+                    const teamMemberDoc = new ProjectTeamMember({
+                        projectId: new Types.ObjectId(projectId),
+                        userId: new Types.ObjectId(memberId),
+                        addedById: new Types.ObjectId(actorId),
+                        canCreateTasks: input.settings?.allowTeamMembersToCreateTasks ?? true,
+                        addedAt: now,
+                    });
+                    await teamMemberDoc.save({ session });
+                }
+            }
+
+            // Update clients if provided
+            if (uniqueClientIds !== undefined) {
+                await ProjectClient.deleteMany(
+                    { projectId: new Types.ObjectId(projectId) },
+                    { session }
+                );
+                for (const clientId of uniqueClientIds) {
+                    const clientDoc = new ProjectClient({
+                        projectId: new Types.ObjectId(projectId),
+                        userId: new Types.ObjectId(clientId),
+                        addedById: new Types.ObjectId(actorId),
+                        addedAt: now,
+                    });
+                    await clientDoc.save({ session });
+                }
+            }
+
             await session.commitTransaction();
         } catch (err) {
             await session.abortTransaction();
@@ -784,7 +931,16 @@ export class ProjectService {
         AuditLogService.log({
             action: AuditAction.PROJECT_UPDATED,
             actorId, actorEmail, actorRole, companyId,
-            metadata: { projectId, changes: Object.keys(projectUpdate) },
+            metadata: {
+                projectId,
+                changes: [
+                    ...Object.keys(projectUpdate),
+                    ...(input.settings ? ['settings'] : []),
+                    ...(input.projectManagerId ? ['projectManagerId'] : []),
+                    ...(input.teamMemberIds ? ['teamMemberIds'] : []),
+                    ...(input.clientIds ? ['clientIds'] : []),
+                ],
+            },
             description: `Project "${project.name}" updated`,
             success: true,
         });
@@ -980,6 +1136,9 @@ export class ProjectService {
         actorEmail: string,
         actorRole: string
     ): Promise<{ id: string; message: string }> {
+        const canEdit = await this.canUserEditProject(companyId, actorId, projectId, actorRole);
+        if (!canEdit) throw AppError.forbidden('You do not have permission to modify this project');
+
         const project = await ProjectService.resolveProject(projectId, companyId);
         if (project.isActive && project.status === 'Active') {
             throw AppError.conflict('Project is already active');
@@ -1001,21 +1160,24 @@ export class ProjectService {
         return { id: projectId, message: 'Project activated successfully' };
     }
 
-    // ─── Set Inactive Status ──────────────────────────────────────────────────
+    // ─── Set Inactive / On Hold Status ────────────────────────────────────────
 
     /**
-     * PATCH /api/v1/company/projects/:projectId/deactivate
-     * Puts a project on hold (inactive). Does not delete or archive it.
+     * PATCH /api/v1/company/projects/:projectId/hold
+     * Puts a project On Hold (status: 'OnHold', isActive: false). Does not delete or archive it.
      */
-    static async deactivateProject(
+    static async holdProject(
         projectId: string,
         companyId: string,
         actorId: string,
         actorEmail: string,
         actorRole: string
     ): Promise<{ id: string; message: string }> {
+        const canEdit = await this.canUserEditProject(companyId, actorId, projectId, actorRole);
+        if (!canEdit) throw AppError.forbidden('You do not have permission to modify this project');
+
         const project = await ProjectService.resolveProject(projectId, companyId);
-        if (!project.isActive) throw AppError.conflict('Project is already inactive');
+        if (project.status === 'OnHold') throw AppError.conflict('Project is already on hold');
 
         await Project.updateOne(
             { _id: new Types.ObjectId(projectId) },
@@ -1026,10 +1188,24 @@ export class ProjectService {
             action: AuditAction.PROJECT_DEACTIVATED,
             actorId, actorEmail, actorRole, companyId,
             metadata: { projectId },
-            description: `Project "${project.name}" deactivated`,
+            description: `Project "${project.name}" put on hold`,
             success: true,
         });
 
-        return { id: projectId, message: 'Project deactivated successfully' };
+        return { id: projectId, message: 'Project put on hold successfully' };
+    }
+
+    /**
+     * PATCH /api/v1/company/projects/:projectId/deactivate
+     * Alias to holdProject.
+     */
+    static async deactivateProject(
+        projectId: string,
+        companyId: string,
+        actorId: string,
+        actorEmail: string,
+        actorRole: string
+    ): Promise<{ id: string; message: string }> {
+        return this.holdProject(projectId, companyId, actorId, actorEmail, actorRole);
     }
 }

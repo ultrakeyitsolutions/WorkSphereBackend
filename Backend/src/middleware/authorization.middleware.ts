@@ -34,11 +34,11 @@ export const authorizePermissions = (...requiredPermissions: string[]) => {
                 return sendError(res, 'Forbidden: No role assigned to user', 403);
             }
 
-            // Admin and SUPER_ADMIN bypass all permission checks.
-            // COMPANY_ADMIN must be explicitly granted permissions via Role or User grants.
+            // Admin, SUPER_ADMIN, and COMPANY_ADMIN have full administrative access within their scope.
             if (
                 role.name === 'Admin' ||
-                role.name === 'SUPER_ADMIN'
+                role.name === 'SUPER_ADMIN' ||
+                role.name === 'COMPANY_ADMIN'
             ) {
                 return next();
             }

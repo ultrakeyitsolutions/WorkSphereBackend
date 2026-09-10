@@ -19,6 +19,7 @@ import {
     unpinProject,
     activateProject,
     deactivateProject,
+    holdProject,
 } from './project.controller';
 import {
     getEmployeeSelector,
@@ -144,6 +145,14 @@ router.patch(
     authorizePermissions('PROJECT_UPDATE'),
     validateRequest(projectParamSchema),
     deactivateProject
+);
+
+// ── PATCH  /api/v1/company/projects/:projectId/hold ──────────────────────────────
+router.patch(
+    '/:projectId/hold',
+    authorizePermissions('PROJECT_UPDATE'),
+    validateRequest(projectParamSchema),
+    holdProject
 );
 
 export default router;

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProjectType, ProjectPriority } from './project.types';
+import { ProjectType, ProjectPriority, ProjectStatus } from './project.types';
 
 // ─── Project Settings Schema ──────────────────────────────────────────────────
 
@@ -108,6 +108,10 @@ export const updateProjectBodySchema = z.object({
         Object.values(ProjectPriority) as [string, ...string[]]
     ).optional(),
 
+    status: z.enum(
+        Object.values(ProjectStatus) as [string, ...string[]]
+    ).optional(),
+
     startDate: z
         .string()
         .refine((d) => !isNaN(Date.parse(d)), 'startDate must be a valid date')
@@ -116,6 +120,20 @@ export const updateProjectBodySchema = z.object({
     endDate: z
         .string()
         .refine((d) => !isNaN(Date.parse(d)), 'endDate must be a valid date')
+        .optional(),
+
+    projectManagerId: z
+        .string()
+        .trim()
+        .min(1, 'projectManagerId must not be empty')
+        .optional(),
+
+    teamMemberIds: z
+        .array(z.string().trim().min(1))
+        .optional(),
+
+    clientIds: z
+        .array(z.string().trim().min(1))
         .optional(),
 
     settings: projectSettingsSchema,
