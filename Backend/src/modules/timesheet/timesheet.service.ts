@@ -103,6 +103,15 @@ export class TimesheetService {
     }
 
     /**
+     * Check if a role is an admin role (Company Admin, Super Admin, etc.)
+     */
+    public static isAdminRole(role?: string): boolean {
+        if (!role) return false;
+        const r = role.toUpperCase();
+        return r === 'COMPANY_ADMIN' || r === 'SUPER_ADMIN' || r === 'ADMIN';
+    }
+
+    /**
      * For Members: verify they have access to the requested projectId.
      * For Admins: projectId is not access-checked beyond belonging to the company.
      */
@@ -112,7 +121,7 @@ export class TimesheetService {
         role: string,
         projectId: string
     ): Promise<void> {
-        const isAdmin = role === 'Admin' || role === 'SUPER_ADMIN';
+        const isAdmin = TimesheetService.isAdminRole(role);
         if (isAdmin) {
             // Admin: just verify the project belongs to the company
             const project = await Project.findOne({
@@ -141,7 +150,7 @@ export class TimesheetService {
         role: string,
         requestedEmployeeId?: string
     ): Promise<string | null> {
-        const isAdmin = role === 'Admin' || role === 'SUPER_ADMIN';
+        const isAdmin = TimesheetService.isAdminRole(role);
 
         if (!isAdmin) {
             // Member: always own data — ignore any supplied employeeId
@@ -193,10 +202,44 @@ export class TimesheetService {
         companyId: string,
         userIds: string[],
         startDate: Date,
-        endDate: Date
+        endDate: Date,
+        projectId?: string
     ) {
         const companyObjId = new Types.ObjectId(companyId);
         const userObjIds   = userIds.map(id => new Types.ObjectId(id));
+
+        const trackingQuery: any = {
+            companyId: companyObjId,
+            userId: { $in: userObjIds },
+            $or: [
+                { startedAt: { $gte: startDate, $lte: endDate } },
+                { endedAt: { $gte: startDate, $lte: endDate } },
+                { startedAt: { $lte: endDate }, endedAt: { $gte: startDate } },
+                { startedAt: { $lte: endDate }, state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] } }
+            ]
+        };
+        if (projectId) {
+            trackingQuery.projectId = new Types.ObjectId(projectId);
+        }
+
+        const activityQuery: any = {
+            companyId: companyObjId,
+            userId: { $in: userObjIds },
+            type: {
+                $in: [
+                    ActivityType.TASK_STARTED,
+                    ActivityType.TASK_PAUSED,
+                    ActivityType.TASK_RESUMED,
+                    ActivityType.TASK_HELD,
+                    ActivityType.TASK_COMPLETED,
+                    ActivityType.TASK_CANCELLED
+                ]
+            },
+            createdAt: { $gte: startDate, $lte: endDate }
+        };
+        if (projectId) {
+            activityQuery.projectId = new Types.ObjectId(projectId);
+        }
 
         const [attendanceRecords, trackingSessions, activities] = await Promise.all([
             Attendance.find({
@@ -205,27 +248,8 @@ export class TimesheetService {
                 checkInTime: { $gte: startDate, $lte: endDate }
             }).lean(),
 
-            TimeTracking.find({
-                companyId: companyObjId,
-                userId: { $in: userObjIds },
-                startedAt: { $gte: startDate, $lte: endDate }
-            }).lean(),
-
-            TaskActivity.find({
-                companyId: companyObjId,
-                userId: { $in: userObjIds },
-                type: {
-                    $in: [
-                        ActivityType.TASK_STARTED,
-                        ActivityType.TASK_PAUSED,
-                        ActivityType.TASK_RESUMED,
-                        ActivityType.TASK_HELD,
-                        ActivityType.TASK_COMPLETED,
-                        ActivityType.TASK_CANCELLED
-                    ]
-                },
-                createdAt: { $gte: startDate, $lte: endDate }
-            }).lean()
+            TimeTracking.find(trackingQuery).lean(),
+            TaskActivity.find(activityQuery).lean()
         ]);
 
         return { attendanceRecords, trackingSessions, activities };
@@ -268,22 +292,40 @@ export class TimesheetService {
         activities: (ITaskActivity & { taskTitle?: string; projectName?: string })[],
         projectIdFilter?: string
     ): TimesheetDayData {
-        // Filter sessions to a specific project if requested
-        const filteredSessions = projectIdFilter
+        const isProjectFiltered = !!projectIdFilter;
+
+        // Filter sessions and activities to a specific project if requested
+        const filteredSessions = isProjectFiltered
             ? sessions.filter(s => s.projectId?.toString() === projectIdFilter)
             : sessions;
 
-        const metrics   = TimesheetCalculatorService.calculateDayMetrics(attendance, filteredSessions);
+        const filteredActivities = isProjectFiltered
+            ? activities.filter(a => a.projectId?.toString() === projectIdFilter)
+            : activities;
+
+        const metrics   = TimesheetCalculatorService.calculateDayMetrics(
+            attendance,
+            filteredSessions,
+            isProjectFiltered
+        );
         const anomalies = TimesheetCalculatorService.detectAnomalies(
-            metrics, attendance, filteredSessions, activities, dateKey
+            metrics,
+            attendance,
+            filteredSessions,
+            filteredActivities,
+            dateKey,
+            isProjectFiltered
         );
         const health    = TimesheetCalculatorService.calculateHealthSummary(anomalies);
-        const timeline  = TimesheetCalculatorService.buildTimeline(attendance, activities);
+        const timeline  = TimesheetCalculatorService.buildTimeline(
+            isProjectFiltered && !filteredSessions.length ? null : attendance,
+            filteredActivities
+        );
 
         return {
             date: dateKey,
-            checkInTime:  attendance?.checkInTime.toISOString() ?? null,
-            checkOutTime: attendance?.checkOutTime?.toISOString() ?? null,
+            checkInTime:  attendance?.checkInTime ? attendance.checkInTime.toISOString() : null,
+            checkOutTime: attendance?.checkOutTime ? attendance.checkOutTime.toISOString() : null,
             timesheetHealth: health,
             anomalies,
             activities: timeline,
@@ -325,6 +367,41 @@ export class TimesheetService {
         if (targetUserId) {
             userIds = [targetUserId];
             total   = 1;
+        } else if (projectId) {
+            // Admin requesting by project without a specific employee:
+            // Find ALL members who have timesheet data (time tracking or activity) for the selected project
+            const start = startDate;
+            const end   = endDate;
+            const companyObjId = new Types.ObjectId(companyId);
+            const projectObjId = new Types.ObjectId(projectId);
+
+            const [trackingUserIds, activityUserIds] = await Promise.all([
+                TimeTracking.find({
+                    companyId: companyObjId,
+                    projectId: projectObjId,
+                    $or: [
+                        { startedAt: { $gte: start, $lte: end } },
+                        { endedAt: { $gte: start, $lte: end } },
+                        { startedAt: { $lte: end }, endedAt: { $gte: start } },
+                        { startedAt: { $lte: end }, state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] } }
+                    ]
+                }).distinct('userId'),
+
+                TaskActivity.find({
+                    companyId: companyObjId,
+                    projectId: projectObjId,
+                    createdAt: { $gte: start, $lte: end }
+                }).distinct('userId')
+            ]);
+
+            const uniqueUserIds = Array.from(new Set([
+                ...trackingUserIds.map(id => id.toString()),
+                ...activityUserIds.map(id => id.toString())
+            ]));
+
+            total = uniqueUserIds.length;
+            const skip = (page - 1) * pageSize;
+            userIds = uniqueUserIds.slice(skip, skip + pageSize);
         } else {
             // Admin requesting all employees (paginated)
             const result = await TimesheetService.getCompanyEmployeeIds(companyId, page, pageSize);
@@ -336,9 +413,9 @@ export class TimesheetService {
             return TimesheetService.emptyResponse(startDate, endDate, page, pageSize);
         }
 
-        // 4. Load raw data
+        // 4. Load raw data (filtered by projectId if supplied)
         const { attendanceRecords, trackingSessions, activities } =
-            await TimesheetService.loadRawData(companyId, userIds, startDate, endDate);
+            await TimesheetService.loadRawData(companyId, userIds, startDate, endDate, projectId);
 
         // 5. Enrich activities
         const enrichedActivities = await TimesheetService.enrichActivities(activities);
@@ -459,23 +536,50 @@ export class TimesheetService {
         const targetUserId = await TimesheetService.resolveTargetUserId(
             companyId, requestingUserId, role, filter.employeeId
         );
-        if (!targetUserId) {
-            throw AppError.badRequest('employeeId is required for trend data');
-        }
 
-        if (filter.projectId) {
+        if (filter.projectId && targetUserId) {
             await TimesheetService.enforceProjectAccess(companyId, targetUserId, role, filter.projectId);
         }
 
+        const days = enumerateDays(filter.startDate, filter.endDate);
+        const isProjectFiltered = !!filter.projectId;
+
+        let userIds: string[];
+        if (targetUserId) {
+            userIds = [targetUserId];
+        } else if (filter.projectId) {
+            const start = filter.startDate;
+            const end   = filter.endDate;
+            const pObjId = new Types.ObjectId(filter.projectId);
+            const foundIds = await TimeTracking.find({
+                companyId: new Types.ObjectId(companyId),
+                projectId: pObjId,
+                $or: [
+                    { startedAt: { $gte: start, $lte: end } },
+                    { endedAt: { $gte: start, $lte: end } },
+                    { startedAt: { $lte: end }, endedAt: { $gte: start } },
+                    { startedAt: { $lte: end }, state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] } }
+                ]
+            }).distinct('userId');
+            userIds = foundIds.map(id => id.toString());
+        } else {
+            const result = await TimesheetService.getCompanyEmployeeIds(companyId, 1, 100);
+            userIds = result.userIds;
+        }
+
+        if (!userIds.length) {
+            return days.map(d => ({ date: d, metrics: TimesheetCalculatorService.zeroMetrics() }));
+        }
+
         const { attendanceRecords, trackingSessions } = await TimesheetService.loadRawData(
-            companyId, [targetUserId], filter.startDate, filter.endDate
+            companyId, userIds, filter.startDate, filter.endDate, filter.projectId
         );
 
-        const days = enumerateDays(filter.startDate, filter.endDate);
-
-        const attendanceByDay = new Map<string, IAttendance>();
+        const attendanceByDay = new Map<string, IAttendance[]>();
         for (const att of attendanceRecords) {
-            attendanceByDay.set(toDateKey(att.checkInTime), att);
+            const dk = toDateKey(att.checkInTime);
+            if (!attendanceByDay.has(dk)) attendanceByDay.set(dk, []);
+            attendanceByDay.get(dk)!.push(att);
         }
 
         const sessionsByDay = new Map<string, ITimeTracking[]>();
@@ -490,9 +594,12 @@ export class TimesheetService {
                 ? (sessionsByDay.get(dateKey) ?? []).filter(s => s.projectId?.toString() === filter.projectId)
                 : sessionsByDay.get(dateKey) ?? [];
 
+            const dayAttendance = attendanceByDay.get(dateKey)?.[0] ?? null;
+
             const metrics = TimesheetCalculatorService.calculateDayMetrics(
-                attendanceByDay.get(dateKey) ?? null,
-                filteredSessions
+                dayAttendance,
+                filteredSessions,
+                isProjectFiltered
             );
             return { date: dateKey, metrics };
         });
@@ -548,10 +655,15 @@ export class TimesheetService {
         const current  = calcAgg(currentData.attendanceRecords, currentData.trackingSessions);
         const previous = calcAgg(previousData.attendanceRecords, previousData.trackingSessions);
 
-        const makeMetric = (metric: string, curr: number, prev: number): ComparisonMetric => {
-            const change = prev === 0 ? null : Math.round(((curr - prev) / prev) * 10000) / 100;
-            const trend  = change === null ? 'FLAT' : change > 0 ? 'UP' : change < 0 ? 'DOWN' : 'FLAT';
-            return { metric, currentValue: curr, previousValue: prev, percentageChange: change, trend };
+        const makeMetric = (key: string, curr: number, prev: number): ComparisonMetric => {
+            const diff = Math.round((curr - prev) * 100) / 100;
+            return {
+                metric: key,
+                currentValue: curr,
+                previousValue: prev,
+                percentageChange: TimesheetCalculatorService.safePercentage(Math.abs(diff), prev || 1),
+                trend: diff > 0 ? 'UP' : diff < 0 ? 'DOWN' : 'FLAT'
+            };
         };
 
         return [
@@ -563,7 +675,7 @@ export class TimesheetService {
     }
 
     /**
-     * Project-based time distribution for a user in a date range.
+     * Project-based time distribution for a user or company-wide in a date range.
      */
     static async getProjectDistribution(
         companyId: string,
@@ -574,13 +686,28 @@ export class TimesheetService {
         const targetUserId = await TimesheetService.resolveTargetUserId(
             companyId, requestingUserId, role, filter.employeeId
         );
-        if (!targetUserId) {
-            throw AppError.badRequest('employeeId is required for project distribution');
-        }
 
-        const { trackingSessions } = await TimesheetService.loadRawData(
-            companyId, [targetUserId], filter.startDate, filter.endDate
-        );
+        let trackingSessions: ITimeTracking[];
+
+        if (targetUserId) {
+            const raw = await TimesheetService.loadRawData(
+                companyId, [targetUserId], filter.startDate, filter.endDate
+            );
+            trackingSessions = raw.trackingSessions;
+        } else {
+            // Company-wide project distribution across all tracking sessions
+            const start = filter.startDate;
+            const end   = filter.endDate;
+            trackingSessions = await TimeTracking.find({
+                companyId: new Types.ObjectId(companyId),
+                $or: [
+                    { startedAt: { $gte: start, $lte: end } },
+                    { endedAt: { $gte: start, $lte: end } },
+                    { startedAt: { $lte: end }, endedAt: { $gte: start } },
+                    { startedAt: { $lte: end }, state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] } }
+                ]
+            }).lean();
+        }
 
         // Accumulate production hours per project
         const projectHours = new Map<string, number>();
@@ -631,7 +758,7 @@ export class TimesheetService {
         targetUserId: string,
         date: string
     ): Promise<TimelineEntry[]> {
-        const isAdmin = role === 'Admin' || role === 'SUPER_ADMIN';
+        const isAdmin = TimesheetService.isAdminRole(role);
 
         if (!isAdmin && targetUserId !== requestingUserId) {
             throw AppError.forbidden('CANNOT_VIEW_ANOTHER_EMPLOYEES_TIMELINE');
@@ -666,12 +793,35 @@ export class TimesheetService {
         const targetUserId = await TimesheetService.resolveTargetUserId(
             companyId, requestingUserId, role, filter.employeeId
         );
-        if (!targetUserId) {
-            throw AppError.badRequest('employeeId is required to fetch anomalies');
+
+        let userIds: string[];
+        if (targetUserId) {
+            userIds = [targetUserId];
+        } else if (filter.projectId) {
+            const start = filter.startDate;
+            const end   = filter.endDate;
+            const pObjId = new Types.ObjectId(filter.projectId);
+            const foundIds = await TimeTracking.find({
+                companyId: new Types.ObjectId(companyId),
+                projectId: pObjId,
+                $or: [
+                    { startedAt: { $gte: start, $lte: end } },
+                    { endedAt: { $gte: start, $lte: end } },
+                    { startedAt: { $lte: end }, endedAt: { $gte: start } },
+                    { startedAt: { $lte: end }, state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] } }
+                ]
+            }).distinct('userId');
+            userIds = foundIds.map(id => id.toString());
+        } else {
+            const result = await TimesheetService.getCompanyEmployeeIds(companyId, 1, 50);
+            userIds = result.userIds;
         }
 
+        if (!userIds.length) return [];
+
+        const isProjectFiltered = !!filter.projectId;
         const { attendanceRecords, trackingSessions, activities } = await TimesheetService.loadRawData(
-            companyId, [targetUserId], filter.startDate, filter.endDate
+            companyId, userIds, filter.startDate, filter.endDate, filter.projectId
         );
 
         const days = enumerateDays(filter.startDate, filter.endDate);
@@ -697,14 +847,16 @@ export class TimesheetService {
             .map(dateKey => {
                 const metrics = TimesheetCalculatorService.calculateDayMetrics(
                     attByDay.get(dateKey) ?? null,
-                    sesByDay.get(dateKey) ?? []
+                    sesByDay.get(dateKey) ?? [],
+                    isProjectFiltered
                 );
                 const anomalies = TimesheetCalculatorService.detectAnomalies(
                     metrics,
                     attByDay.get(dateKey) ?? null,
                     sesByDay.get(dateKey) ?? [],
                     actByDay.get(dateKey) ?? [],
-                    dateKey
+                    dateKey,
+                    isProjectFiltered
                 );
                 return { date: dateKey, anomalies };
             })

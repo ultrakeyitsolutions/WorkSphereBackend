@@ -58,8 +58,53 @@ export class TimesheetCalculatorService {
      */
     static calculateDayMetrics(
         attendance: IAttendance | null,
-        trackingSessions: ITimeTracking[]
+        trackingSessions: ITimeTracking[],
+        isProjectFiltered: boolean = false
     ): ProductivityMetrics {
+        // If filtered by a specific project: calculate metrics directly from that project's sessions
+        if (isProjectFiltered) {
+            let productionMs = 0;
+            let breakMs      = 0;
+
+            for (const session of trackingSessions) {
+                for (const interval of session.intervals) {
+                    const start = interval.startedAt.getTime();
+                    const end   = interval.endedAt
+                        ? interval.endedAt.getTime()
+                        : Date.now();
+                    const durationMs = Math.max(0, end - start);
+
+                    if (interval.type === IntervalType.WORK) {
+                        productionMs += durationMs;
+                    } else {
+                        // IntervalType.BREAK and IntervalType.HOLD both map to breakHours
+                        breakMs += durationMs;
+                    }
+                }
+            }
+
+            const productionHours = TimesheetCalculatorService.msToHours(productionMs);
+            const breakHours      = TimesheetCalculatorService.msToHours(breakMs);
+            const totalWorkHours  = Math.round((productionHours + breakHours) * 100) / 100;
+            const overtime        = TimesheetCalculatorService.calculateOvertime(totalWorkHours);
+            const productivityScore = totalWorkHours > 0
+                ? TimesheetCalculatorService.safePercentage(productionHours, totalWorkHours)
+                : 0;
+
+            return {
+                productionHours,
+                breakHours,
+                idleHours: 0,
+                meetingHours: 0,
+                efficientHours: 0,
+                inefficientHours: 0,
+                overtimeHours: overtime.overtimeHours,
+                totalWorkHours,
+                productivityScore,
+                utilizationPercentage: productivityScore
+            };
+        }
+
         if (!attendance) {
             return TimesheetCalculatorService.zeroMetrics();
         }
@@ -159,20 +204,21 @@ export class TimesheetCalculatorService {
         attendance: IAttendance | null,
         sessions: ITimeTracking[],
         activities: ITaskActivity[],
-        calendarDate: string
+        calendarDate: string,
+        isProjectFiltered: boolean = false
     ): AnomalyRecord[] {
         const anomalies: AnomalyRecord[] = [];
 
-        if (!attendance) return anomalies;
+        if (!attendance && !isProjectFiltered) return anomalies;
 
-        const checkIn    = attendance.checkInTime;
-        const checkOut   = attendance.checkOutTime;
+        const checkIn    = attendance?.checkInTime ?? (sessions[0]?.startedAt ?? new Date());
+        const checkOut   = attendance?.checkOutTime;
         const now        = new Date();
 
         // ── MISSING_CHECKOUT ─────────────────────────────────────────────────
-        // Checked in but no checkout and it is past end of that calendar day
+        // Checked in but no checkout and it is past end of that calendar day (only for whole-day attendance)
         const endOfDay = new Date(`${calendarDate}T23:59:59.999Z`);
-        if (!checkOut && now > endOfDay) {
+        if (!isProjectFiltered && !checkOut && now > endOfDay) {
             anomalies.push({
                 type: AnomalyType.MISSING_CHECKOUT,
                 severity: AnomalySeverity.MEDIUM,
@@ -209,8 +255,8 @@ export class TimesheetCalculatorService {
         }
 
         // ── EXCESSIVE_IDLE ───────────────────────────────────────────────────
-        // idleHours > 50% of totalWorkHours, and totalWorkHours >= 1h
-        if (metrics.totalWorkHours >= 1 && metrics.idleHours > metrics.totalWorkHours * 0.5) {
+        // idleHours > 50% of totalWorkHours, and totalWorkHours >= 1h (only for whole-day attendance)
+        if (!isProjectFiltered && metrics.totalWorkHours >= 1 && metrics.idleHours > metrics.totalWorkHours * 0.5) {
             const pct = ((metrics.idleHours / metrics.totalWorkHours) * 100).toFixed(0);
             anomalies.push({
                 type: AnomalyType.EXCESSIVE_IDLE,
@@ -223,8 +269,8 @@ export class TimesheetCalculatorService {
         }
 
         // ── NO_TASK_ASSIGNED ─────────────────────────────────────────────────
-        // Zero production hours while checked in >= 2 hours
-        if (metrics.productionHours === 0 && metrics.totalWorkHours >= 2) {
+        // Zero production hours while checked in >= 2 hours (only for whole-day attendance)
+        if (!isProjectFiltered && metrics.productionHours === 0 && metrics.totalWorkHours >= 2) {
             anomalies.push({
                 type: AnomalyType.NO_TASK_ASSIGNED,
                 severity: AnomalySeverity.HIGH,

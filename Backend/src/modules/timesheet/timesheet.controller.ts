@@ -165,7 +165,7 @@ export class TimesheetController {
 
         const { date }       = parsed.data.params;
         const { employeeId } = parsed.data.query;
-        const isAdmin        = role === 'Admin' || role === 'SUPER_ADMIN';
+        const isAdmin        = TimesheetService.isAdminRole(role);
 
         // Member: always own timeline. Admin: use employeeId if supplied, else own.
         const targetUserId = isAdmin && employeeId ? employeeId : userId;
