@@ -72,10 +72,9 @@ router.use('/task-bugs', taskBugRootRoutes);
 router.use('/task-attachments', taskAttachmentRootRoutes);
 
 import taskTrackingRoutes from '../task-tracking/task-tracking.routes';
-
 import taskIntelligenceRoutes from '../task-intelligence/task-intelligence.routes';
-
 import attendanceRoutes from '../attendance/attendance.routes';
+import timesheetRoutes from '../timesheet/timesheet.routes';
 
 import taskExplanationRatingRoutes from '../task-explanation-rating/task-explanation-rating.routes';
 
@@ -90,6 +89,9 @@ router.use('/task-intelligence', taskIntelligenceRoutes);
 
 // ── /api/v1/company/task-explanation-ratings ─────────────────────────────────
 router.use('/task-explanation-ratings', taskExplanationRatingRoutes);
+
+// ── /api/v1/company/timesheets ────────────────────────────────────────────────
+router.use('/timesheets', timesheetRoutes);
 
 // ── /api/v1/company/[modules|statuses|stages|task-templates] ─────────────────
 router.use('/', taskMetaRoutes);

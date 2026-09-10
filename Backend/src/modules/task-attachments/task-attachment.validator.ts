@@ -18,12 +18,16 @@ export const createAttachmentSchema = z.object({
         size: z.number().optional(),
         contentType: z.string().optional(),
         mimeType: z.string().optional(),
-        youtubeVideoId: z.string().nullable().optional()
+        duration: z.number().optional(),
+        youtubeVideoId: z.string().nullable().optional(),
+        isInherited: z.boolean().optional(),
+        sourceTaskId: z.string().optional()
     })
 });
 
 export const attachmentParamSchema = z.object({
     params: z.object({
-        attachmentId: idSchema
+        attachmentId: idSchema,
+        taskId: idSchema.optional()
     })
 });

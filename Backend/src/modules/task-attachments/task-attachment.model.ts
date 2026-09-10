@@ -5,6 +5,7 @@ export enum AttachmentType {
     DOCUMENT = 'DOCUMENT',
     VIDEO = 'VIDEO',
     AUDIO = 'AUDIO',
+    VOICE_NOTE = 'VOICE_NOTE',
     OTHER = 'OTHER'
 }
 
@@ -15,6 +16,7 @@ export interface ITaskAttachment extends Document {
     activityId?: Types.ObjectId;
     bugId?: Types.ObjectId;
     uploadedBy: Types.ObjectId;
+    uploadedById?: Types.ObjectId;
     fileName: string;
     originalName?: string;
     storageKey?: string;
@@ -25,8 +27,11 @@ export interface ITaskAttachment extends Document {
     contentType?: string;
     mimeType?: string;
     size?: number;
+    duration?: number;
     type: AttachmentType;
     youtubeVideoId?: string | null;
+    isInherited?: boolean;
+    sourceTaskId?: Types.ObjectId;
     uploadedAt?: Date;
     createdAt: Date;
     updatedAt: Date;
@@ -40,6 +45,7 @@ const taskAttachmentSchema = new Schema<ITaskAttachment>(
         activityId: { type: Schema.Types.ObjectId, ref: 'TaskActivity', default: null },
         bugId: { type: Schema.Types.ObjectId, ref: 'TaskBug', default: null },
         uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        uploadedById: { type: Schema.Types.ObjectId, ref: 'User' },
         fileName: { type: String, required: true },
         originalName: { type: String },
         storageKey: { type: String },
@@ -50,12 +56,29 @@ const taskAttachmentSchema = new Schema<ITaskAttachment>(
         contentType: { type: String },
         mimeType: { type: String },
         size: { type: Number, default: 0 },
+        duration: { type: Number, default: null },
         type: { type: String, enum: Object.values(AttachmentType), default: AttachmentType.OTHER },
         youtubeVideoId: { type: String, default: null },
+        isInherited: { type: Boolean, default: false },
+        sourceTaskId: { type: Schema.Types.ObjectId, ref: 'Task', default: null },
         uploadedAt: { type: Date, default: Date.now }
     },
-    { timestamps: true }
+    {
+        timestamps: true,
+        toJSON: {
+            virtuals: true,
+            transform: function (doc, ret: any) {
+                ret.id = ret._id ? ret._id.toString() : ret.id;
+                return ret;
+            }
+        },
+        toObject: { virtuals: true }
+    }
 );
+
+taskAttachmentSchema.virtual('id').get(function () {
+    return this._id.toHexString();
+});
 
 taskAttachmentSchema.index({ taskId: 1, createdAt: -1 });
 taskAttachmentSchema.index({ activityId: 1 });

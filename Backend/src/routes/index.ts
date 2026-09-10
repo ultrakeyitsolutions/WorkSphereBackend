@@ -29,19 +29,10 @@ router.use('/v1/invitations', publicInvitationRoutes);
 // ── Permissions Route (auth required) ─────────────────────────────────────────
 router.use('/v1/permissions', permissionRoutes);
 
-// ── Company Admin Routes (auth required) ──────────────────────────────────────
-// POST   /api/v1/company/roles
-// GET    /api/v1/company/roles
-// GET    /api/v1/company/roles/:roleId
-// PUT    /api/v1/company/roles/:roleId
-// PATCH  /api/v1/company/roles/:roleId/status
-// DELETE /api/v1/company/roles/:roleId
-// POST   /api/v1/company/designations
-// GET    /api/v1/company/designations
-// ...
-// POST   /api/v1/company/invitations
-// GET    /api/v1/company/invitations
+// ── Company & Member Routes (auth required) ──────────────────────────────────
 router.use('/v1/company', companyAdminRoutes);
+router.use('/v1/member', companyAdminRoutes);
+router.use('/v1/members', companyAdminRoutes);
 
 // ── Protected Modules ─────────────────────────────────────────────────────────
 router.use('/super-admin', superAdminRoutes);

@@ -40,7 +40,7 @@ export const deleteAttachment = async (req: AuthenticatedRequest, res: Response)
 
         if (!companyId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        await TaskAttachmentService.deleteAttachment(attachmentId, companyId as string);
+        await TaskAttachmentService.deleteAttachment(attachmentId, companyId as string, req.user?.userId, req.user?.role);
         return res.status(200).json({ success: true, message: 'Attachment deleted successfully' });
     } catch (error: any) {
         if (error.message === 'ATTACHMENT_NOT_FOUND') return res.status(404).json({ success: false, message: 'Attachment not found' });
