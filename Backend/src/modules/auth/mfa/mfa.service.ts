@@ -133,6 +133,14 @@ export class MfaService {
             throw new Error('MFA setup is not initialized. Please initiate setup first.');
         }
 
+        if (mfaRecord.enabledAt) {
+            throw new Error('MFA has already been enabled on this account. Manual setup keys cannot be sent after setup is completed.');
+        }
+
+        // Refresh 10-minute validity window
+        mfaRecord.setupExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        await mfaRecord.save();
+
         const plainSecret = decrypt(mfaRecord.secretEncrypted);
         const emailSent = await this.sendManualKeyEmail(user.email, plainSecret, user.name);
 
@@ -169,7 +177,7 @@ export class MfaService {
         const otpauthUrl = secretObj.otpauth_url || `otpauth://totp/WorkSphere:${encodeURIComponent(userEmail)}?secret=${secret}&issuer=WorkSphere`;
         const secretEncrypted = encrypt(secret);
 
-        // Store or update pending MFA record
+        // Store or update pending MFA record with 10-minute setup validity window
         await UserMfa.findOneAndUpdate(
             { userId: new Types.ObjectId(userId) },
             {
@@ -177,6 +185,9 @@ export class MfaService {
                 method: 'totp',
                 secretEncrypted,
                 enabledAt: null,
+                setupExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes TTL
+                lastUsedCode: null,
+                lastUsedCodeAt: null,
             },
             { upsert: true, new: true }
         );
@@ -223,6 +234,16 @@ export class MfaService {
             throw new Error('MFA setup has not been initiated. Please start setup again.');
         }
 
+        // Enforce 10-minute setup expiration (one-time setup window)
+        if (mfaRecord.setupExpiresAt && mfaRecord.setupExpiresAt < new Date()) {
+            throw new Error('This setup session has expired (valid for 10 minutes). Please start setup again.');
+        }
+
+        // Prevent re-verifying an already completed setup
+        if (mfaRecord.enabledAt) {
+            throw new Error('MFA is already enabled on this account. This setup session has already been completed.');
+        }
+
         const plainSecret = decrypt(mfaRecord.secretEncrypted);
         const isValid = speakeasy.totp.verify({
             secret: plainSecret,
@@ -241,8 +262,11 @@ export class MfaService {
             plainRecoveryCodes.map((rc) => argon2.hash(rc))
         );
 
-        // Mark MFA as enabled
+        // Mark MFA as enabled and lock setup permanently
         mfaRecord.enabledAt = new Date();
+        mfaRecord.setupExpiresAt = null; // deactivate setup session
+        mfaRecord.lastUsedCode = code; // record initial code to prevent immediate replay
+        mfaRecord.lastUsedCodeAt = new Date();
         mfaRecord.recoveryCodeHashes = recoveryCodeHashes;
         await mfaRecord.save();
 
@@ -325,6 +349,15 @@ export class MfaService {
         }
 
         const plainSecret = decrypt(mfaRecord.secretEncrypted);
+
+        // Anti-Replay: Each 6-digit code can only be used once
+        if (mfaRecord.lastUsedCode === code && mfaRecord.lastUsedCodeAt) {
+            const secondsSinceLastUse = (Date.now() - mfaRecord.lastUsedCodeAt.getTime()) / 1000;
+            if (secondsSinceLastUse < 60) {
+                throw new Error('This 6-digit code has already been used. Please wait for a new code in Microsoft Authenticator.');
+            }
+        }
+
         const isValid = speakeasy.totp.verify({
             secret: plainSecret,
             encoding: 'base32',
@@ -349,6 +382,11 @@ export class MfaService {
             }
             throw new Error(`Invalid 6-digit code. ${remaining} attempts remaining.`);
         }
+
+        // Record code to prevent replay attacks
+        mfaRecord.lastUsedCode = code;
+        mfaRecord.lastUsedCodeAt = new Date();
+        await mfaRecord.save();
 
         // Mark challenge used
         challenge.usedAt = new Date();

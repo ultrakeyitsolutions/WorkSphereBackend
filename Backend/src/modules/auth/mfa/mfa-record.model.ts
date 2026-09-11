@@ -5,7 +5,10 @@ export interface IUserMfaDocument extends Document {
     method: 'totp';
     secretEncrypted: string;
     recoveryCodeHashes: string[];
-    enabledAt?: Date;
+    enabledAt?: Date | null;
+    setupExpiresAt?: Date | null;
+    lastUsedCode?: string | null;
+    lastUsedCodeAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -34,6 +37,18 @@ const userMfaSchema = new Schema<IUserMfaDocument>(
             default: [],
         },
         enabledAt: {
+            type: Date,
+            default: null,
+        },
+        setupExpiresAt: {
+            type: Date,
+            default: null,
+        },
+        lastUsedCode: {
+            type: String,
+            default: null,
+        },
+        lastUsedCodeAt: {
             type: Date,
             default: null,
         },
