@@ -47,6 +47,7 @@ export const listProjects = catchAsync(async (req: AuthenticatedRequest, res: Re
         status: qs(req.query.status),
         priority: qs(req.query.priority),
         search: qs(req.query.search),
+        isPinned: qs(req.query.isPinned),
     }, role);
     return sendSuccess(res, 'Projects fetched successfully', result);
 });

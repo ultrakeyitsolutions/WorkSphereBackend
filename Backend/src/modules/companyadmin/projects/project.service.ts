@@ -49,6 +49,7 @@ export interface CreateProjectResponse {
     type: string;
     priority: string;
     status: string;
+    isPinned: boolean;
     startDate: string;
     endDate: string;
     createdBy: UserSummary;
@@ -74,6 +75,7 @@ export interface ListProjectItem {
     name: string;
     status: string;
     priority: string;
+    isPinned: boolean;
     startDate: string;
     endDate: string;
     projectManager: UserSummary | null;
@@ -339,6 +341,7 @@ export class ProjectService {
         let projectEndDate: Date;
         let projectCreatedAt: Date;
         let projectUpdatedAt: Date;
+        let projectIsPinned: boolean = false;
 
         try {
             const now = new Date();
@@ -350,6 +353,7 @@ export class ProjectService {
                 description: input.description?.trim() ?? null,
                 type: input.type,
                 priority: input.priority,
+                isPinned: false,
                 status: ProjectStatus.ACTIVE,
                 startDate: new Date(input.startDate),
                 endDate: new Date(input.endDate),
@@ -365,6 +369,7 @@ export class ProjectService {
             projectType = projectDoc.type;
             projectPriority = projectDoc.priority;
             projectStatus = projectDoc.status;
+            projectIsPinned = (projectDoc as any).isPinned ?? false;
             projectStartDate = projectDoc.startDate;
             projectEndDate = projectDoc.endDate;
             projectCreatedAt = (projectDoc as any).createdAt ?? now;
@@ -478,6 +483,7 @@ export class ProjectService {
             type: projectType,
             priority: projectPriority,
             status: projectStatus,
+            isPinned: projectIsPinned,
             startDate: projectStartDate.toISOString().split('T')[0],
             endDate: projectEndDate.toISOString().split('T')[0],
             createdBy: creatorSummary,
@@ -512,6 +518,7 @@ export class ProjectService {
             status?: string;
             priority?: string;
             search?: string;
+            isPinned?: boolean | string;
         },
         userRole?: string
     ): Promise<{ data: ListProjectItem[]; pagination: object }> {
@@ -539,16 +546,19 @@ export class ProjectService {
 
         if (query.status) filter['status'] = query.status;
         if (query.priority) filter['priority'] = query.priority;
+        if (query.isPinned !== undefined) {
+            filter['isPinned'] = query.isPinned === true || query.isPinned === 'true';
+        }
         if (query.search) {
             filter['name'] = { $regex: query.search, $options: 'i' };
         }
 
         const [projects, total] = await Promise.all([
             Project.find(filter)
-                .sort({ createdAt: -1 })
+                .sort({ isPinned: -1, createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
-                .select('_id name status priority startDate endDate createdAt')
+                .select('_id name status priority isPinned startDate endDate createdAt')
                 .lean(),
             Project.countDocuments(filter),
         ]);
@@ -590,6 +600,7 @@ export class ProjectService {
                 name: p.name,
                 status: p.status,
                 priority: p.priority,
+                isPinned: (p as any).isPinned ?? false,
                 startDate: (p.startDate as Date).toISOString().split('T')[0],
                 endDate: (p.endDate as Date).toISOString().split('T')[0],
                 projectManager: managerByProjectId.get(String(p._id)) ?? null,
@@ -674,6 +685,7 @@ export class ProjectService {
             type: project.type,
             priority: project.priority,
             status: project.status,
+            isPinned: (project as any).isPinned ?? false,
             startDate: (project.startDate as Date).toISOString().split('T')[0],
             endDate: (project.endDate as Date).toISOString().split('T')[0],
             createdBy: creatorUser

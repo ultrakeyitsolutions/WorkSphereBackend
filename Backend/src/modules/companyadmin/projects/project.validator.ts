@@ -166,6 +166,7 @@ export const listProjectsSchema = z.object({
         status: z.string().optional(),
         priority: z.string().optional(),
         search: z.string().optional(),
+        isPinned: z.string().optional(),
     }).optional(),
 });
 
