@@ -1,6 +1,12 @@
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
-import { registerSchema, loginSchema, refreshSchema } from './auth.schema';
+import {
+    registerSchema,
+    loginSchema,
+    refreshSchema,
+    forgotPasswordSchema,
+    resetPasswordSchema,
+} from './auth.schema';
 import { sendSuccess, sendError } from '../../utils/response';
 
 export class AuthController {
@@ -53,6 +59,42 @@ export class AuthController {
             return sendSuccess(res, 'Token refresh successful', result);
         } catch (error: any) {
             return sendError(res, error.message || 'Token refresh failed', 401);
+        }
+    }
+
+    /**
+     * POST /auth/forgot-password (Public)
+     * Sends a 6-digit numeric OTP to the user's email
+     */
+    static async forgotPassword(req: Request, res: Response) {
+        try {
+            const parsed = forgotPasswordSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return sendError(res, 'Validation Error', 400, parsed.error.format());
+            }
+
+            const result = await AuthService.requestPasswordReset(parsed.data.email, req);
+            return sendSuccess(res, result.message, result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to process password reset request', 400);
+        }
+    }
+
+    /**
+     * POST /auth/reset-password (Public)
+     * Validates the 6-digit code and sets a new strong password
+     */
+    static async resetPassword(req: Request, res: Response) {
+        try {
+            const parsed = resetPasswordSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return sendError(res, 'Validation Error', 400, parsed.error.format());
+            }
+
+            const result = await AuthService.resetPassword(parsed.data, req);
+            return sendSuccess(res, result.message, result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Password reset failed', 400);
         }
     }
 }

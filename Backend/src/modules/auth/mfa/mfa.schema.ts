@@ -29,3 +29,11 @@ export const mfaDisableSchema = z.object({
         .length(6, { message: 'MFA code must be exactly 6 digits' })
         .regex(/^\d{6}$/, { message: 'MFA code must contain only numbers' }),
 });
+
+export const mfaKeyOtpVerifySchema = z.object({
+    otp: z
+        .string()
+        .trim()
+        .min(4, { message: 'Verification code must be at least 4 characters' })
+        .max(12, { message: 'Verification code too long' }),
+});

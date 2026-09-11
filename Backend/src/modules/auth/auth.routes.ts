@@ -42,14 +42,29 @@ const mfaSetupLimiter = rateLimit({
     },
 });
 
+const passwordResetLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 5,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: 'Too many password reset attempts. Please wait 15 minutes and try again.',
+    },
+});
+
 // ── Core Auth Routes ─────────────────────────────────────────────────────────
 router.post('/register', AuthController.register);
 router.post('/login', AuthController.login);
 router.post('/refresh', AuthController.refresh);
+router.post('/forgot-password', passwordResetLimiter, AuthController.forgotPassword);
+router.post('/reset-password', passwordResetLimiter, AuthController.resetPassword);
 
 // ── MFA Routes ───────────────────────────────────────────────────────────────
 // Authenticated setup flow
 router.post('/mfa/setup', authenticate, mfaSetupLimiter, MfaController.setup);
+router.post('/mfa/request-key-otp', authenticate, mfaSetupLimiter, MfaController.requestKeyOtp);
+router.post('/mfa/verify-key-otp', authenticate, mfaSetupLimiter, MfaController.verifyKeyOtp);
 router.post('/mfa/email-key', authenticate, mfaSetupLimiter, MfaController.sendManualKeyEmail);
 router.post('/mfa/setup/verify', authenticate, mfaSetupLimiter, MfaController.verifySetup);
 router.get('/mfa/status', authenticate, MfaController.status);

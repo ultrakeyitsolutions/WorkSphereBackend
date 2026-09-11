@@ -5,6 +5,7 @@ import {
     mfaVerifySchema,
     mfaRecoverySchema,
     mfaDisableSchema,
+    mfaKeyOtpVerifySchema,
 } from './mfa.schema';
 import { AuthService } from '../auth.service';
 import { UserService } from '../../users/user.service';
@@ -33,21 +34,51 @@ export class MfaController {
     }
 
     /**
-     * POST /auth/mfa/email-key (Requires login / Bearer token)
-     * Re-sends the manual setup key to user's registered email
+     * POST /auth/mfa/request-key-otp (Requires login / Bearer token)
+     * Step 1 of manual key flow: Sends 6-character confirmation code (letters, numbers, special characters) to registered email
      */
-    static async sendManualKeyEmail(req: AuthenticatedRequest, res: Response) {
+    static async requestKeyOtp(req: AuthenticatedRequest, res: Response) {
         try {
             const userId = req.user?.userId;
             if (!userId) {
                 return sendError(res, 'Authentication required', 401);
             }
 
-            const result = await MfaService.sendManualKeyToEmail(userId, req);
+            const result = await MfaService.requestKeyOtp(userId, req);
             return sendSuccess(res, result.message, result);
         } catch (error: any) {
-            return sendError(res, error.message || 'Failed to send setup key to email', 400);
+            return sendError(res, error.message || 'Failed to send confirmation code', 400);
         }
+    }
+
+    /**
+     * POST /auth/mfa/verify-key-otp (Requires login / Bearer token)
+     * Step 2 of manual key flow: Verifies the 6-character confirmation code and delivers the manual setup key to registered email
+     */
+    static async verifyKeyOtp(req: AuthenticatedRequest, res: Response) {
+        try {
+            const userId = req.user?.userId;
+            if (!userId) {
+                return sendError(res, 'Authentication required', 401);
+            }
+
+            const parsed = mfaKeyOtpVerifySchema.safeParse(req.body);
+            if (!parsed.success) {
+                return sendError(res, 'Validation Error', 400, parsed.error.format());
+            }
+
+            const result = await MfaService.verifyKeyOtpAndSendKey(userId, parsed.data.otp, req);
+            return sendSuccess(res, result.message, result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to verify confirmation code', 400);
+        }
+    }
+
+    /**
+     * POST /auth/mfa/email-key (Legacy alias for requestKeyOtp)
+     */
+    static async sendManualKeyEmail(req: AuthenticatedRequest, res: Response) {
+        return MfaController.requestKeyOtp(req, res);
     }
 
     /**

@@ -4,12 +4,14 @@ import {
     mfaVerifySchema,
     mfaRecoverySchema,
     mfaDisableSchema,
+    mfaKeyOtpVerifySchema,
 } from './mfa.schema';
 
 export type MfaSetupVerifyDto = z.infer<typeof mfaSetupVerifySchema>;
 export type MfaVerifyDto = z.infer<typeof mfaVerifySchema>;
 export type MfaRecoveryDto = z.infer<typeof mfaRecoverySchema>;
 export type MfaDisableDto = z.infer<typeof mfaDisableSchema>;
+export type MfaKeyOtpVerifyDto = z.infer<typeof mfaKeyOtpVerifySchema>;
 
 export interface MfaSetupResponse {
     qrCodeDataUrl: string;

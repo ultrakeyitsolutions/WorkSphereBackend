@@ -9,6 +9,9 @@ export interface IUserMfaDocument extends Document {
     setupExpiresAt?: Date | null;
     lastUsedCode?: string | null;
     lastUsedCodeAt?: Date | null;
+    keyOtpHash?: string | null;
+    keyOtpExpiresAt?: Date | null;
+    keyOtpAttempts?: number;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -51,6 +54,18 @@ const userMfaSchema = new Schema<IUserMfaDocument>(
         lastUsedCodeAt: {
             type: Date,
             default: null,
+        },
+        keyOtpHash: {
+            type: String,
+            default: null,
+        },
+        keyOtpExpiresAt: {
+            type: Date,
+            default: null,
+        },
+        keyOtpAttempts: {
+            type: Number,
+            default: 0,
         },
     },
     {

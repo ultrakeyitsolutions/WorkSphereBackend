@@ -120,9 +120,110 @@ export class MfaService {
     }
 
     /**
-     * Send or re-send the manual setup key to user's registered email
+     * Generate a secure 6-character confirmation code with letters, numbers, and special characters
      */
-    static async sendManualKeyToEmail(userId: string, req?: Request) {
+    private static generateSecureOtp(): string {
+        const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+        const lower = 'abcdefghijkmnpqrstuvwxyz';
+        const digits = '23456789';
+        const special = '@#$%&*!';
+        const all = upper + lower + digits + special;
+
+        const code = [
+            upper[crypto.randomBytes(1)[0] % upper.length],
+            digits[crypto.randomBytes(1)[0] % digits.length],
+            special[crypto.randomBytes(1)[0] % special.length],
+            lower[crypto.randomBytes(1)[0] % lower.length],
+            all[crypto.randomBytes(1)[0] % all.length],
+            all[crypto.randomBytes(1)[0] % all.length],
+        ];
+
+        // Shuffle characters
+        for (let i = code.length - 1; i > 0; i--) {
+            const j = crypto.randomBytes(1)[0] % (i + 1);
+            [code[i], code[j]] = [code[j], code[i]];
+        }
+
+        return code.join('');
+    }
+
+    /**
+     * Send email containing the one-time verification code to request the manual key
+     */
+    private static async sendKeyRequestOtpEmail(toEmail: string, otpCode: string, userName?: string): Promise<boolean> {
+        try {
+            const transporter = getMailTransporter();
+            const subject = 'WorkSphere: Verification Code for MFA Key Request';
+            const name = userName || 'User';
+
+            const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${subject}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
+    .wrapper { max-width: 540px; margin: 32px auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,.04); }
+    .header { background: #0f172a; padding: 24px 32px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; }
+    .body { padding: 32px; }
+    .body h2 { color: #0f172a; margin-top: 0; font-size: 18px; }
+    .body p { color: #475569; line-height: 1.6; font-size: 14px; margin: 12px 0; }
+    .otp-box { background: #f1f5f9; border: 2px dashed #0f172a; border-radius: 8px; padding: 16px; text-align: center; margin: 24px 0; }
+    .otp-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 1px; margin-bottom: 6px; }
+    .otp-code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 28px; font-weight: 700; color: #0f172a; letter-spacing: 4px; }
+    .footer { background: #f8fafc; padding: 16px 32px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>WorkSphere Identity Confirmation</h1>
+    </div>
+    <div class="body">
+      <h2>Hello ${name},</h2>
+      <p>A request was made on your account to receive your <strong>Multi-Factor Authentication (MFA) Manual Setup Key</strong>.</p>
+      <p>To verify your identity and confirm this action, enter this one-time confirmation code on your screen:</p>
+      
+      <div class="otp-box">
+        <div class="otp-label">Your Confirmation Code</div>
+        <div class="otp-code">${otpCode}</div>
+      </div>
+
+      <p><strong>Note:</strong> This code is strictly single-use and expires in <strong>5 minutes</strong>.</p>
+      <p>Once you enter this code, your manual setup key will be securely delivered to this email address.</p>
+      <p style="color: #dc2626; font-size: 12px; margin-top: 16px;">If you did not request this, please change your account password immediately.</p>
+    </div>
+    <div class="footer">
+      &copy; ${new Date().getFullYear()} WorkSphere Security.
+    </div>
+  </div>
+</body>
+</html>
+            `;
+
+            await transporter.sendMail({
+                from: mailDefaults.from,
+                to: toEmail,
+                subject,
+                html,
+            });
+
+            return true;
+        } catch (error) {
+            console.error('[MfaService] Failed to send key request OTP email:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Step A: User clicks "Request Key via Email"
+     * Generates a 6-character code with letters, numbers, and special characters,
+     * and sends it to user's registered email address for identity verification.
+     */
+    static async requestKeyOtp(userId: string, req?: Request) {
         const user = await User.findById(userId);
         if (!user) {
             throw new Error('User not found');
@@ -130,35 +231,106 @@ export class MfaService {
 
         const mfaRecord = await UserMfa.findOne({ userId: user._id });
         if (!mfaRecord || !mfaRecord.secretEncrypted) {
-            throw new Error('MFA setup is not initialized. Please initiate setup first.');
+            throw new Error('MFA setup is not initiated. Please initiate setup first.');
         }
 
         if (mfaRecord.enabledAt) {
-            throw new Error('MFA has already been enabled on this account. Manual setup keys cannot be sent after setup is completed.');
+            throw new Error('MFA is already enabled on this account.');
         }
 
-        // Refresh 10-minute validity window
-        mfaRecord.setupExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        // Generate secure 6-character code with letters, numbers, and special chars
+        const otpCode = this.generateSecureOtp();
+        const otpHash = await argon2.hash(otpCode);
+
+        // Save OTP challenge valid for 5 minutes
+        mfaRecord.keyOtpHash = otpHash;
+        mfaRecord.keyOtpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+        mfaRecord.keyOtpAttempts = 0;
         await mfaRecord.save();
 
-        const plainSecret = decrypt(mfaRecord.secretEncrypted);
-        const emailSent = await this.sendManualKeyEmail(user.email, plainSecret, user.name);
-
+        const emailSent = await this.sendKeyRequestOtpEmail(user.email, otpCode, user.name);
         if (!emailSent) {
-            throw new Error('Failed to send email. Please check your email configuration.');
+            throw new Error('Failed to send verification code. Please check your email settings.');
         }
 
         return {
-            emailSent: true,
             sentToEmail: user.email,
-            message: `Manual backup key has been sent to ${user.email}`,
+            message: `A verification code with letters, numbers, and special characters has been sent to ${user.email}. Enter it to receive your setup key.`,
+        };
+    }
+
+    /**
+     * Step B: User enters the verification code on screen
+     * Validates the code. If correct, securely emails the actual manual TOTP setup key!
+     */
+    static async verifyKeyOtpAndSendKey(userId: string, otp: string, req?: Request) {
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        const mfaRecord = await UserMfa.findOne({ userId: user._id });
+        if (!mfaRecord || !mfaRecord.secretEncrypted) {
+            throw new Error('MFA setup is not initiated.');
+        }
+
+        if (mfaRecord.enabledAt) {
+            throw new Error('MFA is already enabled on this account.');
+        }
+
+        if (!mfaRecord.keyOtpHash || !mfaRecord.keyOtpExpiresAt) {
+            throw new Error('No active verification code found. Please request a new code.');
+        }
+
+        if (mfaRecord.keyOtpExpiresAt < new Date()) {
+            mfaRecord.keyOtpHash = null;
+            mfaRecord.keyOtpExpiresAt = null;
+            await mfaRecord.save();
+            throw new Error('Verification code has expired (valid for 5 minutes). Please request a new code.');
+        }
+
+        if ((mfaRecord.keyOtpAttempts || 0) >= 3) {
+            mfaRecord.keyOtpHash = null;
+            mfaRecord.keyOtpExpiresAt = null;
+            await mfaRecord.save();
+            throw new Error('Maximum verification attempts exceeded. Please request a new code.');
+        }
+
+        mfaRecord.keyOtpAttempts = (mfaRecord.keyOtpAttempts || 0) + 1;
+        await mfaRecord.save();
+
+        const isMatch = await argon2.verify(mfaRecord.keyOtpHash, otp.trim());
+        if (!isMatch) {
+            const remaining = 3 - (mfaRecord.keyOtpAttempts || 0);
+            throw new Error(`Invalid confirmation code. ${remaining > 0 ? remaining : 0} attempts remaining.`);
+        }
+
+        // Successfully verified: clear the OTP so it can never be reused
+        mfaRecord.keyOtpHash = null;
+        mfaRecord.keyOtpExpiresAt = null;
+        mfaRecord.keyOtpAttempts = 0;
+        // Refresh 10-minute validity window for setup
+        mfaRecord.setupExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        await mfaRecord.save();
+
+        // Deliver the actual manual setup key to user's registered email
+        const plainSecret = decrypt(mfaRecord.secretEncrypted);
+        const keyEmailSent = await this.sendManualKeyEmail(user.email, plainSecret, user.name);
+
+        if (!keyEmailSent) {
+            throw new Error('Failed to deliver setup key to your email. Please try again.');
+        }
+
+        return {
+            sentToEmail: user.email,
+            message: `Identity confirmed! Your manual MFA setup key has been sent to ${user.email}. Enter it into Microsoft Authenticator to complete setup.`,
         };
     }
 
     /**
      * Step 1: Initiate MFA setup
-     * Generates a secure TOTP secret, encrypts it, generates an otpauth:// URI, QR code,
-     * and sends the manual key directly to user's registered email.
+     * Generates a secure TOTP secret, encrypts it, generates an otpauth:// URI and QR code.
+     * The secret is NOT returned in response and not sent until explicitly verified.
      */
     static async generateSetup(userId: string, userEmail: string, req?: Request) {
         const user = await User.findById(userId);
@@ -188,6 +360,9 @@ export class MfaService {
                 setupExpiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes TTL
                 lastUsedCode: null,
                 lastUsedCodeAt: null,
+                keyOtpHash: null,
+                keyOtpExpiresAt: null,
+                keyOtpAttempts: 0,
             },
             { upsert: true, new: true }
         );
@@ -199,23 +374,19 @@ export class MfaService {
             width: 300,
         });
 
-        // Automatically dispatch manual key to user's email address
-        const emailSent = await this.sendManualKeyEmail(userEmail, secret, user.name);
-
         await AuditLogService.log({
             action: AuditAction.MFA_SETUP_INITIATED,
             actorId: String(user._id),
             actorEmail: user.email,
             companyId: user.companyId ? String(user.companyId) : null,
             success: true,
-            description: `MFA setup initiated for user: ${user.email} (manual key sent to email)`,
+            description: `MFA setup initiated for user: ${user.email}`,
             req,
         });
 
         return {
             qrCodeDataUrl,
             otpauthUrl,
-            emailSent,
             sentToEmail: userEmail,
         };
     }
