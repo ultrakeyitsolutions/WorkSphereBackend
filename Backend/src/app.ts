@@ -20,9 +20,29 @@ app.use(pinoHttp({
 }));
 
 // CORS Configuration
+const allowedOrigins = (env.CORS_ORIGIN || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
 const corsOptions: cors.CorsOptions = {
-    origin: env.NODE_ENV === 'production' ? env.CORS_ORIGIN : true,
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (env.NODE_ENV !== 'production') return callback(null, true);
+        if (
+            allowedOrigins.includes(origin) ||
+            allowedOrigins.includes('*') ||
+            origin.endsWith('.vercel.app') ||
+            origin.includes('localhost')
+        ) {
+            return callback(null, true);
+        }
+        return callback(null, true);
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
 

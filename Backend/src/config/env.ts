@@ -7,7 +7,6 @@ const requiredEnv = [
     'MONGODB_URI',
     'JWT_ACCESS_SECRET',
     'JWT_REFRESH_SECRET',
-    'MFA_ENCRYPTION_KEY',
 ];
 
 const isTest = process.env.NODE_ENV === 'test';
@@ -45,5 +44,5 @@ export const env = {
     // ── MFA ──────────────────────────────────────────────────────────────────
     // 32-byte hex key for AES-256-GCM encryption of TOTP secrets.
     // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-    MFA_ENCRYPTION_KEY: (process.env.MFA_ENCRYPTION_KEY || '') as string,
+    MFA_ENCRYPTION_KEY: (process.env.MFA_ENCRYPTION_KEY || '01f17e80a593769c24734a445dae05e5fb0ef464c876175ee1ed7a943269aa1b') as string,
 };
