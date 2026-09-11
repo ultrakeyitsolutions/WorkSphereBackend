@@ -25,6 +25,7 @@ import {
     getEmployeeSelector,
     getManagerSelector,
     getClientSelector,
+    getMemberSelector,
 } from './project-selector.controller';
 import { getTaskContext, getTasksByProject, createTask } from '../../tasks/task.controller';
 
@@ -40,6 +41,9 @@ router.get('/selectors/managers', getManagerSelector);
 
 // GET /api/v1/company/projects/selectors/clients
 router.get('/selectors/clients', getClientSelector);
+
+// GET /api/v1/company/projects/selectors/members
+router.get('/selectors/members', getMemberSelector);
 
 
 // ── POST   /api/v1/company/projects              Create project ────────────────

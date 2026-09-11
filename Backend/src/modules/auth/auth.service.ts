@@ -62,6 +62,7 @@ export class AuthService {
         }
 
         // ─── Company Status Check ────────────────────────────────────────────────
+        let companyDoc: any = null;
         if (user.companyId) {
             const company = await Company.findById(user.companyId);
             if (!company) {
@@ -101,6 +102,7 @@ export class AuthService {
                 });
                 throw new Error('Your organization account is no longer active.');
             }
+            companyDoc = company;
         }
 
         const isMatch = await comparePassword(data.password, user.password || '');
@@ -161,6 +163,31 @@ export class AuthService {
                 permissions: finalPermissions,
                 companyId: user.companyId,
             },
+            company: companyDoc
+                ? {
+                    id: String(companyDoc._id),
+                    name: companyDoc.name,
+                    slug: companyDoc.slug,
+                    domain: companyDoc.domain || null,
+                    industry: companyDoc.industry || null,
+                    size: companyDoc.size || null,
+                    logoUrl: companyDoc.logoUrl || null,
+                    companyEmail: companyDoc.companyEmail || null,
+                    companyPhone: companyDoc.companyPhone || null,
+                    website: companyDoc.website || null,
+                    address: companyDoc.address || null,
+                    city: companyDoc.city || null,
+                    state: companyDoc.state || null,
+                    country: companyDoc.country || null,
+                    postalCode: companyDoc.postalCode || null,
+                    timezone: companyDoc.timezone || null,
+                    currency: companyDoc.currency || null,
+                    status: companyDoc.status,
+                    isActive: companyDoc.isActive,
+                    createdAt: (companyDoc as any).createdAt,
+                    updatedAt: (companyDoc as any).updatedAt,
+                }
+                : null,
             accessToken,
             refreshToken,
         };
@@ -177,6 +204,7 @@ export class AuthService {
         }
 
         // ─── Company Status Check ────────────────────────────────────────────────
+        let companyDoc: any = null;
         if (user.companyId) {
             const company = await Company.findById(user.companyId);
             if (!company) {
@@ -188,6 +216,7 @@ export class AuthService {
             if (company.status === 'DELETED' || !company.isActive) {
                 throw new Error('Your organization account is no longer active.');
             }
+            companyDoc = company;
         }
 
         const userRole = (user.role as any)?.name || 'User';
@@ -233,6 +262,31 @@ export class AuthService {
                 permissions: finalPermissions,
                 companyId: user.companyId,
             },
+            company: companyDoc
+                ? {
+                    id: String(companyDoc._id),
+                    name: companyDoc.name,
+                    slug: companyDoc.slug,
+                    domain: companyDoc.domain || null,
+                    industry: companyDoc.industry || null,
+                    size: companyDoc.size || null,
+                    logoUrl: companyDoc.logoUrl || null,
+                    companyEmail: companyDoc.companyEmail || null,
+                    companyPhone: companyDoc.companyPhone || null,
+                    website: companyDoc.website || null,
+                    address: companyDoc.address || null,
+                    city: companyDoc.city || null,
+                    state: companyDoc.state || null,
+                    country: companyDoc.country || null,
+                    postalCode: companyDoc.postalCode || null,
+                    timezone: companyDoc.timezone || null,
+                    currency: companyDoc.currency || null,
+                    status: companyDoc.status,
+                    isActive: companyDoc.isActive,
+                    createdAt: (companyDoc as any).createdAt,
+                    updatedAt: (companyDoc as any).updatedAt,
+                }
+                : null,
             accessToken,
             refreshToken: newRefreshToken,
         };

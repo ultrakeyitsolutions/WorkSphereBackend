@@ -39,7 +39,7 @@ export class ProjectSelectorService {
      */
     private static async fetchByType(
         companyId: string,
-        memberType: 'EMPLOYEE' | 'MANAGER' | 'CLIENT',
+        memberType: 'EMPLOYEE' | 'MANAGER' | 'CLIENT' | ('EMPLOYEE' | 'MANAGER' | 'CLIENT')[],
         query: SelectorQuery
     ): Promise<SelectorResult> {
         const page = Math.max(1, query.page ?? 1);
@@ -49,7 +49,7 @@ export class ProjectSelectorService {
         // Build aggregation pipeline: join CompanyMember → User, filter, project
         const matchStage: Record<string, any> = {
             companyId: new Types.ObjectId(companyId),
-            memberType,
+            memberType: Array.isArray(memberType) ? { $in: memberType } : memberType,
             status: 'ACTIVE',
         };
 
@@ -147,5 +147,13 @@ export class ProjectSelectorService {
      */
     static async getClientSelector(companyId: string, query: SelectorQuery): Promise<SelectorResult> {
         return ProjectSelectorService.fetchByType(companyId, 'CLIENT', query);
+    }
+
+    /**
+     * GET /api/v1/company/projects/selectors/members
+     * Returns all active assignable company members (EMPLOYEE and MANAGER).
+     */
+    static async getMemberSelector(companyId: string, query: SelectorQuery): Promise<SelectorResult> {
+        return ProjectSelectorService.fetchByType(companyId, ['EMPLOYEE', 'MANAGER'], query);
     }
 }

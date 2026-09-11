@@ -15,6 +15,7 @@ import taskActivityRootRoutes from '../task-activities/task-activity.root.routes
 import taskBugRootRoutes from '../task-bugs/task-bug.root.routes';
 import taskAttachmentRootRoutes from '../task-attachments/task-attachment.root.routes';
 import permissionsRoutes from './permissions.routes';
+import companyProfileRoutes from './profile/company-profile.routes';
 
 const router = Router();
 
@@ -31,6 +32,9 @@ const inviteLimiter = rateLimit({
 // Note: companyId is read from the JWT payload (set during token generation).
 // The frontend must NEVER supply companyId directly for these routes.
 router.use(authenticate);
+
+// ── /api/v1/company/profile ──────────────────────────────────────────────────
+router.use('/profile', companyProfileRoutes);
 
 // ── /api/v1/company/roles ────────────────────────────────────────────────────
 router.use('/roles', companyRoleRoutes);

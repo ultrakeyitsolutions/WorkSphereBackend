@@ -48,3 +48,11 @@ export const getClientSelector = catchAsync(async (req: AuthenticatedRequest, re
     const result = await ProjectSelectorService.getClientSelector(companyId, parseSelectorQuery(req));
     return sendSuccess(res, 'Clients fetched successfully', result);
 });
+
+// ─── GET /api/v1/company/projects/selectors/members ──────────────────────────
+
+export const getMemberSelector = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+    const companyId = getCompanyId(req);
+    const result = await ProjectSelectorService.getMemberSelector(companyId, parseSelectorQuery(req));
+    return sendSuccess(res, 'Company members fetched successfully', result);
+});
