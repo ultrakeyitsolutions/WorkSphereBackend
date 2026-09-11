@@ -16,6 +16,7 @@ import taskBugRootRoutes from '../task-bugs/task-bug.root.routes';
 import taskAttachmentRootRoutes from '../task-attachments/task-attachment.root.routes';
 import permissionsRoutes from './permissions.routes';
 import companyProfileRoutes from './profile/company-profile.routes';
+import memberDashboardRoutes from './members/member-dashboard.routes';
 
 const router = Router();
 
@@ -35,6 +36,9 @@ router.use(authenticate);
 
 // ── /api/v1/company/profile ──────────────────────────────────────────────────
 router.use('/profile', companyProfileRoutes);
+
+// ── /api/v1/company/dashboard  (also accessible via /api/v1/member/dashboard) ──
+router.use('/dashboard', memberDashboardRoutes);
 
 // ── /api/v1/company/roles ────────────────────────────────────────────────────
 router.use('/roles', companyRoleRoutes);

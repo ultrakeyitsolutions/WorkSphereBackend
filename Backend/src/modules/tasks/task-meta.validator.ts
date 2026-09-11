@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const idSchema = z.string().min(1, 'Invalid ID');
+const idSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid ID format');
 
 // ─── MODULES ─────────────────────────────────────────────────────────────────
 export const createModuleSchema = z.object({

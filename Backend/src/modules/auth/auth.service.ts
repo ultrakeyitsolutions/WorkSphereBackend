@@ -6,6 +6,7 @@ import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '.
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
 import { Request } from 'express';
+import { CompanyProfileService } from '../companyadmin/profile/company-profile.service';
 
 export class AuthService {
     static async register(data: any) {
@@ -154,6 +155,10 @@ export class AuthService {
             req,
         });
 
+        const subscriptionData = companyDoc
+            ? await CompanyProfileService.getCompanySubscription(String(companyDoc._id))
+            : null;
+
         return {
             user: {
                 id: user._id,
@@ -184,6 +189,7 @@ export class AuthService {
                     currency: companyDoc.currency || null,
                     status: companyDoc.status,
                     isActive: companyDoc.isActive,
+                    subscription: subscriptionData,
                     createdAt: (companyDoc as any).createdAt,
                     updatedAt: (companyDoc as any).updatedAt,
                 }
@@ -253,6 +259,10 @@ export class AuthService {
             req,
         });
 
+        const subscriptionData = companyDoc
+            ? await CompanyProfileService.getCompanySubscription(String(companyDoc._id))
+            : null;
+
         return {
             user: {
                 id: user._id,
@@ -283,6 +293,7 @@ export class AuthService {
                     currency: companyDoc.currency || null,
                     status: companyDoc.status,
                     isActive: companyDoc.isActive,
+                    subscription: subscriptionData,
                     createdAt: (companyDoc as any).createdAt,
                     updatedAt: (companyDoc as any).updatedAt,
                 }
