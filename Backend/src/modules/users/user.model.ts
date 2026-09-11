@@ -39,6 +39,10 @@ const userSchema = new Schema<IUserDocument>(
             type: Boolean,
             default: true,
         },
+        mfaEnabled: {
+            type: Boolean,
+            default: false,
+        },
         status: {
             type: String,
             enum: ['ACTIVE', 'INACTIVE', 'DEACTIVATED'],

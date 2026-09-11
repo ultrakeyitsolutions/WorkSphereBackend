@@ -7,6 +7,9 @@ import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
 import { Request } from 'express';
 import { CompanyProfileService } from '../companyadmin/profile/company-profile.service';
+import { MfaService } from './mfa/mfa.service';
+import { SessionService } from './session/session.service';
+
 
 export class AuthService {
     static async register(data: any) {
@@ -121,12 +124,38 @@ export class AuthService {
             throw new Error('Invalid email or password');
         }
 
+        // ─── MFA Gate ────────────────────────────────────────────────────────────
+        if (user.mfaEnabled) {
+            const challengeId = await MfaService.createChallenge(user._id, 'LOGIN');
+            return {
+                status: 'MFA_REQUIRED',
+                challengeId,
+            };
+        }
+
+        return this.generateAuthSessionResponse(user, req, null, companyDoc);
+    }
+
+    /**
+     * Common helper to issue tokens, create an authentication session, and build the auth response
+     */
+    static async generateAuthSessionResponse(
+        user: any,
+        req?: Request,
+        mfaVerifiedAt?: Date | null,
+        existingCompanyDoc?: any
+    ) {
+        let companyDoc = existingCompanyDoc;
+        if (!companyDoc && user.companyId) {
+            companyDoc = await Company.findById(user.companyId);
+        }
+
         const userRole = (user.role as any)?.name || 'User';
-        
+
         const rolePermissions = ((user.role as any)?.permissions || []).map((p: any) => p.name).filter(Boolean);
         const grantedPermissions = ((user as any).grantedPermissions || []).map((p: any) => p.name).filter(Boolean);
         const revokedPermissions = ((user as any).revokedPermissions || []).map((p: any) => p.name).filter(Boolean);
-        
+
         const effectivePermissionsSet = new Set(rolePermissions);
         grantedPermissions.forEach((p: string) => effectivePermissionsSet.add(p));
         revokedPermissions.forEach((p: string) => effectivePermissionsSet.delete(p));
@@ -136,14 +165,21 @@ export class AuthService {
             userId: String(user._id),
             email: user.email,
             role: userRole,
-            // Embed companyId so controllers never trust the request body for it
             companyId: user.companyId ? String(user.companyId) : undefined,
         };
 
         const accessToken = generateAccessToken(payload);
         const refreshToken = generateRefreshToken(payload);
 
-        // ── Successful login audit ────────────────────────────────────────────
+        // ─── Create Auth Session ─────────────────────────────────────────────
+        await SessionService.createSession({
+            userId: user._id,
+            refreshToken,
+            mfaVerifiedAt: mfaVerifiedAt || (user.mfaEnabled ? new Date() : null),
+            req,
+        });
+
+        // ─── Successful login audit ──────────────────────────────────────────
         await AuditLogService.log({
             action: AuditAction.USER_LOGIN,
             actorId: String(user._id),
@@ -167,6 +203,7 @@ export class AuthService {
                 role: userRole,
                 permissions: finalPermissions,
                 companyId: user.companyId,
+                mfaEnabled: !!user.mfaEnabled,
             },
             company: companyDoc
                 ? {
@@ -200,6 +237,12 @@ export class AuthService {
     }
 
     static async refresh(token: string, req?: Request) {
+        // Validate against active database session
+        const activeSession = await SessionService.validateSession(token);
+        if (!activeSession) {
+            throw new Error('Session is invalid or has been revoked. Please log in again.');
+        }
+
         const decoded = verifyRefreshToken(token);
         const user = await UserService.findById(decoded.userId);
         if (!user) {
@@ -246,6 +289,9 @@ export class AuthService {
         const accessToken = generateAccessToken(payload);
         const newRefreshToken = generateRefreshToken(payload);
 
+        // ─── Rotate Refresh Token in Session ─────────────────────────────────
+        await SessionService.rotateSessionToken(token, newRefreshToken);
+
         // Token refresh is the closest thing to a "logout + re-login" we track
         await AuditLogService.log({
             action: AuditAction.USER_LOGOUT,
@@ -271,6 +317,7 @@ export class AuthService {
                 role: userRole,
                 permissions: finalPermissions,
                 companyId: user.companyId,
+                mfaEnabled: !!user.mfaEnabled,
             },
             company: companyDoc
                 ? {
