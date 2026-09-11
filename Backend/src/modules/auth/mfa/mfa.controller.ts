@@ -33,6 +33,24 @@ export class MfaController {
     }
 
     /**
+     * POST /auth/mfa/email-key (Requires login / Bearer token)
+     * Re-sends the manual setup key to user's registered email
+     */
+    static async sendManualKeyEmail(req: AuthenticatedRequest, res: Response) {
+        try {
+            const userId = req.user?.userId;
+            if (!userId) {
+                return sendError(res, 'Authentication required', 401);
+            }
+
+            const result = await MfaService.sendManualKeyToEmail(userId, req);
+            return sendSuccess(res, result.message, result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to send setup key to email', 400);
+        }
+    }
+
+    /**
      * POST /auth/mfa/setup/verify (Requires login / Bearer token)
      * Verifies the first 6-digit code to enable MFA and returns 8 recovery codes
      */

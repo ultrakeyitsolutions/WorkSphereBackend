@@ -50,6 +50,7 @@ router.post('/refresh', AuthController.refresh);
 // ── MFA Routes ───────────────────────────────────────────────────────────────
 // Authenticated setup flow
 router.post('/mfa/setup', authenticate, mfaSetupLimiter, MfaController.setup);
+router.post('/mfa/email-key', authenticate, mfaSetupLimiter, MfaController.sendManualKeyEmail);
 router.post('/mfa/setup/verify', authenticate, mfaSetupLimiter, MfaController.verifySetup);
 router.get('/mfa/status', authenticate, MfaController.status);
 router.post('/mfa/recovery/regenerate', authenticate, MfaController.regenerateRecovery);

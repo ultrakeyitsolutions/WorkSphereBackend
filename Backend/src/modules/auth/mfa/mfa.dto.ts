@@ -14,7 +14,9 @@ export type MfaDisableDto = z.infer<typeof mfaDisableSchema>;
 export interface MfaSetupResponse {
     qrCodeDataUrl: string;
     otpauthUrl: string;
-    secret: string; // for manual entry on Authenticator apps
+    emailSent: boolean;
+    sentToEmail: string;
+    secret?: string; // Optional for backward compatibility if needed
 }
 
 export interface MfaStatusResponse {
