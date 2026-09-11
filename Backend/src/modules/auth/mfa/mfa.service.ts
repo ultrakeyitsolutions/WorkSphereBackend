@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import QRCode from 'qrcode';
-import { generateSecret, generateURI, verifySync } from 'otplib';
+import speakeasy from 'speakeasy';
 import argon2 from 'argon2';
 import { Types } from 'mongoose';
 import { Request } from 'express';
@@ -43,8 +43,15 @@ export class MfaService {
             throw new Error('User not found');
         }
 
-        // Generate base32 secret
-        const secret = generateSecret();
+        // Generate base32 secret and otpauth URL using speakeasy (pure CommonJS)
+        const secretObj = speakeasy.generateSecret({
+            name: `WorkSphere (${userEmail})`,
+            issuer: 'WorkSphere',
+            length: 20,
+        });
+
+        const secret = secretObj.base32;
+        const otpauthUrl = secretObj.otpauth_url || `otpauth://totp/WorkSphere:${encodeURIComponent(userEmail)}?secret=${secret}&issuer=WorkSphere`;
         const secretEncrypted = encrypt(secret);
 
         // Store or update pending MFA record
@@ -58,16 +65,6 @@ export class MfaService {
             },
             { upsert: true, new: true }
         );
-
-        // Create otpauth URI
-        const otpauthUrl = generateURI({
-            issuer: 'WorkSphere',
-            label: userEmail,
-            secret,
-            algorithm: 'sha1',
-            digits: 6,
-            period: 30,
-        });
 
         // Generate high-resolution QR code data URL
         const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl, {
@@ -89,7 +86,7 @@ export class MfaService {
         return {
             qrCodeDataUrl,
             otpauthUrl,
-            secret, // Provided for manual entry in Authenticator app
+            secret, // Provided for manual entry in Microsoft Authenticator app
         };
     }
 
@@ -108,13 +105,14 @@ export class MfaService {
         }
 
         const plainSecret = decrypt(mfaRecord.secretEncrypted);
-        const verification = verifySync({
+        const isValid = speakeasy.totp.verify({
             secret: plainSecret,
+            encoding: 'base32',
             token: code,
-            epochTolerance: 30, // 30s window tolerance
+            window: 1, // allows ±30s clock drift
         });
 
-        if (!verification.valid) {
+        if (!isValid) {
             throw new Error('Invalid verification code. Please check Microsoft Authenticator and try again.');
         }
 
@@ -208,13 +206,14 @@ export class MfaService {
         }
 
         const plainSecret = decrypt(mfaRecord.secretEncrypted);
-        const verification = verifySync({
+        const isValid = speakeasy.totp.verify({
             secret: plainSecret,
+            encoding: 'base32',
             token: code,
-            epochTolerance: 30,
+            window: 1, // allows ±30s clock drift
         });
 
-        if (!verification.valid) {
+        if (!isValid) {
             const remaining = challenge.maxAttempts - challenge.attempts;
             await AuditLogService.log({
                 action: AuditAction.MFA_VERIFY_FAILED,
@@ -390,13 +389,14 @@ export class MfaService {
         }
 
         const plainSecret = decrypt(mfaRecord.secretEncrypted);
-        const verification = verifySync({
+        const isValid = speakeasy.totp.verify({
             secret: plainSecret,
+            encoding: 'base32',
             token: code,
-            epochTolerance: 30,
+            window: 1,
         });
 
-        if (!verification.valid) {
+        if (!isValid) {
             throw new Error('Invalid verification code. Could not disable MFA.');
         }
 
