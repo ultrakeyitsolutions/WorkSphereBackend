@@ -1,7 +1,30 @@
 import { Router } from 'express';
 import { validateRequest } from '../../middleware/validateRequest';
-import { createTaskSchema, updateTaskSchema, updateRecurrenceSchema, taskParamSchema, reopenTaskSchema, projectMembersParamSchema, cancelTaskSchema } from './task.validator';
-import { createTask, getTaskById, updateTask, deleteTask, getTaskRecurrence, updateTaskRecurrence, deleteTaskRecurrence, reopenTask, getProjectMembers, cancelTask } from './task.controller';
+import {
+    createTaskSchema,
+    updateTaskSchema,
+    updateRecurrenceSchema,
+    taskParamSchema,
+    reopenTaskSchema,
+    projectMembersParamSchema,
+    cancelTaskSchema,
+    archivedTaskListSchema
+} from './task.validator';
+import {
+    createTask,
+    getTaskById,
+    updateTask,
+    deleteTask,
+    getTaskRecurrence,
+    updateTaskRecurrence,
+    deleteTaskRecurrence,
+    reopenTask,
+    getProjectMembers,
+    cancelTask,
+    getArchivedTasks,
+    archiveTask,
+    unarchiveTask
+} from './task.controller';
 import taskActivityRoutes from '../task-activities/task-activity.routes';
 import taskBugRoutes from '../task-bugs/task-bug.routes';
 import taskAttachmentRoutes from '../task-attachments/task-attachment.routes';
@@ -12,6 +35,10 @@ const router = Router();
 router.use('/:taskId/activities', taskActivityRoutes);
 router.use('/:taskId/bugs', taskBugRoutes);
 router.use('/:taskId/attachments', taskAttachmentRoutes);
+
+// GET /api/v1/company/tasks/archived (and /api/v1/member/tasks/archived)
+// NOTE: MUST be declared BEFORE /:taskId route to prevent route collision
+router.get('/archived', validateRequest(archivedTaskListSchema), getArchivedTasks);
 
 // POST /api/v1/company/tasks
 router.post('/', validateRequest(createTaskSchema), createTask);
@@ -24,6 +51,14 @@ router.put('/:taskId', validateRequest(updateTaskSchema), updateTask);
 
 // DELETE /api/v1/company/tasks/:taskId
 router.delete('/:taskId', validateRequest(taskParamSchema), deleteTask);
+
+// PATCH /api/v1/company/tasks/:taskId/archive
+router.patch('/:taskId/archive', validateRequest(taskParamSchema), archiveTask);
+router.post('/:taskId/archive', validateRequest(taskParamSchema), archiveTask);
+
+// PATCH /api/v1/company/tasks/:taskId/unarchive
+router.patch('/:taskId/unarchive', validateRequest(taskParamSchema), unarchiveTask);
+router.post('/:taskId/unarchive', validateRequest(taskParamSchema), unarchiveTask);
 
 // GET /api/v1/company/tasks/:taskId/recurrence
 router.get('/:taskId/recurrence', validateRequest(taskParamSchema), getTaskRecurrence);

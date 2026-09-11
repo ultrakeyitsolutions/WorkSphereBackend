@@ -142,12 +142,27 @@ export const taskParamSchema = z.object({
 export const projectTaskListSchema = z.object({
     params: z.object({ projectId: idSchema }),
     query: z.object({
-        page: z.string().optional().transform(v => parseInt(v || '1')),
-        pageSize: z.string().optional().transform(v => parseInt(v || '50')),
+        page: z.string().optional().transform(v => parseInt(v || '1', 10)),
+        pageSize: z.string().optional().transform(v => parseInt(v || '50', 10)),
         stageId: idSchema.optional(),
         priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
         isRecurring: z.string().optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
+        isArchived: z.string().optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
+        archived: z.string().optional().transform(v => v === 'true' ? true : v === 'false' ? false : undefined),
         search: z.string().optional()
+    }).optional()
+});
+
+export const archivedTaskListSchema = z.object({
+    query: z.object({
+        projectId: idSchema.optional(),
+        page: z.string().optional().transform(v => parseInt(v || '1', 10)),
+        pageSize: z.string().optional().transform(v => parseInt(v || '50', 10)),
+        limit: z.string().optional().transform(v => parseInt(v || '50', 10)),
+        search: z.string().optional(),
+        stageId: idSchema.optional(),
+        priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+        assignedToId: idSchema.optional()
     }).optional()
 });
 

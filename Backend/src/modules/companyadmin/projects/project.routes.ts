@@ -27,7 +27,7 @@ import {
     getClientSelector,
     getMemberSelector,
 } from './project-selector.controller';
-import { getTaskContext, getTasksByProject, createTask } from '../../tasks/task.controller';
+import { getTaskContext, getTasksByProject, createTask, getArchivedTasksByProject } from '../../tasks/task.controller';
 
 const router = Router();
 
@@ -80,6 +80,13 @@ router.get(
     '/:projectId/tasks',
     validateRequest(projectParamSchema),
     getTasksByProject
+);
+
+// ── GET    /api/v1/company/projects/:projectId/tasks/archived ──────────────────────
+router.get(
+    '/:projectId/tasks/archived',
+    validateRequest(projectParamSchema),
+    getArchivedTasksByProject
 );
 
 // ── POST   /api/v1/company/projects/:projectId/tasks ─────────────────────────────

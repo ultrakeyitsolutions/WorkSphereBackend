@@ -344,15 +344,29 @@ export class TaskService {
     }
 
 
-    static async getTasksByProject(projectId: string, companyId: string, query: any = {}) {
-        const project = await Project.findOne({ _id: projectId, companyId, isArchived: false }).lean();
+    static async getTasksByProject(projectId: string, companyId: string, query: any = {}, userId?: string) {
+        if (!Types.ObjectId.isValid(projectId)) throw new Error('PROJECT_NOT_FOUND');
+        const project = await Project.findOne({ _id: projectId, companyId }).lean();
         if (!project) throw new Error('PROJECT_NOT_FOUND');
 
-        const page = query.page || 1;
-        const pageSize = query.pageSize || 50;
+        if (userId) {
+            const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
+            if (!canAccess) throw new Error('PERMISSION_DENIED');
+        }
+
+        const page = Number(query.page) || 1;
+        const pageSize = Number(query.pageSize || query.limit) || 50;
         const skip = (page - 1) * pageSize;
 
-        const filter: any = { projectId, companyId, isArchived: false };
+        const isArchived = query.isArchived !== undefined
+            ? (query.isArchived === 'true' || query.isArchived === true)
+            : (query.archived !== undefined ? (query.archived === 'true' || query.archived === true) : false);
+
+        const filter: any = { projectId, companyId };
+        if (query.isArchived !== 'all' && query.archived !== 'all') {
+            filter.isArchived = isArchived;
+        }
+
         if (query.stageId) filter.stageId = query.stageId;
         if (query.priority) filter.priority = query.priority;
         if (query.isRecurring !== undefined) filter.isRecurring = query.isRecurring;
@@ -374,6 +388,67 @@ export class TaskService {
         ]);
 
         const mapped = tasks.map(t => this.mapTaskResponse(t, project.name));
+
+        return {
+            tasks: mapped,
+            pagination: {
+                page,
+                pageSize,
+                total,
+                totalPages: Math.ceil(total / pageSize)
+            }
+        };
+    }
+
+    // ─── Get Archived Tasks ───────────────────────────────────────────────────
+    static async getArchivedTasks(companyId: string, userId: string, query: any = {}) {
+        const page = Number(query.page) || 1;
+        const pageSize = Number(query.pageSize || query.limit) || 50;
+        const skip = (page - 1) * pageSize;
+
+        const filter: any = { companyId, isArchived: true };
+
+        if (query.projectId) {
+            if (!Types.ObjectId.isValid(query.projectId)) throw new Error('PROJECT_NOT_FOUND');
+            const project = await Project.findOne({ _id: query.projectId, companyId }).lean();
+            if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+            const canAccess = await ProjectService.canAccessProject(companyId, userId, query.projectId);
+            if (!canAccess) throw new Error('PERMISSION_DENIED');
+
+            filter.projectId = query.projectId;
+        } else {
+            const accessibleIds = await ProjectService.getAccessibleProjectIds(companyId, userId);
+            if (accessibleIds !== null) {
+                filter.projectId = { $in: accessibleIds };
+            }
+        }
+
+        if (query.stageId) filter.stageId = query.stageId;
+        if (query.priority) filter.priority = query.priority;
+        if (query.assignedToId) filter.assignedToId = query.assignedToId;
+        if (query.search) filter.title = { $regex: query.search, $options: 'i' };
+
+        const [tasks, total] = await Promise.all([
+            Task.find(filter)
+                .populate('projectId', 'name')
+                .populate('assignedToId', 'name email avatar')
+                .populate('createdBy', 'name email avatar')
+                .populate('stageId', 'name orderIndex')
+                .populate('statusId', 'name')
+                .populate('moduleId', 'name')
+                .populate('templateId', 'name')
+                .sort({ updatedAt: -1, createdAt: -1 })
+                .skip(skip)
+                .limit(pageSize)
+                .lean(),
+            Task.countDocuments(filter)
+        ]);
+
+        const mapped = tasks.map(t => {
+            const projectName = (t.projectId as any)?.name || 'Unknown Project';
+            return this.mapTaskResponse(t, projectName);
+        });
 
         return {
             tasks: mapped,
@@ -523,6 +598,118 @@ export class TaskService {
             await RecurringRule.updateOne({ _id: task.recurringRuleId }, { isActive: false });
         }
         return true;
+    }
+
+    // ─── Archive Task ─────────────────────────────────────────────────────────
+    static async archiveTask(taskId: string, companyId: string, userId: string) {
+        if (!Types.ObjectId.isValid(taskId)) throw new Error('TASK_NOT_FOUND');
+
+        const task = await Task.findOne({ _id: taskId, companyId });
+        if (!task) throw new Error('TASK_NOT_FOUND');
+        if (task.isArchived) throw new Error('TASK_ALREADY_ARCHIVED');
+
+        const project = await Project.findOne({ _id: task.projectId, companyId }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        const canAccess = await ProjectService.canAccessProject(companyId, userId, task.projectId.toString());
+        if (!canAccess) throw new Error('PERMISSION_DENIED');
+
+        // Stop active time tracking sessions
+        const now = new Date();
+        const sessions = await TimeTracking.find({
+            taskId,
+            companyId,
+            state: { $in: [TrackingState.TRACKING, TrackingState.PAUSED, TrackingState.ON_HOLD] }
+        });
+        for (const session of sessions) {
+            const originalState = session.state;
+            const activeInterval = session.intervals[session.intervals.length - 1];
+            if (activeInterval && !activeInterval.endedAt) {
+                activeInterval.endedAt = now;
+                if (originalState === TrackingState.TRACKING) {
+                    const workedDuration = Math.floor((now.getTime() - activeInterval.startedAt.getTime()) / 1000);
+                    session.workedSeconds += Math.max(0, workedDuration);
+                }
+            }
+            session.state = TrackingState.CANCELLED;
+            session.endedAt = now;
+            await session.save();
+        }
+
+        if (task.recurringRuleId) {
+            await RecurringRule.updateOne({ _id: task.recurringRuleId }, { isActive: false });
+        }
+
+        task.isArchived = true;
+        task.isActive = false;
+        await task.save();
+
+        await TaskActivity.create({
+            companyId,
+            projectId: task.projectId,
+            taskId: task._id,
+            userId,
+            type: ActivityType.SYSTEM,
+            content: 'Task was archived'
+        });
+
+        await task.populate([
+            { path: 'assignedToId', select: 'name email avatar' },
+            { path: 'createdBy', select: 'name email avatar' },
+            { path: 'stageId', select: 'name orderIndex' },
+            { path: 'statusId', select: 'name' },
+            { path: 'moduleId', select: 'name' },
+            { path: 'templateId', select: 'name' }
+        ]);
+
+        return {
+            id: task._id.toString(),
+            message: 'Task archived successfully',
+            task: this.mapTaskResponse(task, project.name)
+        };
+    }
+
+    // ─── Unarchive Task ───────────────────────────────────────────────────────
+    static async unarchiveTask(taskId: string, companyId: string, userId: string) {
+        if (!Types.ObjectId.isValid(taskId)) throw new Error('TASK_NOT_FOUND');
+
+        const task = await Task.findOne({ _id: taskId, companyId });
+        if (!task) throw new Error('TASK_NOT_FOUND');
+        if (!task.isArchived) throw new Error('TASK_NOT_ARCHIVED');
+
+        const project = await Project.findOne({ _id: task.projectId, companyId }).lean();
+        if (!project) throw new Error('PROJECT_NOT_FOUND');
+
+        const canAccess = await ProjectService.canAccessProject(companyId, userId, task.projectId.toString());
+        if (!canAccess) throw new Error('PERMISSION_DENIED');
+
+        task.isArchived = false;
+        task.isActive = true;
+        await task.save();
+
+        await TaskActivity.create({
+            companyId,
+            projectId: task.projectId,
+            taskId: task._id,
+            userId,
+            type: ActivityType.SYSTEM,
+            content: 'Task was unarchived'
+        });
+
+        await task.populate([
+            { path: 'assignedToId', select: 'name email avatar' },
+            { path: 'createdBy', select: 'name email avatar' },
+            { path: 'stageId', select: 'name orderIndex' },
+            { path: 'statusId', select: 'name' },
+            { path: 'moduleId', select: 'name' },
+            { path: 'templateId', select: 'name' }
+        ]);
+
+        return {
+            id: task._id.toString(),
+            message: 'Task unarchived successfully',
+            task: this.mapTaskResponse(task, project.name)
+        };
     }
 
     // ─── Cancel Task ──────────────────────────────────────────────────────────

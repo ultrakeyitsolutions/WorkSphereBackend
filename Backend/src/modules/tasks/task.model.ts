@@ -182,5 +182,6 @@ const taskSchema = new Schema<ITask>(
 
 taskSchema.index({ projectId: 1, itemNumber: 1 });
 taskSchema.index({ companyId: 1, projectId: 1, isArchived: 1 });
+taskSchema.index({ companyId: 1, isArchived: 1 });
 
 export const Task = model<ITask>('Task', taskSchema);
