@@ -4,6 +4,11 @@ import superAdminRoutes from '../modules/super-admin/super-admin.routes';
 import companyAdminRoutes from '../modules/companyadmin/company-admin.routes';
 import publicInvitationRoutes from '../modules/companyadmin/invitations/public-invitation.routes';
 import permissionRoutes from '../modules/permissions/permission.routes';
+import projectMemberRoutes from '../modules/companyadmin/projects/project-member.routes';
+import chatRoutes from '../modules/chat/chat.routes';
+import messageRoutes from '../modules/chat/message.routes';
+import fileRoutes from '../modules/files/file.routes';
+import callRoutes from '../modules/calls/call.routes';
 import { env } from '../config/env';
 
 const router = Router();
@@ -33,6 +38,18 @@ router.use('/v1/permissions', permissionRoutes);
 router.use('/v1/company', companyAdminRoutes);
 router.use('/v1/member', companyAdminRoutes);
 router.use('/v1/members', companyAdminRoutes);
+
+// ── Communication & Global Media Modules ──────────────────────────────────────
+router.use('/projects', projectMemberRoutes);
+router.use('/conversations', chatRoutes);
+router.use('/messages', messageRoutes);
+router.use('/files', fileRoutes);
+router.use('/calls', callRoutes);
+
+// Also alias under /v1 for flexibility
+router.use('/v1/conversations', chatRoutes);
+router.use('/v1/files', fileRoutes);
+router.use('/v1/calls', callRoutes);
 
 // ── Protected Modules ─────────────────────────────────────────────────────────
 router.use('/super-admin', superAdminRoutes);

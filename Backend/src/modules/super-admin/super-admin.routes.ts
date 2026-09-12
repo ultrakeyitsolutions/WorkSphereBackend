@@ -7,6 +7,7 @@ import planRouter from './plans/plans.routes';
 import featureRouter from './features/features.routes';
 import subscriptionRoutes from './subscriptions/subscription.routes';
 import auditLogRouter from '../audit-logs/audit-log.routes';
+import storageRouter from './storage/storage-config.routes';
 
 const router = Router();
 
@@ -97,5 +98,14 @@ router.use('/features', featureRouter);
 // GET  /api/super-admin/audit-logs/company/:companyId
 // GET  /api/super-admin/audit-logs/:id
 router.use('/audit-logs', auditLogRouter);
+
+// ── Storage Configuration Routes (Super-Admin only) ─────────────────────────
+// GET    /api/super-admin/storage/configuration
+// PUT    /api/super-admin/storage/configuration
+// POST   /api/super-admin/storage/test
+// GET    /api/super-admin/storage/health
+// GET    /api/super-admin/storage/history
+// POST   /api/super-admin/storage/rollback/:historyId
+router.use('/storage', storageRouter);
 
 export default router;

@@ -45,4 +45,11 @@ export const env = {
     // 32-byte hex key for AES-256-GCM encryption of TOTP secrets.
     // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
     MFA_ENCRYPTION_KEY: (process.env.MFA_ENCRYPTION_KEY || '') as string,
+
+    // ── Global Storage (Fallback for development/test) ────────────────────────
+    BUNNY_STORAGE_ZONE: (process.env.BUNNY_STORAGE_ZONE || '') as string,
+    BUNNY_STORAGE_ACCESS_KEY: (process.env.BUNNY_STORAGE_ACCESS_KEY || '') as string,
+    BUNNY_STORAGE_REGION: (process.env.BUNNY_STORAGE_REGION || '') as string,
+    BUNNY_PULL_ZONE_URL: (process.env.BUNNY_PULL_ZONE_URL || '') as string,
+    BUNNY_STORAGE_BASE_PATH: (process.env.BUNNY_STORAGE_BASE_PATH || 'worksphere') as string,
 };

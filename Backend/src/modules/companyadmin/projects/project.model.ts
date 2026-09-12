@@ -203,6 +203,9 @@ export const ProjectTeamMember = model<IProjectTeamMemberDocument>(
     projectTeamMemberSchema
 );
 
+// Reuse ProjectTeamMember as ProjectMember for chat/communication features
+export const ProjectMember = ProjectTeamMember;
+
 // ─── Project Client Schema ────────────────────────────────────────────────────
 
 const projectClientSchema = new Schema<IProjectClientDocument>(
