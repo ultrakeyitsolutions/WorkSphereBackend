@@ -103,6 +103,13 @@ export class BunnyStorageProvider implements StorageProvider {
     }
 
     /**
+     * Get the resolved region (auto-corrected if regional fallback occurred).
+     */
+    getResolvedRegion(): string {
+        return this.config.region || 'de';
+    }
+
+    /**
      * Upload a file buffer to Bunny Storage.
      */
     async uploadFile(
@@ -122,6 +129,29 @@ export class BunnyStorageProvider implements StorageProvider {
             },
             body: new Uint8Array(buffer),
         });
+
+        // Fallback check: If regional endpoint (e.g. ny) returned 401, test primary Europe endpoint (storage.bunnycdn.com)
+        if (response.status === 401 && this.getStorageHost() !== 'https://storage.bunnycdn.com') {
+            const fallbackUrl = `https://storage.bunnycdn.com/${this.config.storageZone}/${cleanKey}`;
+            const fallbackResponse = await fetch(fallbackUrl, {
+                method: 'PUT',
+                headers: {
+                    AccessKey: this.config.accessKey,
+                    'Content-Type': mimeType,
+                    'Content-Length': buffer.length.toString(),
+                },
+                body: new Uint8Array(buffer),
+            });
+
+            if (fallbackResponse.ok || fallbackResponse.status === 201 || fallbackResponse.status === 200) {
+                this.config.region = 'de';
+                return {
+                    storageKey: cleanKey,
+                    storageUrl: this.getFileUrl(cleanKey),
+                    size: buffer.length,
+                };
+            }
+        }
 
         if (!response.ok && response.status !== 201 && response.status !== 200) {
             const errorText = await response.text().catch(() => response.statusText);
@@ -150,6 +180,20 @@ export class BunnyStorageProvider implements StorageProvider {
                 AccessKey: this.config.accessKey,
             },
         });
+
+        if (response.status === 401 && this.getStorageHost() !== 'https://storage.bunnycdn.com') {
+            const fallbackUrl = `https://storage.bunnycdn.com/${this.config.storageZone}/${cleanKey}`;
+            const fallbackResponse = await fetch(fallbackUrl, {
+                method: 'DELETE',
+                headers: {
+                    AccessKey: this.config.accessKey,
+                },
+            });
+            if (fallbackResponse.status === 200 || fallbackResponse.status === 404) {
+                this.config.region = 'de';
+                return true;
+            }
+        }
 
         if (response.status === 200 || response.status === 404) {
             return true;

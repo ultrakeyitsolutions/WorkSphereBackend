@@ -155,6 +155,10 @@ export class StorageConfigurationService {
             // 3. Delete test file
             await provider.deleteFile(testKey);
 
+            if (typeof (provider as any).getResolvedRegion === 'function') {
+                configuration.region = (provider as any).getResolvedRegion();
+            }
+
             return {
                 success: true,
                 message: `${providerType} storage connection tested and verified successfully.`,
