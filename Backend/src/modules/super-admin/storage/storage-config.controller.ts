@@ -58,7 +58,7 @@ export class StorageConfigController {
     static async getHealth(req: AuthenticatedRequest, res: Response): Promise<Response> {
         try {
             const health = await StorageConfigurationService.getHealth();
-            const statusCode = health.status === 'HEALTHY' ? 200 : 503;
+            const statusCode = health.status === 'UNHEALTHY' ? 503 : 200;
             return sendSuccess(res, 'Storage health status retrieved', health, statusCode);
         } catch (error: any) {
             return sendError(res, error.message || 'Failed to check storage health', 500);
