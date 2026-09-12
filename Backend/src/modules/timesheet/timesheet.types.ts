@@ -1,5 +1,3 @@
-import { Types } from 'mongoose';
-
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export enum TimesheetApprovalStatus {

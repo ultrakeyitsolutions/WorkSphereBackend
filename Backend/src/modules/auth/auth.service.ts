@@ -484,7 +484,7 @@ export class AuthService {
     /**
      * Request password reset: generates 6-digit numeric OTP, hashes with Argon2, and sends email
      */
-    static async requestPasswordReset(email: string, req?: Request) {
+    static async requestPasswordReset(email: string, _req?: Request) {
         const normalizedEmail = email.trim().toLowerCase();
         const user = await UserService.findByEmail(normalizedEmail);
 

@@ -6,7 +6,6 @@ import {
     updateRecurrenceSchema,
     taskParamSchema,
     reopenTaskSchema,
-    projectMembersParamSchema,
     cancelTaskSchema,
     archivedTaskListSchema
 } from './task.validator';
@@ -19,7 +18,6 @@ import {
     updateTaskRecurrence,
     deleteTaskRecurrence,
     reopenTask,
-    getProjectMembers,
     cancelTask,
     getArchivedTasks,
     archiveTask,

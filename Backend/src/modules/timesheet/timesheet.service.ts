@@ -18,7 +18,6 @@ import {
     TimesheetResponse,
     TimesheetUserSummary,
     TimesheetDayData,
-    TimesheetHealthSummary,
     AnomalyRecord,
     TimelineEntry,
     ProjectDistribution,

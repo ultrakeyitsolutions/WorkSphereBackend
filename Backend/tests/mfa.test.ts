@@ -3,7 +3,6 @@ import { MfaService } from '../src/modules/auth/mfa/mfa.service';
 import { UserMfa } from '../src/modules/auth/mfa/mfa-record.model';
 import { User } from '../src/modules/users/user.model';
 import argon2 from 'argon2';
-import speakeasy from 'speakeasy';
 
 // Mock mail transporter
 const mockSendMail = vi.fn().mockResolvedValue({ messageId: 'test_msg_id' });

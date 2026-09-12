@@ -1,6 +1,5 @@
 import { AppError } from '../../utils/AppError';
 import { Attendance, AttendanceStatus, IAttendance } from './attendance.model';
-import { TaskTrackingService } from '../task-tracking/task-tracking.service';
 
 export class AttendanceService {
     

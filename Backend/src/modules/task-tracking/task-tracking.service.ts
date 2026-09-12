@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import { TimeTracking, TrackingState, IntervalType, ITimeTracking } from './time-tracking.model';
 import { Attendance, AttendanceStatus } from '../attendance/attendance.model';
 import { Task } from '../tasks/task.model';

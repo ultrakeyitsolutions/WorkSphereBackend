@@ -5,7 +5,7 @@ import { Company } from '../../super-admin/companies/company.model';
 import { CompanyRole } from './roles/company-role.model';
 import { Designation } from './designation/designation.model';
 import { CompanyMember } from './company-member.model';
-import { Invitation, IInvitationDocument } from './invitation.model';
+import { Invitation } from './invitation.model';
 import { InvitationDelivery } from './invitation-delivery.model';
 import { User } from '../../users/user.model';
 import { Role } from '../../roles/role.model';

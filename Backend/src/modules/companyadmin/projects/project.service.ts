@@ -1,6 +1,6 @@
-import mongoose, { Types, Document } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Project, ProjectSettings, ProjectInCharge, ProjectTeamMember, ProjectClient } from './project.model';
-import { ProjectStatus, IProjectDocument } from './project.types';
+import { ProjectStatus } from './project.types';
 import { User } from '../../users/user.model';
 import { Company } from '../../super-admin/companies/company.model';
 import { AuditLogService } from '../../audit-logs/audit-log.service';
@@ -159,20 +159,6 @@ async function validateCompanyUsers(
         });
     }
     return map;
-}
-
-/**
- * Build a safe settings output object from optional settings input.
- */
-function buildSettings(settingsInput: Record<string, boolean | undefined>): ProjectSettingsOutput {
-    return {
-        allowTeamMembersToCreateTasks: settingsInput['allowTeamMembersToCreateTasks'] ?? true,
-        showTaskItemNumber: settingsInput['showTaskItemNumber'] ?? true,
-        allowExplanation: settingsInput['allowExplanation'] ?? true,
-        deliveryDateMandatory: settingsInput['deliveryDateMandatory'] ?? false,
-        isConfidential: settingsInput['isConfidential'] ?? false,
-        enableTemplateHierarchy: settingsInput['enableTemplateHierarchy'] ?? false,
-    };
 }
 
 // ─── ProjectService ───────────────────────────────────────────────────────────

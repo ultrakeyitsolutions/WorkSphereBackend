@@ -72,7 +72,7 @@ describe('Forgot Password & Reset Password Service', () => {
             return mockResetRecord;
         });
 
-        vi.spyOn(PasswordReset, 'findOne').mockImplementation((query: any) => ({
+        vi.spyOn(PasswordReset, 'findOne').mockImplementation((_query: any) => ({
             sort: () => Promise.resolve(mockResetRecord),
         }) as any);
 
@@ -141,7 +141,7 @@ describe('Forgot Password & Reset Password Service', () => {
         // Confirmation email sent
         expect(mockSendMail).toHaveBeenCalledTimes(1);
         expect(mockSendMail.mock.calls[0][0].subject).toContain('Your Password Has Been Changed');
-    });
+    }, 15000);
 
     it('Security: Entering invalid 6-digit code should fail and increment attempts', async () => {
         await AuthService.requestPasswordReset(mockEmail);

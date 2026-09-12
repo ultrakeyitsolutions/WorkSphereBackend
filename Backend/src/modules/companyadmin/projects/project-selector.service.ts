@@ -1,6 +1,5 @@
 import { Types } from 'mongoose';
 import CompanyMember from '../invitations/company-member.model';
-import { AppError } from '../../../utils/AppError';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

@@ -178,7 +178,7 @@ export class TaskAttachmentService {
         return attachments.map(att => this.formatAttachment(att));
     }
 
-    static async deleteAttachment(attachmentId: string, companyId: string, userId?: string, role?: string) {
+    static async deleteAttachment(attachmentId: string, companyId: string, _userId?: string, _role?: string) {
         let attachment = null;
         if (Types.ObjectId.isValid(attachmentId)) {
             attachment = await TaskAttachment.findOne({ _id: attachmentId, companyId });

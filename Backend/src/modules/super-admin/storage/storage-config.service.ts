@@ -162,7 +162,7 @@ export class StorageConfigurationService {
      * Update storage configuration with test-before-activate safety and audit history.
      */
     static async updateConfiguration(userId: string, data: any): Promise<any> {
-        let existing = await StorageConfiguration.findOne().sort({ updatedAt: -1 });
+        const existing = await StorageConfiguration.findOne().sort({ updatedAt: -1 });
 
         const provider = (data.provider || existing?.provider || 'BUNNY').toUpperCase();
         const enabled = data.enabled !== undefined ? data.enabled : (existing?.enabled ?? true);

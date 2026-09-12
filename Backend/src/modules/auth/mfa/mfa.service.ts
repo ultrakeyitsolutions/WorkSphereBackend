@@ -223,7 +223,7 @@ export class MfaService {
      * Generates a 6-character code with letters, numbers, and special characters,
      * and sends it to user's registered email address for identity verification.
      */
-    static async requestKeyOtp(userId: string, req?: Request) {
+    static async requestKeyOtp(userId: string, _req?: Request) {
         const user = await User.findById(userId);
         if (!user) {
             throw new Error('User not found');
@@ -263,7 +263,7 @@ export class MfaService {
      * Step B: User enters the verification code on screen
      * Validates the code. If correct, securely emails the actual manual TOTP setup key!
      */
-    static async verifyKeyOtpAndSendKey(userId: string, otp: string, req?: Request) {
+    static async verifyKeyOtpAndSendKey(userId: string, otp: string, _req?: Request) {
         const user = await User.findById(userId);
         if (!user) {
             throw new Error('User not found');

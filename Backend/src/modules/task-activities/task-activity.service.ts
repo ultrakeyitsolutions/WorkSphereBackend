@@ -2,7 +2,6 @@ import { Types } from 'mongoose';
 import { TaskActivity, ActivityType } from './task-activity.model';
 import { Task } from '../tasks/task.model';
 import { Project } from '../companyadmin/projects/project.model';
-import { User } from '../users/user.model';
 
 export class TaskActivityService {
     static async createActivity(taskId: string, userId: string, companyId: string, data: any) {
