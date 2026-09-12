@@ -41,7 +41,8 @@ export class UserService {
         if (!user) return false;
 
         const role = user.role as any;
-        if (role?.name === 'Admin' || role?.name === 'SUPER_ADMIN' || role?.name === 'COMPANY_ADMIN') {
+        const roleName = (typeof role === 'string' ? role : role?.name || '').toUpperCase();
+        if (roleName === 'ADMIN' || roleName === 'SUPER_ADMIN' || roleName === 'COMPANY_ADMIN') {
             return true;
         }
 

@@ -47,7 +47,9 @@ router.use('/files', fileRoutes);
 router.use('/calls', callRoutes);
 
 // Also alias under /v1 for flexibility
+router.use('/v1/projects', projectMemberRoutes);
 router.use('/v1/conversations', chatRoutes);
+router.use('/v1/messages', messageRoutes);
 router.use('/v1/files', fileRoutes);
 router.use('/v1/calls', callRoutes);
 

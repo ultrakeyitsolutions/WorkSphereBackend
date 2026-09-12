@@ -165,8 +165,17 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
                     .populate('fileId')
                     .lean();
 
-                // Emit new_message to conversation room
-                io.to(`conversation:${conversationId}`).emit('new_message', {
+                if (!populatedMessage) {
+                    throw new Error('Failed to retrieve created message');
+                }
+
+                // Emit new_message to conversation room AND recipient's personal room
+                // Socket.IO automatically de-duplicates sockets present in multiple target rooms
+                const broadcastTarget = otherUserId
+                    ? io.to(`conversation:${conversationId}`).to(`user:${otherUserId}`)
+                    : io.to(`conversation:${conversationId}`);
+
+                broadcastTarget.emit('new_message', {
                     message: populatedMessage,
                 });
 
@@ -183,6 +192,18 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
                     io.to(`user:${otherUserId}`).emit('unread_count_update', {
                         conversationId,
                         unreadCount,
+                    });
+
+                    // Emit real-time notification alert to recipient's personal room
+                    io.to(`user:${otherUserId}`).emit('chat_notification', {
+                        type: 'NEW_CHAT_MESSAGE',
+                        title: (populatedMessage as any)?.senderId?.name || 'New Message',
+                        message: populatedMessage.text || (populatedMessage.fileId ? `Sent an attachment (${populatedMessage.messageType})` : 'New message'),
+                        conversationId,
+                        projectId: conversation.projectId,
+                        sender: (populatedMessage as any)?.senderId,
+                        unreadCount,
+                        createdAt: populatedMessage.createdAt,
                     });
                 }
 

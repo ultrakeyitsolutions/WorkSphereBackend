@@ -197,11 +197,11 @@ export class ProjectService {
     /**
      * Reusable helper to check if a user can access a specific project.
      */
-    static async canAccessProject(companyId: string, userId: string, projectId: string): Promise<boolean> {
+    static async canAccessProject(companyId: string, userId: string, projectId: string | Types.ObjectId): Promise<boolean> {
         const accessibleIds = await this.getAccessibleProjectIds(companyId, userId);
         if (accessibleIds === null) return true; // unrestricted access
         
-        return accessibleIds.some(id => String(id) === projectId);
+        return accessibleIds.some(id => String(id) === String(projectId));
     }
 
     /**
