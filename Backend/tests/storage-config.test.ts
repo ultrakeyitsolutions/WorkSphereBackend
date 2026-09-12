@@ -11,7 +11,7 @@ vi.mock('../src/modules/super-admin/storage/storage-config.model', () => {
         enabled = true;
         configuration = {
             storageZone: 'test-zone',
-            accessKey: 'secret_key_12345',
+            accessKey: 'mock-storage-access-key', // gitleaks:allow
             region: 'sg',
             pullZoneUrl: 'https://test-cdn.b-cdn.net',
             basePath: 'worksphere',

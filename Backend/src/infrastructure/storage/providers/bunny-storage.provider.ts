@@ -17,6 +17,8 @@ export class BunnyStorageProvider implements StorageProvider {
         }
         this.config = {
             ...config,
+            storageZone: (config.storageZone || '').trim(),
+            accessKey: (config.accessKey || '').trim(),
             region: (config.region || '').toLowerCase().trim(),
             pullZoneUrl: (config.pullZoneUrl || '').trim(),
             basePath: (config.basePath || 'worksphere').replace(/^\/+|\/+$/g, ''),
@@ -27,7 +29,20 @@ export class BunnyStorageProvider implements StorageProvider {
      * Resolve Bunny storage host based on region.
      */
     private getStorageHost(): string {
-        const region = this.config.region;
+        let region = (this.config.region || '').toLowerCase().trim();
+        if (region.startsWith('http://') || region.startsWith('https://')) {
+            try {
+                region = new URL(region).hostname;
+            } catch {
+                // ignore
+            }
+        }
+        if (region.endsWith('.storage.bunnycdn.com')) {
+            return `https://${region}`;
+        }
+        if (region === 'storage.bunnycdn.com') {
+            return 'https://storage.bunnycdn.com';
+        }
         if (region && region !== 'de' && region !== 'default') {
             return `https://${region}.storage.bunnycdn.com`;
         }

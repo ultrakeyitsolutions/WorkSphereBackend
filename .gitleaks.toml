@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore test suites and mock data"
+paths = [
+    '''(?i)(^|/)tests?/''',
+]

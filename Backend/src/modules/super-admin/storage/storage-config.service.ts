@@ -150,9 +150,13 @@ export class StorageConfigurationService {
                 message: `${providerType} storage connection tested and verified successfully.`,
             };
         } catch (error: any) {
+            let message = `Connection test failed: ${error.message || 'Unknown error'}`;
+            if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+                message += ' (HTTP 401 Unauthorized: Please verify you are using the Storage Zone Read/Write Password from Bunny.net dashboard -> Storage -> [Zone] -> "FTP & API Access", NOT your Account API Key. Also ensure the Region matches your Storage Zone location).';
+            }
             return {
                 success: false,
-                message: `Connection test failed: ${error.message || 'Unknown error'}`,
+                message,
                 details: error.stack,
             };
         }

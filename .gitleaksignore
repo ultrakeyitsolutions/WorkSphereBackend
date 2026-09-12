@@ -1,0 +1,2 @@
+# Gitleaks ignore list for false positives in test mock data
+966e6d7dbbbccb841b1ec5cb077120b3cc84814a:Backend/tests/storage-config.test.ts:generic-api-key:14
