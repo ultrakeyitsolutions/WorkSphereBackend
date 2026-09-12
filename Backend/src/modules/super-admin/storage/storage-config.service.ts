@@ -117,6 +117,16 @@ export class StorageConfigurationService {
                 };
             }
 
+            const rawKey = String(configuration.accessKey || '').trim();
+            if (rawKey.includes('•') || /^[•*]+$/.test(rawKey)) {
+                return {
+                    success: false,
+                    message: 'The Access Key entered is masked bullet dots ("••••"). In Bunny.net, please click the Copy icon next to the Password (or click the Eye icon to reveal it) to copy the actual password string.',
+                };
+            }
+
+            console.log(`[StorageTest] Testing ${providerType}: zone=${configuration.storageZone}, keyLength=${rawKey.length}`);
+
             const provider = StorageProviderFactory.createProvider(providerType, configuration);
             const basePath = (configuration.basePath || 'worksphere').replace(/^\/+|\/+$/g, '');
             const testKey = `${basePath}/temporary/test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.txt`;

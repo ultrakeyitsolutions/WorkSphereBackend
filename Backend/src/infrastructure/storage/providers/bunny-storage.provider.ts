@@ -15,15 +15,17 @@ export class BunnyStorageProvider implements StorageProvider {
         if (!config.storageZone || !config.accessKey) {
             throw new Error('Invalid Bunny.net configuration: storageZone and accessKey are required.');
         }
-        let cleanZone = (config.storageZone || '').trim();
+        let cleanZone = (config.storageZone || '').trim().replace(/^['"]|['"]$/g, '');
         if (cleanZone.includes('/')) {
             cleanZone = cleanZone.replace(/\/+$/, '').split('/').pop() || cleanZone;
         }
 
+        const cleanKey = (config.accessKey || '').trim().replace(/^['"]|['"]$/g, '');
+
         this.config = {
             ...config,
             storageZone: cleanZone,
-            accessKey: (config.accessKey || '').trim(),
+            accessKey: cleanKey,
             region: (config.region || '').toLowerCase().trim(),
             pullZoneUrl: (config.pullZoneUrl || '').trim(),
             basePath: (config.basePath || 'worksphere').replace(/^\/+|\/+$/g, ''),
