@@ -15,9 +15,14 @@ export class BunnyStorageProvider implements StorageProvider {
         if (!config.storageZone || !config.accessKey) {
             throw new Error('Invalid Bunny.net configuration: storageZone and accessKey are required.');
         }
+        let cleanZone = (config.storageZone || '').trim();
+        if (cleanZone.includes('/')) {
+            cleanZone = cleanZone.replace(/\/+$/, '').split('/').pop() || cleanZone;
+        }
+
         this.config = {
             ...config,
-            storageZone: (config.storageZone || '').trim(),
+            storageZone: cleanZone,
             accessKey: (config.accessKey || '').trim(),
             region: (config.region || '').toLowerCase().trim(),
             pullZoneUrl: (config.pullZoneUrl || '').trim(),
@@ -43,8 +48,44 @@ export class BunnyStorageProvider implements StorageProvider {
         if (region === 'storage.bunnycdn.com') {
             return 'https://storage.bunnycdn.com';
         }
-        if (region && region !== 'de' && region !== 'default') {
-            return `https://${region}.storage.bunnycdn.com`;
+
+        const REGION_MAP: Record<string, string> = {
+            'frankfurt': 'de',
+            'frankfurt, de': 'de',
+            'germany': 'de',
+            'falkenstein': 'de',
+            'de': 'de',
+            'default': 'de',
+            'europe': 'de',
+            'eu': 'de',
+            'london': 'uk',
+            'united kingdom': 'uk',
+            'uk': 'uk',
+            'new york': 'ny',
+            'ny': 'ny',
+            'us-east': 'ny',
+            'los angeles': 'la',
+            'la': 'la',
+            'us-west': 'la',
+            'singapore': 'sg',
+            'sg': 'sg',
+            'sydney': 'syd',
+            'australia': 'syd',
+            'syd': 'syd',
+            'stockholm': 'se',
+            'sweden': 'se',
+            'se': 'se',
+            'sao paulo': 'br',
+            'brazil': 'br',
+            'br': 'br',
+            'johannesburg': 'jh',
+            'south africa': 'jh',
+            'jh': 'jh',
+        };
+
+        const resolvedCode = REGION_MAP[region] || region;
+        if (resolvedCode && resolvedCode !== 'de' && resolvedCode !== 'default') {
+            return `https://${resolvedCode}.storage.bunnycdn.com`;
         }
         return 'https://storage.bunnycdn.com';
     }
