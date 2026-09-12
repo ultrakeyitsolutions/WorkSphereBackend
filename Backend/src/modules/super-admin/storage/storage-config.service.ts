@@ -102,15 +102,15 @@ export class StorageConfigurationService {
         configuration: Record<string, any>
     ): Promise<{ success: boolean; message: string; details?: string }> {
         try {
-            // If accessKey is omitted in test payload, attempt to use active saved accessKey
-            if (!configuration.accessKey) {
-                const active = await this.getActiveConfiguration();
-                if (active?.configuration?.accessKey) {
-                    configuration.accessKey = active.configuration.accessKey;
+            // If accessKey is omitted in test payload, attempt to use active saved accessKey from DB
+            if (!configuration.accessKey || (typeof configuration.accessKey === 'string' && configuration.accessKey.trim().length === 0)) {
+                const existing = await StorageConfiguration.findOne().sort({ updatedAt: -1 });
+                if (existing?.configuration?.accessKey) {
+                    configuration.accessKey = existing.configuration.accessKey;
                 }
             }
 
-            if (!configuration.accessKey) {
+            if (!configuration.accessKey || (typeof configuration.accessKey === 'string' && configuration.accessKey.trim().length === 0)) {
                 return {
                     success: false,
                     message: 'Storage access key is required to test the configuration.',
@@ -197,6 +197,12 @@ export class StorageConfigurationService {
 
         // Test configuration before activating if storage is enabled
         if (enabled) {
+            if (!mergedConf.storageZone || !mergedConf.accessKey) {
+                throw new Error(
+                    'Cannot enable storage: Please enter your Storage Zone Name, Access Key (Password), and Pull Zone URL in the form below and click Save Configuration.'
+                );
+            }
+
             const testResult = await this.testConfiguration(provider, mergedConf);
             if (!testResult.success) {
                 throw new Error(
