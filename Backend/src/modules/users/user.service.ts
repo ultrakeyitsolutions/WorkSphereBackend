@@ -1,17 +1,45 @@
+import { performance } from 'perf_hooks';
 import { User } from './user.model';
 import { IUser } from './user.types';
 
 export class UserService {
     static async findByEmail(email: string) {
-        return User.findOne({ email })
-            .populate({
-                path: 'role',
-                populate: {
-                    path: 'permissions',
+        const start = performance.now();
+
+        const user = await User.findOne({ email });
+
+        console.log(
+            `[LOGIN DEBUG] User.findOne: ${(performance.now() - start).toFixed(2)}ms`
+        );
+
+        if (user) {
+            const populateStart = performance.now();
+
+            await user.populate([
+                {
+                    path: 'role',
+                    populate: {
+                        path: 'permissions',
+                    },
                 },
-            })
-            .populate('grantedPermissions')
-            .populate('revokedPermissions');
+                {
+                    path: 'grantedPermissions',
+                },
+                {
+                    path: 'revokedPermissions',
+                },
+            ]);
+
+            console.log(
+                `[LOGIN DEBUG] populate: ${(performance.now() - populateStart).toFixed(2)}ms`
+            );
+        }
+
+        console.log(
+            `[LOGIN DEBUG] findByEmail total: ${(performance.now() - start).toFixed(2)}ms`
+        );
+
+        return user;
     }
 
     static async findById(id: string) {
