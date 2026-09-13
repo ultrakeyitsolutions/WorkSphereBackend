@@ -12,10 +12,10 @@ export class UserService {
             `[LOGIN DEBUG] User.findOne: ${(performance.now() - start).toFixed(2)}ms`
         );
 
-        if (user) {
+        if (user && typeof (user as any).populate === 'function') {
             const populateStart = performance.now();
 
-            await user.populate([
+            await (user as any).populate([
                 {
                     path: 'role',
                     populate: {

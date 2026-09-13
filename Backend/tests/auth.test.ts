@@ -33,6 +33,10 @@ vi.mock('../src/modules/users/user.model', () => {
             return this;
         }
 
+        async populate() {
+            return this;
+        }
+
         static findOne = vi.fn();
         static findById = vi.fn();
     }
