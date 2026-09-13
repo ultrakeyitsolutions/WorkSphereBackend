@@ -4,39 +4,61 @@ import { IUser } from './user.types';
 
 export class UserService {
     static async findByEmail(email: string) {
-        const start = performance.now();
+        // [PERF DEBUG] Measure individual find and populate operations
+        const totalStart = performance.now();
 
+        // 1. User.findOne
+        const findStart = performance.now();
         const user = await User.findOne({ email });
-
         console.log(
-            `[LOGIN DEBUG] User.findOne: ${(performance.now() - start).toFixed(2)}ms`
+            `[LOGIN DEBUG] 1. User.findOne: ${(performance.now() - findStart).toFixed(2)}ms`
         );
 
         if (user && typeof (user as any).populate === 'function') {
-            const populateStart = performance.now();
+            const populateTotalStart = performance.now();
 
-            await (user as any).populate([
-                {
-                    path: 'role',
-                    populate: {
-                        path: 'permissions',
-                    },
-                },
-                {
-                    path: 'grantedPermissions',
-                },
-                {
-                    path: 'revokedPermissions',
-                },
-            ]);
+            // 2. populate role
+            const roleStart = performance.now();
+            await (user as any).populate('role');
+            console.log(
+                `[LOGIN DEBUG] 2. populate role: ${(performance.now() - roleStart).toFixed(2)}ms`
+            );
+
+            // 3. populate role.permissions
+            const rolePermStart = performance.now();
+            if (user.role) {
+                if (typeof (user.role as any).populate === 'function') {
+                    await (user.role as any).populate('permissions');
+                } else if (typeof (user as any).populate === 'function') {
+                    await (user as any).populate({ path: 'role.permissions' });
+                }
+            }
+            console.log(
+                `[LOGIN DEBUG] 3. populate role.permissions: ${(performance.now() - rolePermStart).toFixed(2)}ms`
+            );
+
+            // 4. populate grantedPermissions
+            const grantedStart = performance.now();
+            await (user as any).populate('grantedPermissions');
+            console.log(
+                `[LOGIN DEBUG] 4. populate grantedPermissions: ${(performance.now() - grantedStart).toFixed(2)}ms`
+            );
+
+            // 5. populate revokedPermissions
+            const revokedStart = performance.now();
+            await (user as any).populate('revokedPermissions');
+            console.log(
+                `[LOGIN DEBUG] 5. populate revokedPermissions: ${(performance.now() - revokedStart).toFixed(2)}ms`
+            );
 
             console.log(
-                `[LOGIN DEBUG] populate: ${(performance.now() - populateStart).toFixed(2)}ms`
+                `[LOGIN DEBUG] populate total: ${(performance.now() - populateTotalStart).toFixed(2)}ms`
             );
         }
 
+        // 6. total findByEmail time
         console.log(
-            `[LOGIN DEBUG] findByEmail total: ${(performance.now() - start).toFixed(2)}ms`
+            `[LOGIN DEBUG] 6. findByEmail total: ${(performance.now() - totalStart).toFixed(2)}ms`
         );
 
         return user;
