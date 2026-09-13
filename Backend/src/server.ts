@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 5000;
 const startServer = async () => {
     try {
         // Establish database connection in background
-        connectDatabase();
+       await connectDatabase();
 
         // Create HTTP server wrapping Express
         const httpServer = http.createServer(app);
