@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { performance } from 'perf_hooks';
 import { AuthService } from './auth.service';
 import {
     registerSchema,
@@ -35,15 +36,26 @@ export class AuthController {
     }
 
     static async login(req: Request, res: Response) {
+        const ctrlStart = performance.now();
         try {
+            const validationStart = performance.now();
             const parsed = loginSchema.safeParse(req.body);
+            console.log(
+                `[LOGIN] validation: ${(performance.now() - validationStart).toFixed(2)}ms`
+            );
             if (!parsed.success) {
                 return sendError(res, 'Validation Error', 400, parsed.error.format());
             }
 
             const result = await AuthService.login(parsed.data, req);
+            console.log(
+                `[LOGIN] controllerTotal: ${(performance.now() - ctrlStart).toFixed(2)}ms`
+            );
             return sendSuccess(res, 'Login successful', result);
         } catch (error: any) {
+            console.log(
+                `[LOGIN] controllerTotal (error): ${(performance.now() - ctrlStart).toFixed(2)}ms`
+            );
             return sendError(res, error.message || 'Login failed', 400);
         }
     }

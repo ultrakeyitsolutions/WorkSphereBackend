@@ -1,3 +1,4 @@
+import { performance } from 'perf_hooks';
 import crypto from 'crypto';
 import argon2 from 'argon2';
 import { UserService } from '../users/user.service';
@@ -42,9 +43,17 @@ export class AuthService {
     }
 
     static async login(data: any, req?: Request) {
+        const totalStart = performance.now();
+
+        const findByEmailStart = performance.now();
         const user = await UserService.findByEmail(data.email);
+        console.log(
+            `[LOGIN] findByEmail: ${(performance.now() - findByEmailStart).toFixed(2)}ms`
+        );
+
         if (!user) {
             // Log failed login attempt
+            const auditStart = performance.now();
             await AuditLogService.log({
                 action: AuditAction.USER_LOGIN_FAILED,
                 actorEmail: data.email,
@@ -52,10 +61,17 @@ export class AuthService {
                 description: `Failed login attempt for email: ${data.email} — user not found`,
                 req,
             });
+            console.log(
+                `[LOGIN] auditLog (user not found): ${(performance.now() - auditStart).toFixed(2)}ms`
+            );
+            console.log(
+                `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+            );
             throw new Error('Invalid email or password');
         }
 
         if (!user.isActive) {
+            const auditStart = performance.now();
             await AuditLogService.log({
                 action: AuditAction.USER_LOGIN_FAILED,
                 actorId: String(user._id),
@@ -65,13 +81,24 @@ export class AuthService {
                 description: `Failed login — account deactivated for: ${user.email}`,
                 req,
             });
+            console.log(
+                `[LOGIN] auditLog (deactivated): ${(performance.now() - auditStart).toFixed(2)}ms`
+            );
+            console.log(
+                `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+            );
             throw new Error('Your account is deactivated');
         }
 
         // ─── Company Status Check ────────────────────────────────────────────────
         let companyDoc: any = null;
         if (user.companyId) {
+            const companyStart = performance.now();
             const company = await Company.findById(user.companyId);
+            console.log(
+                `[LOGIN] findCompany: ${(performance.now() - companyStart).toFixed(2)}ms`
+            );
+
             if (!company) {
                 await AuditLogService.log({
                     action: AuditAction.USER_LOGIN_FAILED,
@@ -81,6 +108,9 @@ export class AuthService {
                     description: `Failed login — organization not found for: ${user.email}`,
                     req,
                 });
+                console.log(
+                    `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+                );
                 throw new Error('Your organization account is not found.');
             }
             if (company.status === 'SUSPENDED') {
@@ -94,6 +124,9 @@ export class AuthService {
                     description: `Failed login — organization suspended for: ${user.email}`,
                     req,
                 });
+                console.log(
+                    `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+                );
                 throw new Error('Your organization account is currently suspended.');
             }
             if (company.status === 'DELETED' || !company.isActive) {
@@ -107,13 +140,22 @@ export class AuthService {
                     description: `Failed login — organization inactive for: ${user.email}`,
                     req,
                 });
+                console.log(
+                    `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+                );
                 throw new Error('Your organization account is no longer active.');
             }
             companyDoc = company;
         }
 
+        const pwdStart = performance.now();
         const isMatch = await comparePassword(data.password, user.password || '');
+        console.log(
+            `[LOGIN] password verification: ${(performance.now() - pwdStart).toFixed(2)}ms`
+        );
+
         if (!isMatch) {
+            const auditStart = performance.now();
             await AuditLogService.log({
                 action: AuditAction.USER_LOGIN_FAILED,
                 actorId: String(user._id),
@@ -124,19 +166,36 @@ export class AuthService {
                 description: `Failed login — wrong password for: ${user.email}`,
                 req,
             });
+            console.log(
+                `[LOGIN] auditLog (wrong password): ${(performance.now() - auditStart).toFixed(2)}ms`
+            );
+            console.log(
+                `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+            );
             throw new Error('Invalid email or password');
         }
 
         // ─── MFA Gate ────────────────────────────────────────────────────────────
         if (user.mfaEnabled) {
+            const mfaStart = performance.now();
             const challengeId = await MfaService.createChallenge(user._id, 'LOGIN');
+            console.log(
+                `[LOGIN] mfaChallenge: ${(performance.now() - mfaStart).toFixed(2)}ms`
+            );
+            console.log(
+                `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+            );
             return {
                 status: 'MFA_REQUIRED',
                 challengeId,
             };
         }
 
-        return this.generateAuthSessionResponse(user, req, null, companyDoc);
+        const authResponse = await this.generateAuthSessionResponse(user, req, null, companyDoc);
+        console.log(
+            `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
+        );
+        return authResponse;
     }
 
     /**
@@ -150,7 +209,11 @@ export class AuthService {
     ) {
         let companyDoc = existingCompanyDoc;
         if (!companyDoc && user.companyId) {
+            const compStart = performance.now();
             companyDoc = await Company.findById(user.companyId);
+            console.log(
+                `[LOGIN] findCompany: ${(performance.now() - compStart).toFixed(2)}ms`
+            );
         }
 
         const userRole = (user.role as any)?.name || 'User';
@@ -171,18 +234,27 @@ export class AuthService {
             companyId: user.companyId ? String(user.companyId) : undefined,
         };
 
+        const tokenStart = performance.now();
         const accessToken = generateAccessToken(payload);
         const refreshToken = generateRefreshToken(payload);
+        console.log(
+            `[LOGIN] token generation: ${(performance.now() - tokenStart).toFixed(2)}ms`
+        );
 
         // ─── Create Auth Session ─────────────────────────────────────────────
+        const sessionStart = performance.now();
         await SessionService.createSession({
             userId: user._id,
             refreshToken,
             mfaVerifiedAt: mfaVerifiedAt || (user.mfaEnabled ? new Date() : null),
             req,
         });
+        console.log(
+            `[LOGIN] createSession: ${(performance.now() - sessionStart).toFixed(2)}ms`
+        );
 
         // ─── Successful login audit ──────────────────────────────────────────
+        const auditStart = performance.now();
         await AuditLogService.log({
             action: AuditAction.USER_LOGIN,
             actorId: String(user._id),
@@ -193,10 +265,17 @@ export class AuthService {
             description: `User logged in: ${user.email}`,
             req,
         });
+        console.log(
+            `[LOGIN] auditLog: ${(performance.now() - auditStart).toFixed(2)}ms`
+        );
 
+        const subStart = performance.now();
         const subscriptionData = companyDoc
             ? await CompanyProfileService.getCompanySubscription(String(companyDoc._id))
             : null;
+        console.log(
+            `[LOGIN] subscription: ${(performance.now() - subStart).toFixed(2)}ms`
+        );
 
         return {
             user: {
