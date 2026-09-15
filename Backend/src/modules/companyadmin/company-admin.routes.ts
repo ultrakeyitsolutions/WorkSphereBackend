@@ -85,6 +85,10 @@ import attendanceRoutes from '../attendance/attendance.routes';
 import timesheetRoutes from '../timesheet/timesheet.routes';
 
 import taskExplanationRatingRoutes from '../task-explanation-rating/task-explanation-rating.routes';
+import calendarRoutes from '../calendar/calendar.routes';
+
+// ── /api/v1/company/calendar ─────────────────────────────────────────────────
+router.use('/calendar', calendarRoutes);
 
 // ── /api/v1/company/attendance ───────────────────────────────────────────────
 router.use('/attendance', attendanceRoutes);
