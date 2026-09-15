@@ -52,4 +52,14 @@ export const env = {
     BUNNY_STORAGE_REGION: (process.env.BUNNY_STORAGE_REGION || '') as string,
     BUNNY_PULL_ZONE_URL: (process.env.BUNNY_PULL_ZONE_URL || '') as string,
     BUNNY_STORAGE_BASE_PATH: (process.env.BUNNY_STORAGE_BASE_PATH || 'worksphere') as string,
+
+    // ── Google Calendar & Meet OAuth ─────────────────────────────────────────
+    GOOGLE_CLIENT_ID: (process.env.GOOGLE_CLIENT_ID || '') as string,
+    GOOGLE_CLIENT_SECRET: (process.env.GOOGLE_CLIENT_SECRET || '') as string,
+    GOOGLE_REDIRECT_URI: (process.env.GOOGLE_REDIRECT_URI || '') as string,
+
+    // ── Microsoft 365 & Teams OAuth ──────────────────────────────────────────
+    MS_CLIENT_ID: (process.env.MS_CLIENT_ID || '') as string,
+    MS_CLIENT_SECRET: (process.env.MS_CLIENT_SECRET || '') as string,
+    MS_REDIRECT_URI: (process.env.MS_REDIRECT_URI || '') as string,
 };

@@ -246,11 +246,19 @@ export class CalendarService {
 
         // Meeting URL generation via OAuth or fallback
         const provider = payload.provider || 'none';
+        const participantEmails = participants.map((p) => p.email).filter(Boolean);
         const meetingDetails = await CalendarOAuthService.generateMeetingDetails(
             companyId,
             user.userId,
             provider,
-            payload.title
+            {
+                title: payload.title,
+                description: payload.description,
+                startTime: start,
+                endTime: end,
+                timeZone: payload.timeZone,
+                participantEmails,
+            }
         );
 
         const newEvent: any = await CalendarEvent.create({
@@ -365,11 +373,19 @@ export class CalendarService {
         // Provider change
         if (payload.provider !== undefined && payload.provider !== event.provider) {
             event.provider = payload.provider;
+            const participantEmails = event.participants.map((p) => p.email).filter(Boolean);
             const meetingDetails = await CalendarOAuthService.generateMeetingDetails(
                 companyId,
                 user.userId,
                 payload.provider,
-                event.title
+                {
+                    title: event.title,
+                    description: event.description,
+                    startTime: event.startTime,
+                    endTime: event.endTime,
+                    timeZone: event.timeZone,
+                    participantEmails,
+                }
             );
             event.meetingUrl = meetingDetails.meetingUrl;
             event.externalEventId = meetingDetails.externalEventId;
@@ -607,7 +623,14 @@ export class CalendarService {
             companyId,
             user.userId,
             provider,
-            title
+            {
+                title,
+                description: 'Instant meeting generated via WorkSphere Quick Meeting',
+                startTime,
+                endTime,
+                timeZone: 'Asia/Kolkata',
+                participantEmails: [organizerEmail],
+            }
         );
 
         const event: any = await CalendarEvent.create({

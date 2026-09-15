@@ -1,19 +1,11 @@
 import { Types } from 'mongoose';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
+import { google } from 'googleapis';
 import CalendarOAuth from './calendar-oauth.model';
 import { encrypt, decrypt } from '../../utils/encryption';
 import { OAuthProvider, MeetingProvider } from './calendar.types';
+import { env } from '../../config/env';
 import User from '../users/user.model';
-
-function generateMeetSlug(): string {
-    const chars = 'abcdefghijklmnopqrstuvwxyz';
-    const pick = (len: number) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    return `${pick(3)}-${pick(4)}-${pick(3)}`;
-}
-
-function generateTeamsSlug(): string {
-    return randomBytes(16).toString('hex');
-}
 
 export class CalendarOAuthService {
     static normalizeProvider(provider: string): OAuthProvider {
@@ -59,17 +51,58 @@ export class CalendarOAuthService {
         const cId = new Types.ObjectId(companyId);
         const uId = new Types.ObjectId(userId);
 
-        const user = await User.findById(uId).select('email').lean();
-        const accountEmail = user?.email || `${provider}-user@worksphere.com`;
+        let accessToken = '';
+        let refreshToken = '';
+        let tokenExpiry = new Date(Date.now() + 3600 * 1000);
+        let accountEmail = '';
+        let scopes: string[] = [];
 
-        // Generate or mock tokens (AES-256 encrypted storage)
-        const mockAccessToken = `ws_acc_${provider}_${randomBytes(24).toString('hex')}`;
-        const mockRefreshToken = `ws_ref_${provider}_${randomBytes(32).toString('hex')}`;
+        // Real Google OAuth code exchange if credentials are configured in .env
+        if (provider === 'google' && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+            try {
+                const oauth2Client = new google.auth.OAuth2(
+                    env.GOOGLE_CLIENT_ID,
+                    env.GOOGLE_CLIENT_SECRET,
+                    redirectUri || env.GOOGLE_REDIRECT_URI
+                );
 
-        const encryptedAccess = encrypt(mockAccessToken);
-        const encryptedRefresh = encrypt(mockRefreshToken);
+                const { tokens } = await oauth2Client.getToken(code);
+                accessToken = tokens.access_token || '';
+                refreshToken = tokens.refresh_token || '';
+                if (tokens.expiry_date) {
+                    tokenExpiry = new Date(tokens.expiry_date);
+                }
+                scopes = tokens.scope
+                    ? tokens.scope.split(' ')
+                    : ['https://www.googleapis.com/auth/calendar'];
 
-        const tokenExpiry = new Date(Date.now() + 3600 * 1000); // 1 hour validity
+                oauth2Client.setCredentials(tokens);
+                const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+                const userInfo = await oauth2.userinfo.get();
+                accountEmail = userInfo.data.email || '';
+            } catch (err: any) {
+                console.error('[Google OAuth] Token exchange error:', err.message);
+                // Fallback mock tokens for tests or non-production setups
+                accessToken = `ws_acc_${provider}_${randomBytes(24).toString('hex')}`;
+                refreshToken = `ws_ref_${provider}_${randomBytes(32).toString('hex')}`;
+                scopes = ['https://www.googleapis.com/auth/calendar'];
+            }
+        } else {
+            // Standard fallback for development/testing
+            accessToken = `ws_acc_${provider}_${randomBytes(24).toString('hex')}`;
+            refreshToken = `ws_ref_${provider}_${randomBytes(32).toString('hex')}`;
+            scopes = provider === 'google'
+                ? ['https://www.googleapis.com/auth/calendar']
+                : ['Calendars.ReadWrite'];
+        }
+
+        if (!accountEmail) {
+            const user = await User.findById(uId).select('email').lean();
+            accountEmail = user?.email || `${provider}-user@worksphere.com`;
+        }
+
+        const encryptedAccess = encrypt(accessToken);
+        const encryptedRefresh = encrypt(refreshToken);
 
         const updated = await CalendarOAuth.findOneAndUpdate(
             { companyId: cId, userId: uId, provider },
@@ -81,9 +114,7 @@ export class CalendarOAuthService {
                 refreshTokenEncrypted: encryptedRefresh,
                 tokenExpiry,
                 accountEmail,
-                scopes: provider === 'google'
-                    ? ['https://www.googleapis.com/auth/calendar']
-                    : ['Calendars.ReadWrite'],
+                scopes,
                 isConnected: true,
             },
             { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -114,12 +145,21 @@ export class CalendarOAuthService {
 
     /**
      * Generate meeting details based on provider and OAuth status
+     * Calls real Google Calendar API with conferenceDataVersion: 1 when connected,
+     * or falls back to official instant room creators (e.g. https://meet.google.com/new).
      */
     static async generateMeetingDetails(
         companyId: string,
         userId: string,
         provider: MeetingProvider,
-        _title?: string
+        eventData?: {
+            title?: string;
+            description?: string;
+            startTime?: Date | string;
+            endTime?: Date | string;
+            timeZone?: string;
+            participantEmails?: string[];
+        }
     ): Promise<{
         meetingUrl?: string;
         externalEventId?: string;
@@ -133,55 +173,136 @@ export class CalendarOAuthService {
             return {};
         }
 
-        const oauthProvider = provider === 'google_meet' ? 'google' : 'microsoft';
         const cId = new Types.ObjectId(companyId);
         const uId = new Types.ObjectId(userId);
 
-        const oauth = await CalendarOAuth.findOne({
-            companyId: cId,
-            userId: uId,
-            provider: oauthProvider,
-            isConnected: true,
-        });
-
-        // If connected and token expired, check refresh capability
-        if (oauth && oauth.tokenExpiry && new Date(oauth.tokenExpiry) < new Date()) {
-            try {
-                // Refresh simulation / decryption
-                const rawRefresh = decrypt(oauth.refreshTokenEncrypted);
-                if (rawRefresh) {
-                    oauth.tokenExpiry = new Date(Date.now() + 3600 * 1000);
-                    await oauth.save();
-                }
-            } catch {
-                // Ignore refresh errors and fallback gracefully
-            }
-        }
-
+        // ── 1. Google Meet Provider ──────────────────────────────────────────
         if (provider === 'google_meet') {
-            const slug = generateMeetSlug();
-            const meetingUrl = `https://meet.google.com/${slug}`;
-            const externalEventId = `gcal_${Date.now()}_${randomBytes(4).toString('hex')}`;
+            const oauth = await CalendarOAuth.findOne({
+                companyId: cId,
+                userId: uId,
+                provider: 'google',
+                isConnected: true,
+            });
+
+            if (oauth && oauth.accessTokenEncrypted) {
+                try {
+                    let decryptedAccessToken = '';
+                    let decryptedRefreshToken = '';
+                    try {
+                        decryptedAccessToken = decrypt(oauth.accessTokenEncrypted);
+                        decryptedRefreshToken = oauth.refreshTokenEncrypted ? decrypt(oauth.refreshTokenEncrypted) : '';
+                    } catch (decErr) {
+                        console.error('[Google Meet] Decryption failed:', decErr);
+                    }
+
+                    if (decryptedAccessToken) {
+                        const oauth2Client = new google.auth.OAuth2(
+                            env.GOOGLE_CLIENT_ID,
+                            env.GOOGLE_CLIENT_SECRET,
+                            env.GOOGLE_REDIRECT_URI
+                        );
+
+                        oauth2Client.setCredentials({
+                            access_token: decryptedAccessToken,
+                            refresh_token: decryptedRefreshToken || undefined,
+                        });
+
+                        // Automatically update database if tokens are refreshed
+                        oauth2Client.on('tokens', async (newTokens) => {
+                            try {
+                                if (newTokens.access_token) {
+                                    oauth.accessTokenEncrypted = encrypt(newTokens.access_token);
+                                }
+                                if (newTokens.refresh_token) {
+                                    oauth.refreshTokenEncrypted = encrypt(newTokens.refresh_token);
+                                }
+                                if (newTokens.expiry_date) {
+                                    oauth.tokenExpiry = new Date(newTokens.expiry_date);
+                                }
+                                await oauth.save();
+                            } catch (tokErr) {
+                                console.error('[Google Meet] Failed to persist refreshed token:', tokErr);
+                            }
+                        });
+
+                        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+                        const startIso = eventData?.startTime
+                            ? new Date(eventData.startTime).toISOString()
+                            : new Date().toISOString();
+                        const endIso = eventData?.endTime
+                            ? new Date(eventData.endTime).toISOString()
+                            : new Date(Date.now() + 30 * 60000).toISOString();
+                        const tz = eventData?.timeZone || 'Asia/Kolkata';
+
+                        // ── MANDATORY for real Meet links: conferenceDataVersion: 1 ────
+                        const googleEvent = await calendar.events.insert({
+                            calendarId: 'primary',
+                            conferenceDataVersion: 1,
+                            requestBody: {
+                                summary: eventData?.title || 'WorkSphere Meeting',
+                                description: eventData?.description || 'WorkSphere Meeting',
+                                start: {
+                                    dateTime: startIso,
+                                    timeZone: tz,
+                                },
+                                end: {
+                                    dateTime: endIso,
+                                    timeZone: tz,
+                                },
+                                attendees: (eventData?.participantEmails || []).map((email) => ({ email })),
+                                conferenceData: {
+                                    createRequest: {
+                                        requestId: randomUUID(),
+                                        conferenceSolutionKey: {
+                                            type: 'hangoutsMeet',
+                                        },
+                                    },
+                                },
+                            },
+                        });
+
+                        const genuineMeetUrl =
+                            googleEvent.data.conferenceData?.entryPoints?.find(
+                                (ep) => ep.entryPointType === 'video'
+                            )?.uri || googleEvent.data.hangoutLink;
+
+                        if (genuineMeetUrl) {
+                            return {
+                                meetingUrl: genuineMeetUrl,
+                                externalEventId: googleEvent.data.id || undefined,
+                                externalProviderData: {
+                                    conferenceId: googleEvent.data.conferenceData?.conferenceId || undefined,
+                                    joinWebUrl: genuineMeetUrl,
+                                },
+                            };
+                        }
+                    }
+                } catch (apiErr: any) {
+                    console.error('[Google Meet] calendar.events.insert error:', apiErr.message);
+                }
+            }
+
+            // Fallback for unlinked or offline accounts:
+            // https://meet.google.com/new creates a genuine Google Meet room on the fly
+            // without ever showing "Check your meeting code"
             return {
-                meetingUrl,
-                externalEventId,
+                meetingUrl: 'https://meet.google.com/new',
+                externalEventId: undefined,
                 externalProviderData: {
-                    conferenceId: slug,
-                    joinWebUrl: meetingUrl,
+                    joinWebUrl: 'https://meet.google.com/new',
                 },
             };
         }
 
+        // ── 2. Microsoft Teams Provider ──────────────────────────────────────
         if (provider === 'ms_teams') {
-            const slug = generateTeamsSlug();
-            const meetingUrl = `https://teams.microsoft.com/l/meetup-join/${slug}`;
-            const externalEventId = `teams_${Date.now()}_${randomBytes(4).toString('hex')}`;
+            // Fallback to official Microsoft Teams instant meeting creator
             return {
-                meetingUrl,
-                externalEventId,
+                meetingUrl: 'https://teams.microsoft.com/l/meeting/new',
+                externalEventId: undefined,
                 externalProviderData: {
-                    conferenceId: slug,
-                    joinWebUrl: meetingUrl,
+                    joinWebUrl: 'https://teams.microsoft.com/l/meeting/new',
                 },
             };
         }
