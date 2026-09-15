@@ -110,4 +110,89 @@ export class EntitlementService {
             value: entitlement.value,
         };
     }
+
+    /**
+     * Resolves Quick Meeting quota and cycle based on PlanFeature or Plan billing cycle.
+     * Rules:
+     * - MONTHLY plan: 7 meetings per month
+     * - SEMI_ANNUAL plan: 60 meetings per month
+     * - YEARLY plan: Unlimited meetings (-1)
+     * - If explicit PlanFeature is configured for QUICK_MEETINGS, honors its value/UNLIMITED.
+     */
+    static async getQuickMeetingLimits(companyId: string): Promise<{
+        enabled: boolean;
+        monthlyLimit: number;
+        isUnlimited: boolean;
+        billingCycle: string;
+        planName: string;
+    }> {
+        const entitlement = await this.getEntitlement(companyId, 'QUICK_MEETINGS');
+
+        const sub: any = await Subscription.findOne({ companyId })
+            .sort({ createdAt: -1 })
+            .populate('planId')
+            .lean();
+
+        const plan = sub?.planId;
+        const billingCycle: string = plan?.billingCycle || (sub ? 'MONTHLY' : 'FREE');
+        const planName: string = plan?.name || (sub ? 'Subscription Plan' : 'Free Trial');
+
+        if (entitlement) {
+            if (!entitlement.enabled) {
+                return {
+                    enabled: false,
+                    monthlyLimit: 0,
+                    isUnlimited: false,
+                    billingCycle,
+                    planName,
+                };
+            }
+            if (entitlement.limitType === 'UNLIMITED') {
+                return {
+                    enabled: true,
+                    monthlyLimit: -1,
+                    isUnlimited: true,
+                    billingCycle,
+                    planName,
+                };
+            }
+            if (typeof entitlement.value === 'number') {
+                return {
+                    enabled: true,
+                    monthlyLimit: entitlement.value,
+                    isUnlimited: false,
+                    billingCycle,
+                    planName,
+                };
+            }
+        }
+
+        // Standard billingCycle tiered limits:
+        if (billingCycle === 'YEARLY') {
+            return {
+                enabled: true,
+                monthlyLimit: -1,
+                isUnlimited: true,
+                billingCycle,
+                planName,
+            };
+        } else if (billingCycle === 'SEMI_ANNUAL') {
+            return {
+                enabled: true,
+                monthlyLimit: 60,
+                isUnlimited: false,
+                billingCycle,
+                planName,
+            };
+        } else {
+            // MONTHLY or default trial (7 meetings/month)
+            return {
+                enabled: true,
+                monthlyLimit: 7,
+                isUnlimited: false,
+                billingCycle,
+                planName,
+            };
+        }
+    }
 }

@@ -4,6 +4,7 @@ import { CalendarController } from './calendar.controller';
 const router = Router();
 
 // ── Calendar Events Endpoints ───────────────────────────────────────────────
+router.get('/entitlements', CalendarController.getEntitlements);
 router.get('/events', CalendarController.getEvents);
 router.post('/events', CalendarController.createEvent);
 router.put('/events/:id', CalendarController.updateEvent);

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     calendarEventFindOne: vi.fn(),
     calendarEventCreate: vi.fn(),
     calendarEventDeleteOne: vi.fn(),
+    calendarEventCountDocuments: vi.fn(),
     calendarOAuthFind: vi.fn(),
     calendarOAuthFindOne: vi.fn(),
     calendarOAuthFindOneAndUpdate: vi.fn(),
@@ -26,6 +27,8 @@ const mocks = vi.hoisted(() => ({
     companyMemberFindOne: vi.fn(),
     projectFindOne: vi.fn(),
     taskFindOne: vi.fn(),
+    entitlementHasFeature: vi.fn(),
+    entitlementGetQuickMeetingLimits: vi.fn(),
     currentUserRole: 'COMPANY_ADMIN',
     currentUserId: '64d0a1b2c3d4e5f6a7b8c9d1',
 }));
@@ -36,12 +39,24 @@ vi.mock('../src/modules/calendar/calendar-event.model', () => ({
         findOne: mocks.calendarEventFindOne,
         create: mocks.calendarEventCreate,
         deleteOne: mocks.calendarEventDeleteOne,
+        countDocuments: mocks.calendarEventCountDocuments,
     },
     default: {
         find: mocks.calendarEventFind,
         findOne: mocks.calendarEventFindOne,
         create: mocks.calendarEventCreate,
         deleteOne: mocks.calendarEventDeleteOne,
+        countDocuments: mocks.calendarEventCountDocuments,
+    },
+}));
+
+vi.mock('../src/services/entitlement.service', () => ({
+    EntitlementService: {
+        hasFeature: mocks.entitlementHasFeature,
+        getQuickMeetingLimits: mocks.entitlementGetQuickMeetingLimits,
+        getLimit: vi.fn(),
+        isUnlimited: vi.fn(),
+        checkLimit: vi.fn(),
     },
 }));
 
@@ -188,6 +203,15 @@ describe('Calendar & Meeting Invitation API', () => {
 
         mocks.calendarOAuthFind.mockResolvedValue([]);
         mocks.calendarOAuthFindOne.mockResolvedValue(null);
+        mocks.calendarEventCountDocuments.mockResolvedValue(0);
+        mocks.entitlementHasFeature.mockResolvedValue(true);
+        mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+            enabled: true,
+            monthlyLimit: 7,
+            isUnlimited: false,
+            billingCycle: 'MONTHLY',
+            planName: 'Pro Monthly',
+        });
     });
 
     // ── 2.1 GET /api/v1/company/calendar/events ─────────────────────────────
@@ -549,6 +573,181 @@ describe('Calendar & Meeting Invitation API', () => {
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
             expect(res.body.message).toBe('Integration disconnected successfully');
+        });
+    });
+
+    // ── 2.9 Calendar Entitlements & Plan Limits ──────────────────────────────
+    describe('Calendar Entitlements & Plan Limits (GET /api/v1/company/calendar/entitlements)', () => {
+        it('should return provider entitlements and monthly quick meeting usage for Monthly plan', async () => {
+            mocks.calendarEventCountDocuments.mockResolvedValue(3);
+            mocks.entitlementHasFeature.mockImplementation(async (_companyId, featureKey) => {
+                return featureKey === 'GOOGLE_MEET'; // Only Google Meet enabled, Teams disabled
+            });
+            mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+                enabled: true,
+                monthlyLimit: 7,
+                isUnlimited: false,
+                billingCycle: 'MONTHLY',
+                planName: 'Starter Monthly',
+            });
+
+            const res = await request(app).get('/api/v1/company/calendar/entitlements');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.providers.google_meet.enabled).toBe(true);
+            expect(res.body.data.providers.ms_teams.enabled).toBe(false);
+            expect(res.body.data.quickMeetings.monthlyLimit).toBe(7);
+            expect(res.body.data.quickMeetings.usedThisMonth).toBe(3);
+            expect(res.body.data.quickMeetings.remainingThisMonth).toBe(4);
+            expect(res.body.data.quickMeetings.isUnlimited).toBe(false);
+            expect(res.body.data.quickMeetings.billingCycle).toBe('MONTHLY');
+        });
+
+        it('should return 60 limit for Semi-Annual plan', async () => {
+            mocks.calendarEventCountDocuments.mockResolvedValue(10);
+            mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+                enabled: true,
+                monthlyLimit: 60,
+                isUnlimited: false,
+                billingCycle: 'SEMI_ANNUAL',
+                planName: 'Growth Semi-Annual',
+            });
+
+            const res = await request(app).get('/api/v1/company/calendar/entitlements');
+
+            expect(res.status).toBe(200);
+            expect(res.body.data.quickMeetings.monthlyLimit).toBe(60);
+            expect(res.body.data.quickMeetings.usedThisMonth).toBe(10);
+            expect(res.body.data.quickMeetings.remainingThisMonth).toBe(50);
+            expect(res.body.data.quickMeetings.billingCycle).toBe('SEMI_ANNUAL');
+        });
+
+        it('should return unlimited (-1) for Yearly plan', async () => {
+            mocks.calendarEventCountDocuments.mockResolvedValue(85);
+            mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+                enabled: true,
+                monthlyLimit: -1,
+                isUnlimited: true,
+                billingCycle: 'YEARLY',
+                planName: 'Enterprise Annual',
+            });
+
+            const res = await request(app).get('/api/v1/company/calendar/entitlements');
+
+            expect(res.status).toBe(200);
+            expect(res.body.data.quickMeetings.isUnlimited).toBe(true);
+            expect(res.body.data.quickMeetings.monthlyLimit).toBe(-1);
+            expect(res.body.data.quickMeetings.remainingThisMonth).toBe(-1);
+            expect(res.body.data.quickMeetings.usedThisMonth).toBe(85);
+        });
+    });
+
+    // ── 2.10 Provider Feature Gating ─────────────────────────────────────────
+    describe('Provider Feature Gating in Events', () => {
+        it('should reject scheduling event with google_meet if GOOGLE_MEET is not enabled in plan', async () => {
+            mocks.entitlementHasFeature.mockResolvedValue(false); // No entitlement
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/events')
+                .send({
+                    title: 'Google Meet Without Plan',
+                    startTime: futureStart,
+                    endTime: futureEnd,
+                    provider: 'google_meet',
+                });
+
+            expect(res.status).toBe(403);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toBe('FEATURE_NOT_INCLUDED_IN_PLAN');
+            expect(res.body.details).toContain('Google Meet');
+        });
+
+        it('should reject scheduling event with ms_teams if MS_TEAMS is not enabled in plan', async () => {
+            mocks.entitlementHasFeature.mockImplementation(async (_companyId, featureKey) => {
+                return featureKey === 'GOOGLE_MEET'; // Teams is disabled
+            });
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/events')
+                .send({
+                    title: 'Teams Meeting Without Plan',
+                    startTime: futureStart,
+                    endTime: futureEnd,
+                    provider: 'ms_teams',
+                });
+
+            expect(res.status).toBe(403);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toBe('FEATURE_NOT_INCLUDED_IN_PLAN');
+            expect(res.body.details).toContain('Microsoft Teams');
+        });
+    });
+
+    // ── 2.11 Quick Meeting Quota & Provider Gating ───────────────────────────
+    describe('Quick Meeting Quota & Provider Gating', () => {
+        it('should reject quick meeting if monthly quota (7) is exhausted', async () => {
+            mocks.calendarEventCountDocuments.mockResolvedValue(7);
+            mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+                enabled: true,
+                monthlyLimit: 7,
+                isUnlimited: false,
+                billingCycle: 'MONTHLY',
+                planName: 'Starter Monthly',
+            });
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: '8th Quick Meeting Attempt',
+                    provider: 'google_meet',
+                });
+
+            expect(res.status).toBe(403);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toBe('QUICK_MEETING_LIMIT_REACHED');
+            expect(res.body.details).toContain('monthly limit of 7');
+        });
+
+        it('should reject quick meeting if provider is not included in company plan', async () => {
+            mocks.entitlementHasFeature.mockResolvedValue(false);
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: 'Instant Sync',
+                    provider: 'google_meet',
+                });
+
+            expect(res.status).toBe(403);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toBe('FEATURE_NOT_INCLUDED_IN_PLAN');
+        });
+
+        it('should permit unlimited quick meetings on Yearly plan', async () => {
+            mocks.calendarEventCountDocuments.mockResolvedValue(100);
+            mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+                enabled: true,
+                monthlyLimit: -1,
+                isUnlimited: true,
+                billingCycle: 'YEARLY',
+                planName: 'Enterprise Annual',
+            });
+            mocks.calendarEventCreate.mockResolvedValue({
+                ...mockEventDoc,
+                isQuickMeeting: true,
+            });
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: '101st Quick Meeting',
+                    provider: 'google_meet',
+                });
+
+            expect(res.status).toBe(201);
+            expect(res.body.success).toBe(true);
+            expect(res.body.message).toBe('Quick meeting room created');
         });
     });
 });

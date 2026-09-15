@@ -56,8 +56,33 @@ export interface ICalendarEvent {
     taskId?: Types.ObjectId | null;
     taskName?: string | null;
     color?: string;
+    isQuickMeeting?: boolean;
     createdAt?: Date;
     updatedAt?: Date;
+}
+
+export interface ICalendarEntitlements {
+    providers: {
+        google_meet: {
+            enabled: boolean;
+            featureKey: string;
+        };
+        ms_teams: {
+            enabled: boolean;
+            featureKey: string;
+        };
+    };
+    quickMeetings: {
+        enabled: boolean;
+        monthlyLimit: number;
+        isUnlimited: boolean;
+        usedThisMonth: number;
+        remainingThisMonth: number;
+        billingCycle: string;
+        planName: string;
+    };
+    googleMeetEnabled: boolean;
+    msTeamsEnabled: boolean;
 }
 
 export interface ICalendarEventDocument extends ICalendarEvent, Document {}

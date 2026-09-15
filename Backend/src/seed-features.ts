@@ -38,6 +38,14 @@ const initialFeatures = [
         type: 'LIMIT',
         unit: 'GB',
     },
+    {
+        key: 'QUICK_MEETINGS',
+        name: 'Quick Meetings',
+        description: 'Instant 1-click meeting room creation with monthly quota based on plan',
+        category: 'Communication',
+        type: 'LIMIT',
+        unit: 'COUNT',
+    },
 
     // ── BOOLEAN based features ───────────────────────────────────────────────
     {
@@ -125,6 +133,22 @@ const initialFeatures = [
         name: 'Team Chat',
         description: 'Internal communication tools',
         category: 'Communication',
+        type: 'BOOLEAN',
+        unit: 'NONE',
+    },
+    {
+        key: 'GOOGLE_MEET',
+        name: 'Google Meet Integration',
+        description: 'Enable Google Meet video conference creation and integration',
+        category: 'Integrations',
+        type: 'BOOLEAN',
+        unit: 'NONE',
+    },
+    {
+        key: 'MS_TEAMS',
+        name: 'Microsoft Teams Integration',
+        description: 'Enable Microsoft Teams video conference creation and integration',
+        category: 'Integrations',
         type: 'BOOLEAN',
         unit: 'NONE',
     }

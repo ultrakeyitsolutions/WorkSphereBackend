@@ -211,8 +211,30 @@ export class CalendarController {
             });
         }
 
-        const data = await CalendarService.quickMeeting(companyId, req.user, parsed.data);
-        return sendSuccess(res, 'Quick meeting room created', data, 201);
+        try {
+            const data = await CalendarService.quickMeeting(companyId, req.user, parsed.data);
+            return sendSuccess(res, 'Quick meeting room created', data, 201);
+        } catch (error: any) {
+            if (error.details) {
+                return res.status(error.statusCode || 400).json({
+                    success: false,
+                    message: error.message,
+                    details: error.details,
+                });
+            }
+            throw error;
+        }
+    });
+
+    /**
+     * GET /api/v1/company/calendar/entitlements
+     */
+    static getEntitlements = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        if (!companyId) throw AppError.unauthorized('Unauthorized');
+
+        const data = await CalendarService.getCalendarEntitlements(companyId);
+        return sendSuccess(res, 'Calendar entitlements retrieved successfully', data, 200);
     });
 
     /**

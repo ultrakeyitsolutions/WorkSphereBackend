@@ -7,6 +7,7 @@ import { Project } from '../companyadmin/projects/project.model';
 import { Task } from '../tasks/task.model';
 import { AppError } from '../../utils/AppError';
 import { TokenPayload } from '../../utils/tokens';
+import { EntitlementService } from '../../services/entitlement.service';
 import {
     ICreateCalendarEventPayload,
     IUpdateCalendarEventPayload,
@@ -244,8 +245,27 @@ export class CalendarService {
             }
         }
 
-        // Meeting URL generation via OAuth or fallback
+        // Provider entitlement verification
         const provider = payload.provider || 'none';
+        if (provider === 'google_meet') {
+            const hasGoogle = await EntitlementService.hasFeature(companyId, 'GOOGLE_MEET');
+            if (!hasGoogle) {
+                const err: any = new Error('FEATURE_NOT_INCLUDED_IN_PLAN');
+                err.statusCode = 403;
+                err.details = 'Google Meet integration is not included in your current subscription plan. Please upgrade your plan.';
+                throw err;
+            }
+        } else if (provider === 'ms_teams') {
+            const hasTeams = await EntitlementService.hasFeature(companyId, 'MS_TEAMS');
+            if (!hasTeams) {
+                const err: any = new Error('FEATURE_NOT_INCLUDED_IN_PLAN');
+                err.statusCode = 403;
+                err.details = 'Microsoft Teams integration is not included in your current subscription plan. Please upgrade your plan.';
+                throw err;
+            }
+        }
+
+        // Meeting URL generation via OAuth or fallback
         const participantEmails = participants.map((p) => p.email).filter(Boolean);
         const meetingDetails = await CalendarOAuthService.generateMeetingDetails(
             companyId,
@@ -372,6 +392,24 @@ export class CalendarService {
 
         // Provider change
         if (payload.provider !== undefined && payload.provider !== event.provider) {
+            if (payload.provider === 'google_meet') {
+                const hasGoogle = await EntitlementService.hasFeature(companyId, 'GOOGLE_MEET');
+                if (!hasGoogle) {
+                    const err: any = new Error('FEATURE_NOT_INCLUDED_IN_PLAN');
+                    err.statusCode = 403;
+                    err.details = 'Google Meet integration is not included in your current subscription plan. Please upgrade your plan.';
+                    throw err;
+                }
+            } else if (payload.provider === 'ms_teams') {
+                const hasTeams = await EntitlementService.hasFeature(companyId, 'MS_TEAMS');
+                if (!hasTeams) {
+                    const err: any = new Error('FEATURE_NOT_INCLUDED_IN_PLAN');
+                    err.statusCode = 403;
+                    err.details = 'Microsoft Teams integration is not included in your current subscription plan. Please upgrade your plan.';
+                    throw err;
+                }
+            }
+
             event.provider = payload.provider;
             const participantEmails = event.participants.map((p) => p.email).filter(Boolean);
             const meetingDetails = await CalendarOAuthService.generateMeetingDetails(
@@ -607,6 +645,53 @@ export class CalendarService {
         const provider = payload.provider || 'google_meet';
         const title = payload.title || `Instant Sync with ${user.email.split('@')[0]}`;
 
+        // 1. Check provider entitlement
+        if (provider === 'google_meet') {
+            const hasGoogle = await EntitlementService.hasFeature(companyId, 'GOOGLE_MEET');
+            if (!hasGoogle) {
+                const err: any = new Error('FEATURE_NOT_INCLUDED_IN_PLAN');
+                err.statusCode = 403;
+                err.details = 'Google Meet is not included in your current subscription plan. Please upgrade your plan to use Google Meet.';
+                throw err;
+            }
+        } else if (provider === 'ms_teams') {
+            const hasTeams = await EntitlementService.hasFeature(companyId, 'MS_TEAMS');
+            if (!hasTeams) {
+                const err: any = new Error('FEATURE_NOT_INCLUDED_IN_PLAN');
+                err.statusCode = 403;
+                err.details = 'Microsoft Teams is not included in your current subscription plan. Please upgrade your plan to use Microsoft Teams.';
+                throw err;
+            }
+        }
+
+        // 2. Check quick meetings quota limit based on plan
+        const qmLimits = await EntitlementService.getQuickMeetingLimits(companyId);
+        if (!qmLimits.enabled) {
+            const err: any = new Error('FEATURE_NOT_INCLUDED_IN_PLAN');
+            err.statusCode = 403;
+            err.details = 'Quick Meetings feature is not included in your current subscription plan.';
+            throw err;
+        }
+
+        if (!qmLimits.isUnlimited) {
+            const now = new Date();
+            const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+            const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+            const usedThisMonth = await CalendarEvent.countDocuments({
+                companyId: cId,
+                isQuickMeeting: true,
+                createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+            });
+
+            if (usedThisMonth >= qmLimits.monthlyLimit) {
+                const err: any = new Error('QUICK_MEETING_LIMIT_REACHED');
+                err.statusCode = 403;
+                err.details = `You have reached your monthly limit of ${qmLimits.monthlyLimit} quick meetings for your ${qmLimits.billingCycle} plan. Please upgrade your plan for higher limits.`;
+                throw err;
+            }
+        }
+
         const organizerDoc = await User.findById(user.userId).select('name email avatar role').lean();
         const organizerName = organizerDoc?.name || user.email.split('@')[0];
         const organizerEmail = organizerDoc?.email || user.email;
@@ -665,6 +750,7 @@ export class CalendarService {
             reminderMinutes: 15,
             recurrence: 'none',
             color: '#F97316',
+            isQuickMeeting: true,
         });
 
         return {
@@ -674,6 +760,56 @@ export class CalendarService {
             provider: event.provider,
             startTime: event.startTime,
             endTime: event.endTime,
+        };
+    }
+
+    /**
+     * Get calendar entitlements & monthly Quick Meeting quota usage
+     */
+    static async getCalendarEntitlements(companyId: string) {
+        const cId = new Types.ObjectId(companyId);
+        const [googleMeetEnabled, msTeamsEnabled, qmLimits] = await Promise.all([
+            EntitlementService.hasFeature(companyId, 'GOOGLE_MEET'),
+            EntitlementService.hasFeature(companyId, 'MS_TEAMS'),
+            EntitlementService.getQuickMeetingLimits(companyId),
+        ]);
+
+        const now = new Date();
+        const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+        const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+        const usedThisMonth = await CalendarEvent.countDocuments({
+            companyId: cId,
+            isQuickMeeting: true,
+            createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+        });
+
+        const remainingThisMonth = qmLimits.isUnlimited
+            ? -1
+            : Math.max(0, qmLimits.monthlyLimit - usedThisMonth);
+
+        return {
+            providers: {
+                google_meet: {
+                    enabled: googleMeetEnabled,
+                    featureKey: 'GOOGLE_MEET',
+                },
+                ms_teams: {
+                    enabled: msTeamsEnabled,
+                    featureKey: 'MS_TEAMS',
+                },
+            },
+            quickMeetings: {
+                enabled: qmLimits.enabled,
+                monthlyLimit: qmLimits.monthlyLimit,
+                isUnlimited: qmLimits.isUnlimited,
+                usedThisMonth,
+                remainingThisMonth,
+                billingCycle: qmLimits.billingCycle,
+                planName: qmLimits.planName,
+            },
+            googleMeetEnabled,
+            msTeamsEnabled,
         };
     }
 }
