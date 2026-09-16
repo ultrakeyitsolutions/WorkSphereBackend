@@ -46,8 +46,9 @@ export class SubscriptionController {
         const { companyId } = req.params as any;
         const adminId = (req as any).user.userId;
         const { planId, effectiveImmediate } = req.body;
+        const isImmediate = effectiveImmediate !== false;
 
-        const sub = await SubscriptionService.changePlan(companyId, planId, adminId, effectiveImmediate);
+        const sub = await SubscriptionService.changePlan(companyId, planId, adminId, isImmediate);
         sendSuccess(res, 'Plan upgraded successfully', sub, 200);
     });
 
@@ -55,8 +56,9 @@ export class SubscriptionController {
         const { companyId } = req.params as any;
         const adminId = (req as any).user.userId;
         const { planId, effectiveImmediate } = req.body;
+        const isImmediate = effectiveImmediate !== false;
 
-        const sub = await SubscriptionService.changePlan(companyId, planId, adminId, effectiveImmediate);
+        const sub = await SubscriptionService.changePlan(companyId, planId, adminId, isImmediate);
         sendSuccess(res, 'Plan downgraded successfully', sub, 200);
     });
 

@@ -17,7 +17,7 @@ export const createSubscriptionSchema = z.object({
 export const changePlanSchema = z.object({
     body: z.object({
         planId: objectIdSchema,
-        effectiveImmediate: z.boolean().default(false),
+        effectiveImmediate: z.boolean().default(true),
     }),
 });
 

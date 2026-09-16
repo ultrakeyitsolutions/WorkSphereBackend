@@ -65,20 +65,27 @@ export class SubscriptionService {
     }
 
     /**
-     * Upgrade or downgrade a plan (immediate or next cycle).
+     * Upgrade or downgrade a plan (immediate activation by default).
      */
     static async changePlan(
         companyId: string,
         targetPlanId: string,
         adminId: string,
-        immediate: boolean
+        immediate: boolean = true
     ) {
-        const activeSub = await Subscription.findOne({ companyId, status: SubscriptionStatus.ACTIVE });
-        if (!activeSub) throw new Error('No active subscription found for company');
-
         const targetPlan = await Plan.findById(targetPlanId);
         if (!targetPlan) throw new Error('Target plan not found');
         if (!targetPlan.isActive || targetPlan.isArchived) throw new Error('Target plan is not active');
+
+        let activeSub = await Subscription.findOne({
+            companyId,
+            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] }
+        });
+
+        // If no existing active/trialing/paused subscription, create one immediately
+        if (!activeSub) {
+            return await this.createSubscription(companyId, targetPlanId, adminId);
+        }
 
         if (activeSub.planId.toString() === targetPlanId.toString()) {
             throw new Error('Company is already on this plan');
@@ -86,7 +93,7 @@ export class SubscriptionService {
 
         const currentPlan = await Plan.findById(activeSub.planId);
 
-        // Define if it is upgrade or downgrade based on prices? Usually backend figures it out, but logic here:
+        // Define if it is upgrade or downgrade based on prices
         const isUpgrade = (targetPlan.price || 0) > (currentPlan?.price || 0);
 
         if (!isUpgrade) {
@@ -110,9 +117,10 @@ export class SubscriptionService {
         }
 
         if (immediate) {
-            // Usually we'd prorate payments etc.
             const previousPlanId = activeSub.planId;
             activeSub.planId = new Types.ObjectId(targetPlanId);
+            activeSub.status = SubscriptionStatus.ACTIVE;
+            activeSub.scheduledPlanId = undefined; // Clear any pending scheduled plan change
             await activeSub.save();
 
             await SubscriptionEvent.create({
@@ -122,7 +130,7 @@ export class SubscriptionService {
                 fromPlanId: previousPlanId,
                 toPlanId: targetPlanId,
                 fromStatus: activeSub.status,
-                toStatus: activeSub.status,
+                toStatus: SubscriptionStatus.ACTIVE,
                 effectiveAt: new Date(),
                 performedBy: adminId,
                 metadata: { immediate: true },
