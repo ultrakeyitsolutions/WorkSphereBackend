@@ -70,8 +70,9 @@ timeTrackingSchema.index(
     }
 );
 
-// Also index for finding tracking logs by task quickly
+// Also index for finding tracking logs by task & performance analytics
 timeTrackingSchema.index({ taskId: 1, userId: 1 });
+timeTrackingSchema.index({ companyId: 1, userId: 1, startedAt: 1 });
 
 export const TimeTracking = model<ITimeTracking>('TimeTracking', timeTrackingSchema);
 export default TimeTracking;

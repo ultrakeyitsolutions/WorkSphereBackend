@@ -1,0 +1,165 @@
+import { Types } from 'mongoose';
+import { NOTIFICATION_TYPES, NotificationEventPayload } from './notification.types';
+import { NotificationRepository } from './notification.repository';
+import { NotificationPreferenceService } from './notification-preference.service';
+import { RecipientResolver } from './notification.recipient-resolver';
+import { TemplateEngine } from './notification.template-engine';
+import { SocketNotificationChannel } from './notification-socket.service';
+import { INotification } from './notification.model';
+
+// ─── Centralized Notification Service ──────────────────────────────────────
+// The single entry point for processing and publishing notifications across WorkSphere.
+
+export class NotificationService {
+    private prefService = new NotificationPreferenceService();
+
+    /**
+     * Publishes a notification event.
+     * Always safe to call (error isolated). Returns the list of created notifications.
+     */
+    public async publish(payload: NotificationEventPayload): Promise<INotification[]> {
+        try {
+            const { companyId, type, actorId, entityId, entityType, actionUrl, metadata, eventId } = payload;
+
+            // 1. Validate Notification Type in Registry
+            const typeDef = NOTIFICATION_TYPES[type];
+            if (!typeDef) {
+                console.warn(`[NotificationService] Unregistered notification type: ${type}`);
+                return [];
+            }
+
+            // 2. Fetch Effective Company Preference
+            const pref = await this.prefService.getEffectivePreference(companyId, type);
+
+            // 3. Check if Enabled for this Company
+            if (!pref.enabled) {
+                return [];
+            }
+
+            // 4. Resolve Target Recipients
+            const recipientIds = await RecipientResolver.resolveRecipients(payload);
+            if (!recipientIds || recipientIds.length === 0) {
+                return [];
+            }
+
+            // 5. Render Title and Message via Safe Template Engine
+            const mergedContext = {
+                ...typeDef.defaultMetadata,
+                ...metadata,
+            };
+
+            const { title, message } = TemplateEngine.formatNotification(
+                type,
+                pref.titleTemplate,
+                pref.messageTemplate,
+                mergedContext
+            );
+
+            // 6. Filter Out Recipients that match Idempotency Key (eventId + recipientId)
+            let targetRecipients = recipientIds;
+            if (eventId) {
+                const filtered: Types.ObjectId[] = [];
+                for (const rid of recipientIds) {
+                    const exists = await NotificationRepository.existsByIdempotency(eventId, rid);
+                    if (!exists) {
+                        filtered.push(rid);
+                    }
+                }
+                targetRecipients = filtered;
+            }
+
+            if (targetRecipients.length === 0) {
+                return [];
+            }
+
+            // 7. Calculate Expiration / Retention (Default 90 days)
+            const retentionDays = metadata?.retentionDays || 90;
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + retentionDays);
+
+            // 8. Prepare Documents for Database Batch Insertion
+            const companyObjId = new Types.ObjectId(companyId);
+            const actorObjId = actorId ? new Types.ObjectId(actorId) : undefined;
+            const entityObjId = entityId ? new Types.ObjectId(entityId) : undefined;
+
+            const documentsToCreate: Array<Partial<INotification>> = targetRecipients.map((rid) => ({
+                companyId: companyObjId,
+                recipientId: rid,
+                actorId: actorObjId,
+                type,
+                category: typeDef.category,
+                title,
+                message,
+                style: (pref.style || typeDef.defaultStyle) as any,
+                icon: typeDef.icon || typeDef.defaultIcon || 'bell',
+                entityId: entityObjId,
+                entityType,
+                actionUrl,
+                metadata: mergedContext,
+                isRead: false,
+                eventId,
+                expiresAt,
+            }));
+
+            // 9. Persist Notifications in MongoDB
+            const createdNotifications = await NotificationRepository.createMany(documentsToCreate);
+
+            // 10. Channel Dispatches (In-App Socket, Push, Email)
+            for (const notif of createdNotifications) {
+                const recipientIdStr = notif.recipientId.toString();
+
+                // 10a. In-App Socket Channel
+                if (pref.channels.inApp) {
+                    SocketNotificationChannel.deliverNotification(recipientIdStr, notif);
+
+                    // Also push updated unread count
+                    NotificationRepository.countUnread(recipientIdStr, companyId).then((unreadCount: number) => {
+                        SocketNotificationChannel.deliverUnreadCount(recipientIdStr, unreadCount);
+                    }).catch(() => { });
+                }
+
+                // 10b. Push & Email Channel hooks (extensible for future providers like FCM / Nodemailer)
+                if (pref.channels.push) {
+                    // Future: PushNotificationChannel.send(...)
+                }
+                if (pref.channels.email) {
+                    // Future: EmailNotificationChannel.send(...)
+                }
+            }
+
+            return createdNotifications;
+        } catch (err) {
+            console.error('[NotificationService] Error publishing notification event:', err);
+            return [];
+        }
+    }
+
+    // ─── Query Delegates for API Controllers ───────────────────────────────
+
+    public async getUserNotifications(recipientId: string, companyId: string, page: number, limit: number) {
+        return NotificationRepository.findByRecipient(recipientId, companyId, page, limit);
+    }
+
+    public async getUnreadCount(recipientId: string, companyId: string): Promise<number> {
+        return NotificationRepository.countUnread(recipientId, companyId);
+    }
+
+    public async markAsRead(notificationId: string, recipientId: string): Promise<INotification | null> {
+        const notif = await NotificationRepository.markRead(notificationId, recipientId);
+        if (notif) {
+            const unreadCount = await NotificationRepository.countUnread(recipientId, notif.companyId.toString());
+            SocketNotificationChannel.deliverUnreadCount(recipientId, unreadCount);
+        }
+        return notif;
+    }
+
+    public async markAllAsRead(recipientId: string, companyId: string): Promise<number> {
+        const count = await NotificationRepository.markAllRead(recipientId, companyId);
+        SocketNotificationChannel.deliverUnreadCount(recipientId, 0);
+        return count;
+    }
+
+    public async deleteNotification(notificationId: string, recipientId: string): Promise<boolean> {
+        return NotificationRepository.delete(notificationId, recipientId);
+    }
+}

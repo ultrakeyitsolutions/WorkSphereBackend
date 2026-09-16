@@ -17,6 +17,7 @@ import taskAttachmentRootRoutes from '../task-attachments/task-attachment.root.r
 import permissionsRoutes from './permissions.routes';
 import companyProfileRoutes from './profile/company-profile.routes';
 import memberDashboardRoutes from './members/member-dashboard.routes';
+import performanceRoutes from '../performance/performance.routes';
 
 const router = Router();
 
@@ -52,8 +53,9 @@ router.use('/invitations', inviteLimiter, invitationRoutes);
 // ── /api/v1/company/employees ────────────────────────────────────────────────
 router.use('/employees', employeeRoutes);
 
-// ── /api/v1/company/users/permissions ────────────────────────────────────────
+// ── /api/v1/company/users/permissions & performance ─────────────────────────
 router.use('/users/permissions', permissionsRoutes);
+router.use('/users', performanceRoutes);
 
 // ── /api/v1/company/clients ──────────────────────────────────────────────────
 router.use('/clients', clientRoutes);

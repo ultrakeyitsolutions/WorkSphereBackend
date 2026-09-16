@@ -3,13 +3,17 @@ import { app } from './app';
 import { connectDatabase } from './config/database';
 import { env } from './config/env';
 import { initSocketServer } from './sockets/socket-server';
+import { NotificationEventHandler } from './modules/notifications/notification.event-handler';
 
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
     try {
         // Establish database connection in background
-       await connectDatabase();
+        await connectDatabase();
+
+        // Initialize notification event handler
+        NotificationEventHandler.getInstance().initialize();
 
         // Create HTTP server wrapping Express
         const httpServer = http.createServer(app);

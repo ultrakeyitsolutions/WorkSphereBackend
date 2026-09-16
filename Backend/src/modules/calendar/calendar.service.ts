@@ -8,6 +8,7 @@ import { Task } from '../tasks/task.model';
 import { AppError } from '../../utils/AppError';
 import { TokenPayload } from '../../utils/tokens';
 import { EntitlementService } from '../../services/entitlement.service';
+import { NotificationEventBus } from '../notifications/notification.event-bus';
 import {
     ICreateCalendarEventPayload,
     IUpdateCalendarEventPayload,
@@ -307,6 +308,22 @@ export class CalendarService {
             color: payload.color || '#F97316',
         });
 
+        NotificationEventBus.getInstance().publish({
+            type: 'MEETING_SCHEDULED',
+            companyId,
+            actorId: user.userId,
+            entityId: newEvent._id.toString(),
+            entityType: 'MEETING',
+            meetingId: newEvent._id.toString(),
+            recipientIds: participants.map((p) => p.userId.toString()),
+            metadata: {
+                actorName: organizer.name || user.email?.split('@')[0] || 'Organizer',
+                meetingTitle: payload.title,
+                startTime: start.toLocaleString(),
+                meetingUrl: newEvent.meetingUrl || '',
+            },
+        });
+
         return this.formatEvent(newEvent);
     }
 
@@ -519,6 +536,22 @@ export class CalendarService {
         }
 
         await event.save();
+
+        NotificationEventBus.getInstance().publish({
+            type: 'MEETING_UPDATED',
+            companyId,
+            actorId: user.userId,
+            entityId: event._id.toString(),
+            entityType: 'MEETING',
+            meetingId: event._id.toString(),
+            recipientIds: event.participants.map((p: any) => p.userId.toString()),
+            metadata: {
+                actorName: event.organizer?.name || user.email?.split('@')[0] || 'Organizer',
+                meetingTitle: event.title,
+                startTime: event.startTime.toLocaleString(),
+            },
+        });
+
         return this.formatEvent(event);
     }
 
@@ -629,6 +662,20 @@ export class CalendarService {
             err.details = 'Only the event organizer or a Company Admin can cancel the event.';
             throw err;
         }
+
+        NotificationEventBus.getInstance().publish({
+            type: 'MEETING_CANCELLED',
+            companyId,
+            actorId: user.userId,
+            entityId: event._id.toString(),
+            entityType: 'MEETING',
+            meetingId: event._id.toString(),
+            recipientIds: event.participants.map((p: any) => p.userId.toString()),
+            metadata: {
+                actorName: event.organizer?.name || user.email?.split('@')[0] || 'Organizer',
+                meetingTitle: event.title,
+            },
+        });
 
         await CalendarEvent.deleteOne({ _id: eventId, companyId: cId });
         return { success: true };

@@ -26,8 +26,9 @@ const attendanceSchema = new Schema<IAttendance>(
     { timestamps: true }
 );
 
-// Optimize for fetching active check-ins
+// Optimize for fetching active check-ins & performance analytics
 attendanceSchema.index({ userId: 1, status: 1 });
+attendanceSchema.index({ companyId: 1, userId: 1, checkInTime: 1 });
 
 export const Attendance = model<IAttendance>('Attendance', attendanceSchema);
 export default Attendance;

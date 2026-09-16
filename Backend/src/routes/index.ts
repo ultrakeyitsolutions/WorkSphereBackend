@@ -9,6 +9,8 @@ import chatRoutes from '../modules/chat/chat.routes';
 import messageRoutes from '../modules/chat/message.routes';
 import fileRoutes from '../modules/files/file.routes';
 import callRoutes from '../modules/calls/call.routes';
+import notificationRoutes from '../modules/notifications/notification.routes';
+import notificationPreferenceRoutes from '../modules/notifications/notification-preference.routes';
 import { env } from '../config/env';
 
 const router = Router();
@@ -35,6 +37,7 @@ router.use('/v1/invitations', publicInvitationRoutes);
 router.use('/v1/permissions', permissionRoutes);
 
 // ── Company & Member Routes (auth required) ──────────────────────────────────
+router.use('/company', companyAdminRoutes);
 router.use('/v1/company', companyAdminRoutes);
 router.use('/v1/member', companyAdminRoutes);
 router.use('/v1/members', companyAdminRoutes);
@@ -45,6 +48,7 @@ router.use('/conversations', chatRoutes);
 router.use('/messages', messageRoutes);
 router.use('/files', fileRoutes);
 router.use('/calls', callRoutes);
+router.use('/notifications', notificationRoutes);
 
 // Also alias under /v1 for flexibility
 router.use('/v1/projects', projectMemberRoutes);
@@ -52,6 +56,8 @@ router.use('/v1/conversations', chatRoutes);
 router.use('/v1/messages', messageRoutes);
 router.use('/v1/files', fileRoutes);
 router.use('/v1/calls', callRoutes);
+router.use('/v1/notifications', notificationRoutes);
+router.use('/v1/company/notification-preferences', notificationPreferenceRoutes);
 
 // ── Protected Modules ─────────────────────────────────────────────────────────
 router.use('/super-admin', superAdminRoutes);

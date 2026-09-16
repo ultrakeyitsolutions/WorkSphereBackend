@@ -73,6 +73,7 @@ const taskActivitySchema = new Schema<ITaskActivity>(
 
 taskActivitySchema.index({ taskId: 1, createdAt: -1 });
 taskActivitySchema.index({ parentId: 1 });
+taskActivitySchema.index({ companyId: 1, userId: 1, createdAt: -1 });
 
 export const TaskActivity = model<ITaskActivity>('TaskActivity', taskActivitySchema);
 export default TaskActivity;

@@ -240,6 +240,8 @@ const calendarEventSchema = new Schema<ICalendarEventDocument>(
 calendarEventSchema.index({ companyId: 1, startTime: 1, endTime: 1 });
 calendarEventSchema.index({ companyId: 1, 'participants.userId': 1 });
 calendarEventSchema.index({ companyId: 1, 'organizer.userId': 1 });
+calendarEventSchema.index({ companyId: 1, 'participants.userId': 1, startTime: 1 });
+calendarEventSchema.index({ companyId: 1, 'organizer.userId': 1, startTime: 1 });
 calendarEventSchema.index({ companyId: 1, isQuickMeeting: 1, createdAt: 1 });
 
 export const CalendarEvent = model<ICalendarEventDocument>('CalendarEvent', calendarEventSchema);

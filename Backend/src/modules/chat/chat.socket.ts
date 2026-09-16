@@ -6,6 +6,7 @@ import { Message } from './message.model';
 import { FileModel } from '../files/file.model';
 import { ProjectService } from '../companyadmin/projects/project.service';
 import { PresenceService } from '../../sockets/presence.service';
+import { NotificationEventBus } from '../notifications/notification.event-bus';
 
 export const registerChatHandlers = (io: Server, socket: Socket): void => {
     const user = socket.data.user;
@@ -192,6 +193,27 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
                     io.to(`user:${otherUserId}`).emit('unread_count_update', {
                         conversationId,
                         unreadCount,
+                    });
+
+                    // Dispatch fire-and-forget notification to central Notification Service
+                    const senderName = (populatedMessage.senderId as any)?.name || 'Someone';
+                    const msgPreview = text
+                        ? (text.length > 50 ? text.substring(0, 47) + '...' : text)
+                        : `${messageType || 'File'} attachment`;
+
+                    NotificationEventBus.getInstance().publish({
+                        type: 'CHAT_MESSAGE',
+                        companyId: user.companyId,
+                        actorId: user.userId,
+                        entityId: conversationId,
+                        entityType: 'CONVERSATION',
+                        conversationId,
+                        recipientIds: otherUserId ? [otherUserId] : undefined,
+                        metadata: {
+                            actorName: senderName,
+                            messagePreview: msgPreview,
+                            conversationId,
+                        },
                     });
 
                     // Emit real-time notification alert to recipient's personal room

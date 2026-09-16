@@ -11,6 +11,7 @@ import { Status } from './status.model';
 import { TaskAssignment } from './task-assignment.model';
 import { TimeTracking, TrackingState } from '../task-tracking/time-tracking.model';
 import { TaskActivity, ActivityType } from '../task-activities/task-activity.model';
+import { NotificationEventBus } from '../notifications/notification.event-bus';
 
 export class TaskService {
 
@@ -338,6 +339,21 @@ export class TaskService {
                 .populate('moduleId', 'name')
                 .populate('templateId', 'name')
                 .lean();
+
+            NotificationEventBus.getInstance().publish({
+                type: 'TASK_CREATED',
+                companyId,
+                actorId: userId,
+                entityId: task._id.toString(),
+                entityType: 'TASK',
+                projectId,
+                taskId: task._id.toString(),
+                metadata: {
+                    taskTitle: task.title,
+                    taskNumber: task.taskNumber || '',
+                    projectName: project.name,
+                },
+            });
 
             return { task: this.mapTaskResponse(loadedTask, project.name) };
         }

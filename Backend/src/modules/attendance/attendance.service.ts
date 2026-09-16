@@ -1,5 +1,6 @@
 import { AppError } from '../../utils/AppError';
 import { Attendance, AttendanceStatus, IAttendance } from './attendance.model';
+import { NotificationEventBus } from '../notifications/notification.event-bus';
 
 export class AttendanceService {
     
@@ -21,6 +22,15 @@ export class AttendanceService {
             checkInTime: new Date()
         });
 
+        // Fire-and-forget notification event dispatch
+        NotificationEventBus.getInstance().publish({
+            type: 'CHECK_IN',
+            companyId,
+            actorId: userId,
+            entityId: newSession._id.toString(),
+            entityType: 'ATTENDANCE',
+        });
+
         return newSession;
     }
 
@@ -38,6 +48,15 @@ export class AttendanceService {
         activeSession.status = AttendanceStatus.CHECKED_OUT;
         activeSession.checkOutTime = new Date();
         await activeSession.save();
+
+        // Fire-and-forget notification event dispatch
+        NotificationEventBus.getInstance().publish({
+            type: 'CHECK_OUT',
+            companyId,
+            actorId: userId,
+            entityId: activeSession._id.toString(),
+            entityType: 'ATTENDANCE',
+        });
 
         return activeSession;
     }
