@@ -82,7 +82,7 @@ export class PerformanceService {
                 details: `Viewed performance review for user ${targetUser.name} (${targetUserId})`,
                 metadata: { targetUserId, range: period.range, score: productivity.score },
             } as any).catch(() => { });
-        } catch (err) {
+        } catch {
             // Non-blocking audit log catch
         }
 

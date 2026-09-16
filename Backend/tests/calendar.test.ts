@@ -7,7 +7,6 @@ import { app } from '../src/app';
 const COMPANY_ID = '64e0a1b2c3d4e5f6a7b8c9d0';
 const USER_ID = '64d0a1b2c3d4e5f6a7b8c9d1';
 const PARTICIPANT_ID_1 = '64d0a1b2c3d4e5f6a7b8c9d2';
-const PARTICIPANT_ID_2 = '64d0a1b2c3d4e5f6a7b8c9d3';
 const CROSS_TENANT_USER_ID = '64d0a1b2c3d4e5f6a7b8c999';
 const EVENT_ID = '64f1a2b3c4d5e6f7a8b9c0d1';
 

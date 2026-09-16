@@ -77,7 +77,7 @@ export class SubscriptionService {
         if (!targetPlan) throw new Error('Target plan not found');
         if (!targetPlan.isActive || targetPlan.isArchived) throw new Error('Target plan is not active');
 
-        let activeSub = await Subscription.findOne({
+        const activeSub = await Subscription.findOne({
             companyId,
             status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] }
         });

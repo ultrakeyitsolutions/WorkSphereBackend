@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../auth/auth.types';
 import { catchAsync } from '../../utils/catchAsync';
-import { sendSuccess, sendError } from '../../utils/response';
+import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../utils/AppError';
 import { CalendarService } from './calendar.service';
 import { CalendarOAuthService } from './calendar-oauth.service';

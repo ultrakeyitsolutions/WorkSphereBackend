@@ -111,7 +111,7 @@ export class NotificationPreferenceService {
                     details: `Updated notification preference for ${notificationType}`,
                     metadata: { notificationType, updates },
                 } as any);
-            } catch (err) {
+            } catch {
                 // Ignore audit log error if not strictly required
             }
         }
