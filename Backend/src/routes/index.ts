@@ -3,6 +3,7 @@ import authRoutes from '../modules/auth/auth.routes';
 import superAdminRoutes from '../modules/super-admin/super-admin.routes';
 import companyAdminRoutes from '../modules/companyadmin/company-admin.routes';
 import publicInvitationRoutes from '../modules/companyadmin/invitations/public-invitation.routes';
+import dashboardRoutes from '../modules/dashboard/dashboard.routes';
 import permissionRoutes from '../modules/permissions/permission.routes';
 import projectMemberRoutes from '../modules/companyadmin/projects/project-member.routes';
 import chatRoutes from '../modules/chat/chat.routes';
@@ -35,6 +36,10 @@ router.use('/v1/invitations', publicInvitationRoutes);
 
 // ── Permissions Route (auth required) ─────────────────────────────────────────
 router.use('/v1/permissions', permissionRoutes);
+
+// ── Unified Role-Aware Dashboard Routes (auth required) ───────────────────────
+router.use('/dashboard', dashboardRoutes);
+router.use('/v1/dashboard', dashboardRoutes);
 
 // ── Company & Member Routes (auth required) ──────────────────────────────────
 router.use('/company', companyAdminRoutes);
