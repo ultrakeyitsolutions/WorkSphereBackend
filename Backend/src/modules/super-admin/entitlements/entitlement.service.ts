@@ -76,15 +76,13 @@ export class EntitlementService {
 
         // 2. Identify the feature by key
         const keyFilter = this.getFeatureKeyFilter(featureKey);
-        const features = await Feature.find({ ...keyFilter, isActive: true }).lean();
-        if (!features || features.length === 0) return false;
-
-        const featureIds = features.map((f) => f._id);
+        const feature = await Feature.findOne({ ...keyFilter, isActive: true }).lean();
+        if (!feature) return false;
 
         // 3. Check the plan's entitlement for this feature
         const pf = await PlanFeature.findOne({
             planId: sub.planId,
-            featureId: { $in: featureIds },
+            featureId: feature._id,
         });
 
         if (!pf || !pf.enabled) return false;
@@ -114,12 +112,10 @@ export class EntitlementService {
         if (!sub) return defaultResponse;
 
         const keyFilter = this.getFeatureKeyFilter(featureKey);
-        const features = await Feature.find({ ...keyFilter, isActive: true }).lean();
-        if (!features || features.length === 0) return defaultResponse;
+        const feature = await Feature.findOne({ ...keyFilter, isActive: true }).lean();
+        if (!feature) return defaultResponse;
 
-        const featureIds = features.map((f) => f._id);
-
-        const pf = await PlanFeature.findOne({ planId: sub.planId, featureId: { $in: featureIds } });
+        const pf = await PlanFeature.findOne({ planId: sub.planId, featureId: feature._id });
         if (!pf || !pf.enabled) return defaultResponse;
 
         return {

@@ -103,11 +103,10 @@ export class EntitlementService {
         if (!planId) return null;
 
         const keyFilter = this.getFeatureKeyFilter(featureKey);
-        const features = await Feature.find({ ...keyFilter, isActive: true }).lean();
-        if (!features || features.length === 0) return null;
+        const feature: any = await Feature.findOne({ ...keyFilter, isActive: true }).lean();
+        if (!feature) return null;
 
-        const featureIds = features.map((f) => f._id);
-        return PlanFeature.findOne({ planId, featureId: { $in: featureIds } }).lean();
+        return PlanFeature.findOne({ planId, featureId: feature._id }).lean();
     }
 
     // ─── Public API ───────────────────────────────────────────────────────────
