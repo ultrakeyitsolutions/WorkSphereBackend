@@ -1,9 +1,13 @@
 import { Response } from 'express';
-import { sendSuccess, sendError } from '../../utils/response';
-import { AuthenticatedRequest } from './auth.types';
-import { ImpersonationService, AppError } from '../super-admin/impersonation/impersonation.service';
+import { sendSuccess, sendError } from '../../../utils/response';
+import { AuthenticatedRequest } from '../../auth/auth.types';
+import { ImpersonationService, AppError } from './impersonation.service';
 
 export class ImpersonationController {
+    /**
+     * Start impersonation session
+     * POST /api/superadmin/impersonation/start
+     */
     static async start(req: AuthenticatedRequest, res: Response) {
         try {
             const requester = req.user;
@@ -29,6 +33,10 @@ export class ImpersonationController {
         }
     }
 
+    /**
+     * Stop active impersonation session and restore Super Admin session
+     * POST /api/superadmin/impersonation/stop
+     */
     static async stop(req: AuthenticatedRequest, res: Response) {
         try {
             const requester = req.user;
@@ -36,31 +44,36 @@ export class ImpersonationController {
                 return sendError(res, 'User context not found', 401);
             }
 
-            const result = await ImpersonationService.stopImpersonation(
-                requester,
-                req
-            );
+            if (!req.isImpersonating && requester.sessionType !== 'IMPERSONATION') {
+                return sendError(res, 'No active impersonation session found.', 400);
+            }
 
-            return sendSuccess(res, 'Impersonation stopped successfully', result, 200);
+            const result = await ImpersonationService.stopImpersonation(requester, req);
+
+            return sendSuccess(res, 'Impersonation ended successfully', result, 200);
         } catch (error: any) {
             const statusCode = error instanceof AppError ? error.statusCode : 500;
             return sendError(res, error.message || 'Failed to stop impersonation', statusCode);
         }
     }
 
-    static async getSession(req: AuthenticatedRequest, res: Response) {
+    /**
+     * Get current impersonation status & session details
+     * GET /api/superadmin/impersonation/current
+     */
+    static async current(req: AuthenticatedRequest, res: Response) {
         try {
             const requester = req.user;
             if (!requester) {
                 return sendError(res, 'User context not found', 401);
             }
 
-            const sessionDetails = await ImpersonationService.getCurrentImpersonation(requester);
-            return sendSuccess(res, 'Session details retrieved', sessionDetails, 200);
+            const details = await ImpersonationService.getCurrentImpersonation(requester);
+
+            return sendSuccess(res, 'Impersonation status retrieved', details, 200);
         } catch (error: any) {
             const statusCode = error instanceof AppError ? error.statusCode : 500;
-            return sendError(res, error.message || 'Failed to get session details', statusCode);
+            return sendError(res, error.message || 'Failed to retrieve impersonation status', statusCode);
         }
     }
 }
-

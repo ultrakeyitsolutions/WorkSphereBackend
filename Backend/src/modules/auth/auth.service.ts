@@ -14,6 +14,9 @@ import { MfaService } from './mfa/mfa.service';
 import { SessionService } from './session/session.service';
 import { PasswordReset } from './password-reset.model';
 import { getMailTransporter, mailDefaults } from '../../config/mail';
+import { ImpersonationSession } from '../super-admin/impersonation/impersonation.model';
+import { ImpersonationStatus } from '../super-admin/impersonation/impersonation.types';
+
 
 export class AuthService {
     static async register(data: any) {
@@ -326,6 +329,33 @@ export class AuthService {
         }
 
         const decoded = verifyRefreshToken(token);
+
+        // ─── If refreshing an Impersonated Token, validate Impersonation Session ──
+        if (decoded.isImpersonating || decoded.sessionType === 'IMPERSONATION' || decoded.impersonationSessionId) {
+            let impSession: any = null;
+            if (decoded.impersonationSessionId) {
+                impSession = await ImpersonationSession.findOne({ sessionId: decoded.impersonationSessionId });
+            } else {
+                const authUserId = decoded.authUserId || decoded.sessionUserId;
+                impSession = await ImpersonationSession.findOne({
+                    originalUserId: authUserId,
+                    targetUserId: decoded.userId,
+                }).sort({ startedAt: -1 });
+            }
+
+            if (!impSession || impSession.status !== ImpersonationStatus.ACTIVE) {
+                throw new Error('Impersonation session is no longer active.');
+            }
+
+            if (impSession.expiresAt && impSession.expiresAt.getTime() <= Date.now()) {
+                impSession.status = ImpersonationStatus.EXPIRED;
+                impSession.endedAt = new Date();
+                await impSession.save();
+                throw new Error('Impersonation session has expired.');
+            }
+        }
+
+
         const user = await UserService.findById(decoded.userId);
         if (!user) {
             throw new Error('User not found');
@@ -361,18 +391,30 @@ export class AuthService {
         revokedPermissions.forEach((p: string) => effectivePermissionsSet.delete(p));
         const finalPermissions = Array.from(effectivePermissionsSet);
 
-        const payload = {
+        const payload: any = {
             userId: String(user._id),
             email: user.email,
             role: userRole,
             companyId: user.companyId ? String(user.companyId) : undefined,
         };
 
+        if (decoded.isImpersonating || decoded.sessionType === 'IMPERSONATION' || decoded.impersonationSessionId) {
+            payload.sub = String(user._id);
+            payload.authUserId = decoded.authUserId || decoded.sessionUserId;
+            payload.effectiveUserId = String(user._id);
+            payload.sessionUserId = decoded.sessionUserId || decoded.authUserId;
+            payload.isImpersonating = true;
+            payload.impersonationSessionId = decoded.impersonationSessionId;
+            payload.sessionType = 'IMPERSONATION';
+            payload.impersonatedBy = decoded.impersonatedBy || decoded.authUserId;
+        }
+
         const accessToken = generateAccessToken(payload);
         const newRefreshToken = generateRefreshToken(payload);
 
         // ─── Rotate Refresh Token in Session ─────────────────────────────────
         await SessionService.rotateSessionToken(token, newRefreshToken);
+
 
         // Token refresh is the closest thing to a "logout + re-login" we track
         await AuditLogService.log({

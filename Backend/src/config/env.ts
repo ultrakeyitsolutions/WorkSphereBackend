@@ -58,8 +58,12 @@ export const env = {
     GOOGLE_CLIENT_SECRET: (process.env.GOOGLE_CLIENT_SECRET || '') as string,
     GOOGLE_REDIRECT_URI: (process.env.GOOGLE_REDIRECT_URI || '') as string,
 
+    // ── Impersonation ────────────────────────────────────────────────────────
+    IMPERSONATION_SESSION_TTL_MINUTES: parseInt(process.env.IMPERSONATION_SESSION_TTL_MINUTES || '30', 10),
+
     // ── Microsoft 365 & Teams OAuth ──────────────────────────────────────────
     MS_CLIENT_ID: (process.env.MS_CLIENT_ID || '') as string,
     MS_CLIENT_SECRET: (process.env.MS_CLIENT_SECRET || '') as string,
     MS_REDIRECT_URI: (process.env.MS_REDIRECT_URI || '') as string,
 };
+

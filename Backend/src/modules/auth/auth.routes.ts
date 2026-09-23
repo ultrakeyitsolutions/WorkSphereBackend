@@ -60,16 +60,18 @@ router.post('/refresh', AuthController.refresh);
 router.post('/forgot-password', passwordResetLimiter, AuthController.forgotPassword);
 router.post('/reset-password', passwordResetLimiter, AuthController.resetPassword);
 
+import { blockImpersonatedOperations } from '../../middleware/impersonation.middleware';
+
 // ── MFA Routes ───────────────────────────────────────────────────────────────
-// Authenticated setup flow
-router.post('/mfa/setup', authenticate, mfaSetupLimiter, MfaController.setup);
-router.post('/mfa/request-key-otp', authenticate, mfaSetupLimiter, MfaController.requestKeyOtp);
-router.post('/mfa/verify-key-otp', authenticate, mfaSetupLimiter, MfaController.verifyKeyOtp);
-router.post('/mfa/email-key', authenticate, mfaSetupLimiter, MfaController.sendManualKeyEmail);
-router.post('/mfa/setup/verify', authenticate, mfaSetupLimiter, MfaController.verifySetup);
+// Authenticated setup flow (Strictly blocked during impersonation)
+router.post('/mfa/setup', authenticate, blockImpersonatedOperations(), mfaSetupLimiter, MfaController.setup);
+router.post('/mfa/request-key-otp', authenticate, blockImpersonatedOperations(), mfaSetupLimiter, MfaController.requestKeyOtp);
+router.post('/mfa/verify-key-otp', authenticate, blockImpersonatedOperations(), mfaSetupLimiter, MfaController.verifyKeyOtp);
+router.post('/mfa/email-key', authenticate, blockImpersonatedOperations(), mfaSetupLimiter, MfaController.sendManualKeyEmail);
+router.post('/mfa/setup/verify', authenticate, blockImpersonatedOperations(), mfaSetupLimiter, MfaController.verifySetup);
 router.get('/mfa/status', authenticate, MfaController.status);
-router.post('/mfa/recovery/regenerate', authenticate, MfaController.regenerateRecovery);
-router.post('/mfa/disable', authenticate, MfaController.disable);
+router.post('/mfa/recovery/regenerate', authenticate, blockImpersonatedOperations(), MfaController.regenerateRecovery);
+router.post('/mfa/disable', authenticate, blockImpersonatedOperations(), MfaController.disable);
 
 // Public challenge-based verification during login
 router.post('/mfa/verify', mfaVerifyLimiter, MfaController.verify);
@@ -82,8 +84,11 @@ router.get('/sessions', authenticate, SessionController.getSessions);
 router.delete('/sessions/:sessionId', authenticate, SessionController.revokeSession);
 
 // ── Impersonation Routes ─────────────────────────────────────────────────────
+router.post('/impersonation/start', authenticate, ImpersonationController.start);
 router.post('/impersonation/start/:userId', authenticate, ImpersonationController.start);
 router.post('/impersonation/stop', authenticate, ImpersonationController.stop);
+router.get('/impersonation/current', authenticate, ImpersonationController.getSession);
 router.get('/session', authenticate, ImpersonationController.getSession);
+
 
 export default router;

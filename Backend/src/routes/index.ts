@@ -64,7 +64,19 @@ router.use('/v1/calls', callRoutes);
 router.use('/v1/notifications', notificationRoutes);
 router.use('/v1/company/notification-preferences', notificationPreferenceRoutes);
 
+import impersonationRoutes from '../modules/super-admin/impersonation/impersonation.routes';
+
+// ── Super Admin Impersonation Routes ──────────────────────────────────────────
+// POST /api/superadmin/impersonation/start
+// POST /api/superadmin/impersonation/stop
+// GET  /api/superadmin/impersonation/current
+router.use('/superadmin/impersonation', impersonationRoutes);
+router.use('/super-admin/impersonation', impersonationRoutes);
+router.use('/v1/superadmin/impersonation', impersonationRoutes);
+router.use('/v1/super-admin/impersonation', impersonationRoutes);
+
 // ── Protected Modules ─────────────────────────────────────────────────────────
 router.use('/super-admin', superAdminRoutes);
 
 export default router;
+

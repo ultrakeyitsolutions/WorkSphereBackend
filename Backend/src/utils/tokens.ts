@@ -8,12 +8,17 @@ export interface TokenPayload {
     /** Set for company-member users so controllers can always derive it from the token */
     companyId?: string;
 
-    // Impersonation specific
-    sessionUserId?: string;
+    // JWT standard & Impersonation specific
+    sub?: string;
+    authUserId?: string;
     effectiveUserId?: string;
+    sessionUserId?: string;
+    isImpersonating?: boolean;
+    impersonationSessionId?: string;
     sessionType?: 'NORMAL' | 'IMPERSONATION';
     impersonatedBy?: string;
 }
+
 
 export const generateAccessToken = (payload: TokenPayload): string => {
     return jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: '15m' });
