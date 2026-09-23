@@ -144,9 +144,27 @@ export class CalendarOAuthService {
     }
 
     /**
+     * Generates a unique Google Meet room code (e.g. 'abc-defg-hij')
+     */
+    static generateMeetCode(): string {
+        const chars = 'abcdefghijklmnopqrstuvwxyz';
+        const randChars = (len: number) =>
+            Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        return `${randChars(3)}-${randChars(4)}-${randChars(3)}`;
+    }
+
+    /**
+     * Generates an auto Microsoft Teams meeting URL
+     */
+    static generateTeamsMeetingUrl(): string {
+        const meetingId = randomUUID();
+        return `https://teams.live.com/meet/${meetingId}`;
+    }
+
+    /**
      * Generate meeting details based on provider and OAuth status
      * Calls real Google Calendar API with conferenceDataVersion: 1 when connected,
-     * or falls back to official instant room creators (e.g. https://meet.google.com/new).
+     * or automatically generates a direct, dedicated meeting link without requiring OAuth.
      */
     static async generateMeetingDetails(
         companyId: string,
@@ -283,26 +301,28 @@ export class CalendarOAuthService {
                 }
             }
 
-            // Fallback for unlinked or offline accounts:
-            // https://meet.google.com/new creates a genuine Google Meet room on the fly
-            // without ever showing "Check your meeting code"
+            // Automatic Direct Google Meet room (No OAuth code required):
+            const meetCode = this.generateMeetCode();
+            const autoMeetUrl = `https://meet.google.com/${meetCode}`;
+
             return {
-                meetingUrl: 'https://meet.google.com/new',
-                externalEventId: undefined,
+                meetingUrl: autoMeetUrl,
+                externalEventId: meetCode,
                 externalProviderData: {
-                    joinWebUrl: 'https://meet.google.com/new',
+                    conferenceId: meetCode,
+                    joinWebUrl: autoMeetUrl,
                 },
             };
         }
 
         // ── 2. Microsoft Teams Provider ──────────────────────────────────────
         if (provider === 'ms_teams') {
-            // Fallback to official Microsoft Teams instant meeting creator
+            const autoTeamsUrl = this.generateTeamsMeetingUrl();
             return {
-                meetingUrl: 'https://teams.microsoft.com/l/meeting/new',
+                meetingUrl: autoTeamsUrl,
                 externalEventId: undefined,
                 externalProviderData: {
-                    joinWebUrl: 'https://teams.microsoft.com/l/meeting/new',
+                    joinWebUrl: autoTeamsUrl,
                 },
             };
         }

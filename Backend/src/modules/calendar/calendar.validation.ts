@@ -79,6 +79,9 @@ export const quickMeetingSchema = z.object({
     title: z.string().trim().optional().default('Quick Meeting'),
     provider: z.enum(['google_meet', 'ms_teams']).optional().default('google_meet'),
     durationMinutes: z.number().int().min(5).max(480).optional().default(30),
+    projectId: z.string().regex(objectIdRegex, 'Invalid project ObjectId').optional(),
+    participantIds: z.array(z.string().regex(objectIdRegex, 'Invalid participant ObjectId')).optional().default([]),
+    description: z.string().optional(),
 });
 
 export const connectOAuthSchema = z.object({

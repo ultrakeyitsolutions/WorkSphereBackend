@@ -154,6 +154,9 @@ export interface IQuickMeetingPayload {
     title: string;
     provider?: MeetingProvider;
     durationMinutes?: number;
+    projectId?: string;
+    participantIds?: string[];
+    description?: string;
 }
 
 export interface IConnectOAuthPayload {

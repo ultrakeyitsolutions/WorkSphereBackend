@@ -3,7 +3,7 @@ import CalendarEvent from './calendar-event.model';
 import { CalendarOAuthService } from './calendar-oauth.service';
 import User from '../users/user.model';
 import CompanyMember from '../companyadmin/invitations/company-member.model';
-import { Project } from '../companyadmin/projects/project.model';
+import { Project, ProjectTeamMember, ProjectInCharge } from '../companyadmin/projects/project.model';
 import { Task } from '../tasks/task.model';
 import { AppError } from '../../utils/AppError';
 import { TokenPayload } from '../../utils/tokens';
@@ -751,43 +751,121 @@ export class CalendarService {
             avatar: organizerAvatar,
         };
 
+        let projectName: string | undefined;
+        let projectObjId: Types.ObjectId | null = null;
+        const participantMap = new Map<string, any>();
+
+        // Always register organizer in participants
+        participantMap.set(user.userId.toString(), {
+            userId: new Types.ObjectId(user.userId),
+            name: organizerName,
+            email: organizerEmail,
+            avatar: organizerAvatar,
+            role: (organizerDoc?.role as any)?.name || 'Admin',
+            designation: 'Organizer',
+            status: 'organizer',
+            isCoOrganizer: false,
+            respondedAt: new Date(),
+        });
+
+        // 3. Resolve Project & Project Members if projectId is provided
+        if (payload.projectId) {
+            const project = await Project.findOne({ _id: payload.projectId, companyId: cId }).select('name').lean();
+            if (project) {
+                projectName = project.name;
+                projectObjId = project._id as Types.ObjectId;
+
+                // Auto-include project team members and in-charges if explicit participantIds not given or in addition
+                const [teamMembers, inCharges] = await Promise.all([
+                    ProjectTeamMember.find({ projectId: projectObjId }).populate('userId', 'name email avatar role').lean(),
+                    ProjectInCharge.find({ projectId: projectObjId }).populate('userId', 'name email avatar role').lean(),
+                ]);
+
+                for (const tm of teamMembers) {
+                    const u = tm.userId as any;
+                    if (u && u._id && !participantMap.has(u._id.toString())) {
+                        participantMap.set(u._id.toString(), {
+                            userId: u._id,
+                            name: u.name || u.email?.split('@')[0],
+                            email: u.email,
+                            avatar: u.avatar || null,
+                            role: (u.role as any)?.name || 'Member',
+                            designation: 'Participant',
+                            status: 'invited',
+                            isCoOrganizer: false,
+                        });
+                    }
+                }
+
+                for (const ic of inCharges) {
+                    const u = ic.userId as any;
+                    if (u && u._id && !participantMap.has(u._id.toString())) {
+                        participantMap.set(u._id.toString(), {
+                            userId: u._id,
+                            name: u.name || u.email?.split('@')[0],
+                            email: u.email,
+                            avatar: u.avatar || null,
+                            role: (u.role as any)?.name || 'In Charge',
+                            designation: 'Co-Organizer',
+                            status: 'invited',
+                            isCoOrganizer: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 4. Resolve Explicit Participant IDs if provided
+        if (payload.participantIds && payload.participantIds.length > 0) {
+            const explicitUsers = await User.find({
+                _id: { $in: payload.participantIds },
+                companyId: cId,
+            }).select('name email avatar role').lean();
+
+            for (const u of explicitUsers) {
+                if (u && u._id && !participantMap.has(u._id.toString())) {
+                    participantMap.set(u._id.toString(), {
+                        userId: u._id,
+                        name: u.name || u.email?.split('@')[0],
+                        email: u.email,
+                        avatar: (u as any).avatar || null,
+                        role: ((u as any).role as any)?.name || 'Member',
+                        designation: 'Participant',
+                        status: 'invited',
+                        isCoOrganizer: false,
+                    });
+                }
+            }
+        }
+
+        const participants = Array.from(participantMap.values());
+        const participantEmails = participants.map((p) => p.email).filter(Boolean);
+
         const meetingDetails = await CalendarOAuthService.generateMeetingDetails(
             companyId,
             user.userId,
             provider,
             {
                 title,
-                description: 'Instant meeting generated via WorkSphere Quick Meeting',
+                description: payload.description || `Instant meeting generated via WorkSphere Quick Meeting${projectName ? ` for project ${projectName}` : ''}`,
                 startTime,
                 endTime,
                 timeZone: 'Asia/Kolkata',
-                participantEmails: [organizerEmail],
+                participantEmails,
             }
         );
 
         const event: any = await CalendarEvent.create({
             companyId: cId,
             title,
-            description: 'Instant meeting generated via WorkSphere Quick Meeting',
+            description: payload.description || `Instant meeting generated via WorkSphere Quick Meeting${projectName ? ` for project ${projectName}` : ''}`,
             startTime,
             endTime,
             allDay: false,
             timeZone: 'Asia/Kolkata',
             organizer,
-            coOrganizers: [],
-            participants: [
-                {
-                    userId: new Types.ObjectId(user.userId),
-                    name: organizerName,
-                    email: organizerEmail,
-                    avatar: organizerAvatar,
-                    role: (organizerDoc?.role as any)?.name || 'Admin',
-                    designation: 'Organizer',
-                    status: 'organizer',
-                    isCoOrganizer: false,
-                    respondedAt: new Date(),
-                },
-            ],
+            coOrganizers: participants.filter((p) => p.isCoOrganizer).map((p) => p.userId),
+            participants,
             meetingType: 'video',
             provider,
             meetingUrl: meetingDetails.meetingUrl || null,
@@ -796,9 +874,38 @@ export class CalendarService {
             agenda: [],
             reminderMinutes: 15,
             recurrence: 'none',
+            projectId: projectObjId,
+            projectName,
             color: '#F97316',
             isQuickMeeting: true,
         });
+
+        // 5. Publish notification to all project members and invited participants
+        const recipientIds = participants
+            .map((p) => p.userId?.toString())
+            .filter((id) => id && id !== user.userId);
+
+        if (recipientIds.length > 0) {
+            NotificationEventBus.getInstance().publish({
+                type: 'MEETING_CREATED',
+                companyId,
+                actorId: user.userId,
+                entityId: event._id.toString(),
+                entityType: 'MEETING',
+                projectId: payload.projectId ? payload.projectId.toString() : undefined,
+                meetingId: event._id.toString(),
+                recipientIds,
+                actionUrl: event.meetingUrl || '/calendar',
+                metadata: {
+                    actorName: organizerName,
+                    meetingName: title,
+                    meetingTitle: title,
+                    projectName: projectName || '',
+                    startTime: startTime.toLocaleString(),
+                    meetingUrl: event.meetingUrl || '',
+                },
+            });
+        }
 
         return {
             id: event._id.toString(),
@@ -807,6 +914,9 @@ export class CalendarService {
             provider: event.provider,
             startTime: event.startTime,
             endTime: event.endTime,
+            projectId: event.projectId ? event.projectId.toString() : undefined,
+            projectName: event.projectName,
+            participantsCount: participants.length,
         };
     }
 
