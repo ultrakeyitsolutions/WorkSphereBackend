@@ -113,7 +113,39 @@ export class RecipientResolver {
                 break;
             }
 
-            case 'MEETING':
+            case 'MEETING': {
+                // Check dedicated meetings collection first
+                const meetingDoc = await db.collection('meetings').findOne(
+                    { _id: objectId, companyId: new Types.ObjectId(companyId) }
+                );
+                if (meetingDoc) {
+                    if (meetingDoc.organizerId) {
+                        recipients.push(meetingDoc.organizerId.toString());
+                    }
+                    const participants = await db.collection('meetingparticipants').find(
+                        { meetingId: objectId }
+                    ).toArray();
+                    for (const p of participants) {
+                        if (p.userId) recipients.push(p.userId.toString());
+                    }
+                    break;
+                }
+
+                // Fallback to legacy calendarevents
+                const legacyMeeting = await db.collection('calendarevents').findOne(
+                    { _id: objectId, companyId: new Types.ObjectId(companyId) }
+                );
+                if (legacyMeeting && legacyMeeting.participants) {
+                    for (const p of legacyMeeting.participants) {
+                        if (p.userId) recipients.push(p.userId.toString());
+                    }
+                }
+                if (legacyMeeting && legacyMeeting.organizer && legacyMeeting.organizer.userId) {
+                    recipients.push(legacyMeeting.organizer.userId.toString());
+                }
+                break;
+            }
+
             case 'CALENDAREVENT':
             case 'CALENDAR': {
                 const meeting = await db.collection('calendarevents').findOne(

@@ -4,6 +4,7 @@ import { connectDatabase } from './config/database';
 import { env } from './config/env';
 import { initSocketServer } from './sockets/socket-server';
 import { NotificationEventHandler } from './modules/notifications/notification.event-handler';
+import { MeetingSchedulerJob } from './modules/meetings/meeting-scheduler.job';
 
 const PORT = process.env.PORT || 5000;
 
@@ -14,6 +15,9 @@ const startServer = async () => {
 
         // Initialize notification event handler
         NotificationEventHandler.getInstance().initialize();
+
+        // Initialize meeting reminder scheduler
+        MeetingSchedulerJob.start();
 
         // Create HTTP server wrapping Express
         const httpServer = http.createServer(app);

@@ -55,6 +55,12 @@ router.use('/files', fileRoutes);
 router.use('/calls', callRoutes);
 router.use('/notifications', notificationRoutes);
 
+import meetingRoutes from '../modules/meetings/meeting.routes';
+
+// ── Meetings Module ───────────────────────────────────────────────────────────
+router.use('/meetings', meetingRoutes);
+router.use('/v1/meetings', meetingRoutes);
+
 // Also alias under /v1 for flexibility
 router.use('/v1/projects', projectMemberRoutes);
 router.use('/v1/conversations', chatRoutes);
