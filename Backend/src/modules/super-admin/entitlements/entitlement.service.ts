@@ -4,6 +4,63 @@ import { Subscription } from '../subscriptions/subscription.model';
 import { SubscriptionStatus } from '../subscriptions/subscription.types';
 
 export class EntitlementService {
+    private static getFeatureKeyFilter(featureKey: string) {
+        const clean = (featureKey || '').trim();
+        const upper = clean.toUpperCase();
+        const withUnderscores = upper.replace(/[\s-]+/g, '_');
+        const withSpaces = upper.replace(/[_\s-]+/g, ' ');
+        const withHyphens = upper.replace(/[_\s-]+/g, '-');
+        const stripped = upper.replace(/[_\s-]+/g, '');
+
+        const candidates = new Set<string>([
+            upper,
+            withUnderscores,
+            withSpaces,
+            withHyphens,
+            stripped,
+        ]);
+
+        if (upper.includes('GOOGLE') || upper.includes('MEET')) {
+            candidates.add('GOOGLE_MEET');
+            candidates.add('GOOGLE MEET');
+            candidates.add('GOOGLE-MEET');
+            candidates.add('GOOGLEMEET');
+            candidates.add('GOOGLE_MEET_INTEGRATION');
+            candidates.add('GOOGLE MEET INTEGRATION');
+        }
+
+        if (upper.includes('TEAM') || upper.includes('MS_TEAMS') || upper.includes('MICROSOFT')) {
+            candidates.add('MS_TEAMS');
+            candidates.add('MS TEAMS');
+            candidates.add('MS-TEAMS');
+            candidates.add('TEAMS_MEET');
+            candidates.add('TEAMS MEET');
+            candidates.add('TEAMS-MEET');
+            candidates.add('MICROSOFT_TEAMS');
+            candidates.add('MICROSOFT TEAMS');
+            candidates.add('TEAMS');
+            candidates.add('MICROSOFT_TEAMS_INTEGRATION');
+            candidates.add('MICROSOFT TEAMS INTEGRATION');
+        }
+
+        if (upper.includes('QUICK')) {
+            candidates.add('QUICK_MEETINGS');
+            candidates.add('QUICK MEETINGS');
+            candidates.add('QUICK_MEETING');
+            candidates.add('QUICK MEETING');
+        }
+
+        const candidateArray = Array.from(candidates);
+        const regexPatterns = candidateArray.map((c) => `^${c.replace(/[_\s-]+/g, '[-_\\s]?')}$`).join('|');
+
+        return {
+            $or: [
+                { key: { $in: candidateArray } },
+                { key: { $regex: new RegExp(`^(${regexPatterns})$`, 'i') } },
+            ],
+        };
+    }
+
     /**
      * Check if a company has access to a specific feature key.
      * Evaluates subscription state, plan entitlement, and feature status.
@@ -18,13 +75,16 @@ export class EntitlementService {
         if (!sub) return false;
 
         // 2. Identify the feature by key
-        const feature = await Feature.findOne({ key: featureKey.toUpperCase(), isActive: true });
-        if (!feature) return false;
+        const keyFilter = this.getFeatureKeyFilter(featureKey);
+        const features = await Feature.find({ ...keyFilter, isActive: true }).lean();
+        if (!features || features.length === 0) return false;
+
+        const featureIds = features.map((f) => f._id);
 
         // 3. Check the plan's entitlement for this feature
         const pf = await PlanFeature.findOne({
             planId: sub.planId,
-            featureId: feature._id,
+            featureId: { $in: featureIds },
         });
 
         if (!pf || !pf.enabled) return false;
@@ -53,10 +113,13 @@ export class EntitlementService {
 
         if (!sub) return defaultResponse;
 
-        const feature = await Feature.findOne({ key: featureKey.toUpperCase(), isActive: true });
-        if (!feature) return defaultResponse;
+        const keyFilter = this.getFeatureKeyFilter(featureKey);
+        const features = await Feature.find({ ...keyFilter, isActive: true }).lean();
+        if (!features || features.length === 0) return defaultResponse;
 
-        const pf = await PlanFeature.findOne({ planId: sub.planId, featureId: feature._id });
+        const featureIds = features.map((f) => f._id);
+
+        const pf = await PlanFeature.findOne({ planId: sub.planId, featureId: { $in: featureIds } });
         if (!pf || !pf.enabled) return defaultResponse;
 
         return {

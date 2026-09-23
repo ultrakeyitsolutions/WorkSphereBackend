@@ -32,16 +32,82 @@ export class EntitlementService {
     }
 
     /**
+     * Builds possible key variations and aliases for a feature key.
+     * Handles:
+     * - GOOGLE_MEET <-> GOOGLE MEET <-> GOOGLE-MEET <-> GOOGLEMEET
+     * - MS_TEAMS <-> MS TEAMS <-> TEAMS_MEET <-> TEAMS MEET <-> MICROSOFT_TEAMS <-> TEAMS
+     * - Generates case-insensitive and whitespace/underscore/dash-insensitive queries.
+     */
+    private static getFeatureKeyFilter(featureKey: string) {
+        const clean = (featureKey || '').trim();
+        const upper = clean.toUpperCase();
+        const withUnderscores = upper.replace(/[\s-]+/g, '_');
+        const withSpaces = upper.replace(/[_\s-]+/g, ' ');
+        const withHyphens = upper.replace(/[_\s-]+/g, '-');
+        const stripped = upper.replace(/[_\s-]+/g, '');
+
+        const candidates = new Set<string>([
+            upper,
+            withUnderscores,
+            withSpaces,
+            withHyphens,
+            stripped,
+        ]);
+
+        if (upper.includes('GOOGLE') || upper.includes('MEET')) {
+            candidates.add('GOOGLE_MEET');
+            candidates.add('GOOGLE MEET');
+            candidates.add('GOOGLE-MEET');
+            candidates.add('GOOGLEMEET');
+            candidates.add('GOOGLE_MEET_INTEGRATION');
+            candidates.add('GOOGLE MEET INTEGRATION');
+        }
+
+        if (upper.includes('TEAM') || upper.includes('MS_TEAMS') || upper.includes('MICROSOFT')) {
+            candidates.add('MS_TEAMS');
+            candidates.add('MS TEAMS');
+            candidates.add('MS-TEAMS');
+            candidates.add('TEAMS_MEET');
+            candidates.add('TEAMS MEET');
+            candidates.add('TEAMS-MEET');
+            candidates.add('MICROSOFT_TEAMS');
+            candidates.add('MICROSOFT TEAMS');
+            candidates.add('TEAMS');
+            candidates.add('MICROSOFT_TEAMS_INTEGRATION');
+            candidates.add('MICROSOFT TEAMS INTEGRATION');
+        }
+
+        if (upper.includes('QUICK')) {
+            candidates.add('QUICK_MEETINGS');
+            candidates.add('QUICK MEETINGS');
+            candidates.add('QUICK_MEETING');
+            candidates.add('QUICK MEETING');
+        }
+
+        const candidateArray = Array.from(candidates);
+        const regexPatterns = candidateArray.map((c) => `^${c.replace(/[_\s-]+/g, '[-_\\s]?')}$`).join('|');
+
+        return {
+            $or: [
+                { key: { $in: candidateArray } },
+                { key: { $regex: new RegExp(`^(${regexPatterns})$`, 'i') } },
+            ],
+        };
+    }
+
+    /**
      * Looks up the PlanFeature entitlement for a company's active plan.
      */
     private static async getEntitlement(companyId: string, featureKey: string) {
         const planId = await this.getPlanIdForCompany(companyId);
         if (!planId) return null;
 
-        const feature = await Feature.findOne({ key: featureKey.toUpperCase(), isActive: true }).lean();
-        if (!feature) return null;
+        const keyFilter = this.getFeatureKeyFilter(featureKey);
+        const features = await Feature.find({ ...keyFilter, isActive: true }).lean();
+        if (!features || features.length === 0) return null;
 
-        return PlanFeature.findOne({ planId, featureId: feature._id }).lean();
+        const featureIds = features.map((f) => f._id);
+        return PlanFeature.findOne({ planId, featureId: { $in: featureIds } }).lean();
     }
 
     // ─── Public API ───────────────────────────────────────────────────────────
