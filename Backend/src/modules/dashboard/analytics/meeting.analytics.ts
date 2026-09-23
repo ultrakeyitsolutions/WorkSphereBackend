@@ -1,4 +1,3 @@
-import { Types } from 'mongoose';
 import { CalendarEvent } from '../../calendar/calendar-event.model';
 import { DashboardScopeContext, MeetingItem, MeetingsAnalyticsResponse } from '../dashboard.types';
 

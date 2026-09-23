@@ -26,7 +26,7 @@ export class ProductivityAnalytics {
 
         // 2. Resolve Target Users to compute
         let targetUserIds: Types.ObjectId[] = [];
-        let userDisplayMap = new Map<string, { name: string; avatar: string | null }>();
+        const userDisplayMap = new Map<string, { name: string; avatar: string | null }>();
 
         if (!isCompanyWide) {
             // Employee scope: ONLY themselves

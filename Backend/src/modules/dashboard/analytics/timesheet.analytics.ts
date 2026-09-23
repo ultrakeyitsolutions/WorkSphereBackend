@@ -1,7 +1,5 @@
-import { Types } from 'mongoose';
 import { Attendance } from '../../attendance/attendance.model';
 import { TimeTracking, IntervalType } from '../../task-tracking/time-tracking.model';
-import { Project } from '../../companyadmin/projects/project.model';
 import { DashboardScopeContext, TimesheetAnalyticsResponse, TimesheetProjectBreakdown } from '../dashboard.types';
 
 export class TimesheetAnalytics {

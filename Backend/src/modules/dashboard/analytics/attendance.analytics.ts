@@ -1,4 +1,3 @@
-import { Types } from 'mongoose';
 import { Attendance } from '../../attendance/attendance.model';
 import { AttendanceAnalyticsResponse, DashboardScopeContext } from '../dashboard.types';
 
