@@ -378,6 +378,17 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         allowedVariables: ['actorName', 'recipientName', 'companyName'],
         defaultEnabled: true,
     },
+
+    // ── STICKY NOTES ─────────────────────────────────────────────────────────
+    STICKY_NOTE_REMINDER: {
+        category: 'SYSTEM',
+        defaultTitle: 'Sticky Note Reminder',
+        defaultMessage: '{{title}} - Your reminder is due now.',
+        defaultStyle: 'INFO',
+        icon: 'bell',
+        allowedVariables: ['title', 'content', 'recipientName'],
+        defaultEnabled: true,
+    },
 } as const;
 
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;

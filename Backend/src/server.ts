@@ -5,6 +5,7 @@ import { env } from './config/env';
 import { initSocketServer } from './sockets/socket-server';
 import { NotificationEventHandler } from './modules/notifications/notification.event-handler';
 import { MeetingSchedulerJob } from './modules/meetings/meeting-scheduler.job';
+import { StickyNoteReminderJob } from './modules/sticky-notes/sticky-note-reminder.service';
 
 const PORT = process.env.PORT || 5000;
 
@@ -18,6 +19,9 @@ const startServer = async () => {
 
         // Initialize meeting reminder scheduler
         MeetingSchedulerJob.start();
+
+        // Initialize sticky note reminder scheduler
+        StickyNoteReminderJob.start();
 
         // Create HTTP server wrapping Express
         const httpServer = http.createServer(app);

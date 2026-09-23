@@ -56,10 +56,15 @@ router.use('/calls', callRoutes);
 router.use('/notifications', notificationRoutes);
 
 import meetingRoutes from '../modules/meetings/meeting.routes';
+import stickyNoteRoutes from '../modules/sticky-notes/sticky-note.routes';
 
 // ── Meetings Module ───────────────────────────────────────────────────────────
 router.use('/meetings', meetingRoutes);
 router.use('/v1/meetings', meetingRoutes);
+
+// ── Sticky Notes Module ───────────────────────────────────────────────────────
+router.use('/sticky-notes', stickyNoteRoutes);
+router.use('/v1/sticky-notes', stickyNoteRoutes);
 
 // Also alias under /v1 for flexibility
 router.use('/v1/projects', projectMemberRoutes);
