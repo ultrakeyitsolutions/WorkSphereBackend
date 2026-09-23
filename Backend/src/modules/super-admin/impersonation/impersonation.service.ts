@@ -36,11 +36,6 @@ export class ImpersonationService {
     ): Promise<ImpersonationStartResponse> {
         // ── 1. Validate Authenticated Super Admin Authorization ────────────────
         const actualActorId = requester.authUserId || requester.sessionUserId || requester.userId;
-        
-        // Prevent nested impersonation
-        if (requester.isImpersonating || requester.sessionType === 'IMPERSONATION') {
-            throw new AppError('Nested impersonation is not allowed', 409);
-        }
 
         const actualAdminUser = await UserService.findById(actualActorId);
         if (!actualAdminUser || !actualAdminUser.isActive) {
@@ -52,7 +47,24 @@ export class ImpersonationService {
             throw new AppError('Only Super Admin can impersonate users.', 403);
         }
 
+        // If Super Admin is already in an impersonation session, automatically close prior active sessions
+        if (requester.isImpersonating || requester.sessionType === 'IMPERSONATION' || requester.impersonationSessionId) {
+            await ImpersonationSession.updateMany(
+                {
+                    originalUserId: new Types.ObjectId(actualActorId),
+                    status: ImpersonationStatus.ACTIVE,
+                },
+                {
+                    $set: {
+                        status: ImpersonationStatus.ENDED,
+                        endedAt: new Date(),
+                    },
+                }
+            );
+        }
+
         // ── 2. Validate Target User ───────────────────────────────────────────
+
         if (!targetUserId || !Types.ObjectId.isValid(targetUserId)) {
             throw new AppError('Target user not found', 404);
         }

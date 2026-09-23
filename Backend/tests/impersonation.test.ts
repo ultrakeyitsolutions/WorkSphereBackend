@@ -71,7 +71,9 @@ vi.mock('../src/modules/super-admin/impersonation/impersonation.model', () => {
         static find = vi.fn();
         static create = vi.fn();
         static updateOne = vi.fn();
+        static updateMany = vi.fn().mockResolvedValue({ modifiedCount: 1 });
     }
+
 
     return {
         ImpersonationSession: MockImpersonationSession,
@@ -340,16 +342,20 @@ describe('Super Admin Impersonation System', () => {
 
     // ── 3. Session Lifecycle & Security ──────────────────────────────────────
     describe('3. Session Lifecycle & Authoritative Session Checks', () => {
-        it('prevents nested impersonation (409 Conflict)', async () => {
+        it('allows Super Admin to switch impersonation targets seamlessly without manual stop', async () => {
             const res = await request(app)
                 .post('/api/superadmin/impersonation/start')
                 .set('Authorization', `Bearer ${impersonatedEmployeeToken}`)
                 .send({ targetUserId: companyAdminId });
 
-            expect(res.status).toBe(409);
-            expect(res.body.success).toBe(false);
-            expect(res.body.message).toContain('Nested impersonation is not allowed');
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.isImpersonating).toBe(true);
+            expect(res.body.data.authenticatedUserId).toBe(superAdminId);
+            expect(res.body.data.impersonatedUserId).toBe(companyAdminId);
+            expect(res.body.data.role).toBe('COMPANY_ADMIN');
         });
+
 
         it('retrieves active impersonation details on GET /current', async () => {
             const res = await request(app)
