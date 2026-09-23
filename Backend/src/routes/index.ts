@@ -75,7 +75,15 @@ router.use('/super-admin/impersonation', impersonationRoutes);
 router.use('/v1/superadmin/impersonation', impersonationRoutes);
 router.use('/v1/super-admin/impersonation', impersonationRoutes);
 
-// ── Protected Modules ─────────────────────────────────────────────────────────
+import superAdminDashboardRoutes from '../modules/super-admin';
+
+// ── Super Admin Dashboard & Modular Routes ────────────────────────────────────
+router.use('/superadmin', superAdminDashboardRoutes);
+router.use('/super-admin', superAdminDashboardRoutes);
+router.use('/v1/superadmin', superAdminDashboardRoutes);
+router.use('/v1/super-admin', superAdminDashboardRoutes);
+
+// ── Legacy / Plan / Storage Super Admin Routes ────────────────────────────────
 router.use('/super-admin', superAdminRoutes);
 
 export default router;
