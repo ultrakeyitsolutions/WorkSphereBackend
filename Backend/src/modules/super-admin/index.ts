@@ -9,6 +9,7 @@ import securityRoutes from './security/security.routes';
 import auditRoutes from './audit/audit.routes';
 import impersonationRoutes from './impersonation/impersonation.routes';
 import systemHealthRoutes from './system-health/system-health.routes';
+import { notificationSoundRoutes } from '../notification-sounds';
 
 const router = Router();
 
@@ -23,6 +24,7 @@ router.use('/security', securityRoutes);
 router.use('/audit', auditRoutes);
 router.use('/impersonation', impersonationRoutes);
 router.use('/system-health', systemHealthRoutes);
+router.use('/notification-sounds', notificationSoundRoutes);
 
 export default router;
 

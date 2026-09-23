@@ -6,7 +6,7 @@
 //   - Admin Preferences UI (rendered dynamically)
 
 export type NotificationStyle = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'SYSTEM';
-export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM';
+export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER';
 export type NotificationChannel = 'inApp' | 'push' | 'email';
 
 export interface NotificationTypeDefinition {
@@ -379,14 +379,108 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         defaultEnabled: true,
     },
 
-    // ── STICKY NOTES ─────────────────────────────────────────────────────────
+    // ── STICKY NOTES & REMINDERS ─────────────────────────────────────────────
     STICKY_NOTE_REMINDER: {
-        category: 'SYSTEM',
+        category: 'REMINDER',
         defaultTitle: 'Sticky Note Reminder',
         defaultMessage: '{{title}} - Your reminder is due now.',
         defaultStyle: 'INFO',
         icon: 'bell',
         allowedVariables: ['title', 'content', 'recipientName'],
+        defaultEnabled: true,
+    },
+    TIMESHEET_REMINDER: {
+        category: 'TIMESHEET',
+        defaultTitle: 'Timesheet Reminder',
+        defaultMessage: 'Please submit your timesheet for review.',
+        defaultStyle: 'WARNING',
+        icon: 'clock',
+        allowedVariables: ['recipientName', 'companyName', 'dueDate'],
+        defaultEnabled: true,
+    },
+    ATTENDANCE_REMINDER: {
+        category: 'ATTENDANCE',
+        defaultTitle: 'Attendance Reminder',
+        defaultMessage: 'Don\'t forget to mark your attendance today.',
+        defaultStyle: 'INFO',
+        icon: 'user-check',
+        allowedVariables: ['recipientName', 'companyName'],
+        defaultEnabled: true,
+    },
+
+    // ── ANNOUNCEMENTS ─────────────────────────────────────────────────────────
+    SYSTEM_ANNOUNCEMENT: {
+        category: 'ANNOUNCEMENT',
+        defaultTitle: 'System Announcement',
+        defaultMessage: '{{message}}',
+        defaultStyle: 'SYSTEM',
+        icon: 'megaphone',
+        allowedVariables: ['message', 'title', 'actorName'],
+        defaultEnabled: true,
+    },
+    COMPANY_ANNOUNCEMENT: {
+        category: 'ANNOUNCEMENT',
+        defaultTitle: 'Company Announcement',
+        defaultMessage: '{{message}}',
+        defaultStyle: 'INFO',
+        icon: 'volume-2',
+        allowedVariables: ['message', 'title', 'actorName', 'companyName'],
+        defaultEnabled: true,
+    },
+
+    // ── CONVENIENCE ALIASES & COMPATIBILITY TYPES ─────────────────────────────
+    TASK_ASSIGNED: {
+        category: 'TASK',
+        defaultTitle: 'Task Assigned',
+        defaultMessage: '{{actorName}} assigned you {{taskName}}',
+        defaultStyle: 'INFO',
+        icon: 'user-check',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'taskName', 'dueDate', 'status'],
+        defaultEnabled: true,
+    },
+    PROJECT_ASSIGNED: {
+        category: 'PROJECT',
+        defaultTitle: 'Project Assigned',
+        defaultMessage: '{{actorName}} assigned you to {{projectName}}',
+        defaultStyle: 'INFO',
+        icon: 'folder-plus',
+        allowedVariables: ['actorName', 'recipientName', 'projectName'],
+        defaultEnabled: true,
+    },
+    MESSAGE_RECEIVED: {
+        category: 'CHAT',
+        defaultTitle: 'New Message',
+        defaultMessage: '{{actorName}} sent you a message',
+        defaultStyle: 'INFO',
+        icon: 'message-circle',
+        allowedVariables: ['actorName', 'recipientName', 'message'],
+        defaultEnabled: true,
+    },
+    MENTION_RECEIVED: {
+        category: 'CHAT',
+        defaultTitle: 'You Were Mentioned',
+        defaultMessage: '{{actorName}} mentioned you in a message',
+        defaultStyle: 'INFO',
+        icon: 'at-sign',
+        allowedVariables: ['actorName', 'recipientName', 'message'],
+        defaultEnabled: true,
+    },
+    MEETING_RESCHEDULED: {
+        category: 'MEETING',
+        defaultTitle: 'Meeting Rescheduled',
+        defaultMessage: 'The schedule for {{meetingName}} has been updated',
+        defaultStyle: 'WARNING',
+        icon: 'calendar-check',
+        allowedVariables: ['actorName', 'recipientName', 'meetingName', 'scheduledStartAt'],
+        defaultEnabled: true,
+    },
+    MEETING_STARTING: {
+        category: 'MEETING',
+        defaultTitle: 'Meeting Starting Soon',
+        defaultMessage: 'Your meeting {{meetingName}} is starting now',
+        defaultStyle: 'INFO',
+        icon: 'bell',
+        allowedVariables: ['recipientName', 'meetingName', 'minutesUntilStart', 'meetingLink'],
         defaultEnabled: true,
     },
 } as const;

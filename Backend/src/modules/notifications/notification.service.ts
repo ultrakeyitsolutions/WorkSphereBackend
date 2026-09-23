@@ -6,6 +6,7 @@ import { RecipientResolver } from './notification.recipient-resolver';
 import { TemplateEngine } from './notification.template-engine';
 import { SocketNotificationChannel } from './notification-socket.service';
 import { INotification } from './notification.model';
+import { NotificationSoundService } from '../notification-sounds/notification-sound.service';
 
 // ─── Centralized Notification Service ──────────────────────────────────────
 // The single entry point for processing and publishing notifications across WorkSphere.
@@ -42,10 +43,19 @@ export class NotificationService {
                 return [];
             }
 
-            // 5. Render Title and Message via Safe Template Engine
+            // 5. Resolve Notification Sound Configuration (Global Super Admin setting)
+            let soundMetadata = { enabled: false } as any;
+            try {
+                soundMetadata = await NotificationSoundService.resolveNotificationSound(type);
+            } catch (soundErr) {
+                console.warn(`[NotificationService] Failed to resolve sound for type ${type}:`, soundErr);
+            }
+
+            // 6. Render Title and Message via Safe Template Engine
             const mergedContext = {
                 ...typeDef.defaultMetadata,
                 ...metadata,
+                sound: soundMetadata,
             };
 
             const { title, message } = TemplateEngine.formatNotification(
@@ -55,7 +65,7 @@ export class NotificationService {
                 mergedContext
             );
 
-            // 6. Filter Out Recipients that match Idempotency Key (eventId + recipientId)
+            // 7. Filter Out Recipients that match Idempotency Key (eventId + recipientId)
             let targetRecipients = recipientIds;
             if (eventId) {
                 const filtered: Types.ObjectId[] = [];
@@ -72,12 +82,12 @@ export class NotificationService {
                 return [];
             }
 
-            // 7. Calculate Expiration / Retention (Default 90 days)
+            // 8. Calculate Expiration / Retention (Default 90 days)
             const retentionDays = metadata?.retentionDays || 90;
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + retentionDays);
 
-            // 8. Prepare Documents for Database Batch Insertion
+            // 9. Prepare Documents for Database Batch Insertion
             const companyObjId = new Types.ObjectId(companyId);
             const actorObjId = actorId ? new Types.ObjectId(actorId) : undefined;
             const entityObjId = entityId ? new Types.ObjectId(entityId) : undefined;
@@ -101,16 +111,16 @@ export class NotificationService {
                 expiresAt,
             }));
 
-            // 9. Persist Notifications in MongoDB
+            // 10. Persist Notifications in MongoDB
             const createdNotifications = await NotificationRepository.createMany(documentsToCreate);
 
-            // 10. Channel Dispatches (In-App Socket, Push, Email)
+            // 11. Channel Dispatches (In-App Socket, Push, Email)
             for (const notif of createdNotifications) {
                 const recipientIdStr = notif.recipientId.toString();
 
-                // 10a. In-App Socket Channel
+                // 11a. In-App Socket Channel
                 if (pref.channels.inApp) {
-                    SocketNotificationChannel.deliverNotification(recipientIdStr, notif);
+                    SocketNotificationChannel.deliverNotification(recipientIdStr, notif, soundMetadata);
 
                     // Also push updated unread count
                     NotificationRepository.countUnread(recipientIdStr, companyId).then((unreadCount: number) => {
@@ -118,7 +128,7 @@ export class NotificationService {
                     }).catch(() => { });
                 }
 
-                // 10b. Push & Email Channel hooks (extensible for future providers like FCM / Nodemailer)
+                // 11b. Push & Email Channel hooks (extensible for future providers like FCM / Nodemailer)
                 if (pref.channels.push) {
                     // Future: PushNotificationChannel.send(...)
                 }

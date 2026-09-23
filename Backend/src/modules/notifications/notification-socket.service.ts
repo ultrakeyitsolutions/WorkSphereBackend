@@ -4,11 +4,17 @@ import { INotification } from './notification.model';
 // ─── Socket Notification Channel ──────────────────────────────────────────
 // Handles real-time Delivery of notifications to connected users via Socket.IO
 
+import { ResolvedSoundMetadata } from '../notification-sounds/notification-sound.types';
+
 export class SocketNotificationChannel {
     /**
      * Emits a real-time notification to a specific recipient user's socket room.
      */
-    public static deliverNotification(recipientId: string, notification: Partial<INotification>): void {
+    public static deliverNotification(
+        recipientId: string,
+        notification: Partial<INotification>,
+        sound?: ResolvedSoundMetadata
+    ): void {
         const io = getSocketServer();
         if (!io) return; // Socket server not initialized yet or running in background script
 
@@ -25,6 +31,7 @@ export class SocketNotificationChannel {
             entityType: notification.entityType,
             actionUrl: notification.actionUrl,
             metadata: notification.metadata,
+            sound: sound || { enabled: false },
             createdAt: notification.createdAt,
             isRead: false,
         });
