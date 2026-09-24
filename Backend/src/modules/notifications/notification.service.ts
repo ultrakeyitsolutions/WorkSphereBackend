@@ -91,6 +91,26 @@ export class NotificationService {
             const companyObjId = new Types.ObjectId(companyId);
             const actorObjId = actorId ? new Types.ObjectId(actorId) : undefined;
             const entityObjId = entityId ? new Types.ObjectId(entityId) : undefined;
+            const projectObjId = payload.projectId && Types.ObjectId.isValid(payload.projectId) ? new Types.ObjectId(payload.projectId) : undefined;
+            const taskObjId = payload.taskId && Types.ObjectId.isValid(payload.taskId) ? new Types.ObjectId(payload.taskId) : undefined;
+            const meetingObjId = payload.meetingId && Types.ObjectId.isValid(payload.meetingId) ? new Types.ObjectId(payload.meetingId) : undefined;
+            const conversationObjId = payload.conversationId && Types.ObjectId.isValid(payload.conversationId) ? new Types.ObjectId(payload.conversationId) : undefined;
+
+            // Generate fallback actionUrl if not provided
+            let effectiveActionUrl = actionUrl;
+            if (!effectiveActionUrl) {
+                if (payload.taskId) {
+                    effectiveActionUrl = payload.projectId
+                        ? `/projects/${payload.projectId}/tasks/${payload.taskId}`
+                        : `/tasks/${payload.taskId}`;
+                } else if (payload.projectId) {
+                    effectiveActionUrl = `/projects/${payload.projectId}`;
+                } else if (payload.meetingId) {
+                    effectiveActionUrl = `/companyadmin/quick-meetings?meetingId=${payload.meetingId}`;
+                } else if (payload.conversationId) {
+                    effectiveActionUrl = `/chat?conversationId=${payload.conversationId}`;
+                }
+            }
 
             const documentsToCreate: Array<Partial<INotification>> = targetRecipients.map((rid) => ({
                 companyId: companyObjId,
@@ -104,7 +124,11 @@ export class NotificationService {
                 icon: typeDef.icon || typeDef.defaultIcon || 'bell',
                 entityId: entityObjId,
                 entityType,
-                actionUrl,
+                projectId: projectObjId,
+                taskId: taskObjId,
+                meetingId: meetingObjId,
+                conversationId: conversationObjId,
+                actionUrl: effectiveActionUrl,
                 metadata: mergedContext,
                 isRead: false,
                 eventId,
@@ -114,13 +138,18 @@ export class NotificationService {
             // 10. Persist Notifications in MongoDB
             const createdNotifications = await NotificationRepository.createMany(documentsToCreate);
 
-            // 11. Channel Dispatches (In-App Socket, Push, Email)
+            // 11. Channel Dispatches (In-App Socket, Push/Desktop, Email)
             for (const notif of createdNotifications) {
                 const recipientIdStr = notif.recipientId.toString();
 
-                // 11a. In-App Socket Channel
-                if (pref.channels.inApp) {
-                    SocketNotificationChannel.deliverNotification(recipientIdStr, notif, soundMetadata);
+                // 11a. Real-Time Socket Channel (supports in-app bell & desktop browser notification popups)
+                if (pref.channels.inApp || pref.channels.push) {
+                    SocketNotificationChannel.deliverNotification(
+                        recipientIdStr,
+                        notif,
+                        soundMetadata,
+                        pref.channels
+                    );
 
                     // Also push updated unread count
                     NotificationRepository.countUnread(recipientIdStr, companyId).then((unreadCount: number) => {
@@ -128,10 +157,7 @@ export class NotificationService {
                     }).catch(() => { });
                 }
 
-                // 11b. Push & Email Channel hooks (extensible for future providers like FCM / Nodemailer)
-                if (pref.channels.push) {
-                    // Future: PushNotificationChannel.send(...)
-                }
+                // 11b. Email Channel hook (extensible for nodemailer / SES)
                 if (pref.channels.email) {
                     // Future: EmailNotificationChannel.send(...)
                 }

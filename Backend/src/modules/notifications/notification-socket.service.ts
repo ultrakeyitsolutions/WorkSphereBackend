@@ -13,7 +13,8 @@ export class SocketNotificationChannel {
     public static deliverNotification(
         recipientId: string,
         notification: Partial<INotification>,
-        sound?: ResolvedSoundMetadata
+        sound?: ResolvedSoundMetadata,
+        channels?: { inApp?: boolean; push?: boolean; email?: boolean }
     ): void {
         const io = getSocketServer();
         if (!io) return; // Socket server not initialized yet or running in background script
@@ -21,6 +22,10 @@ export class SocketNotificationChannel {
         const room = `user:${recipientId}`;
         io.to(room).emit('notification:new', {
             id: notification._id,
+            _id: notification._id,
+            userId: recipientId,
+            recipientId: recipientId,
+            type: notification.type,
             notificationType: notification.type,
             category: notification.category,
             title: notification.title,
@@ -29,8 +34,13 @@ export class SocketNotificationChannel {
             icon: notification.icon,
             entityId: notification.entityId,
             entityType: notification.entityType,
+            projectId: notification.projectId,
+            taskId: notification.taskId,
+            meetingId: notification.meetingId,
+            conversationId: notification.conversationId,
             actionUrl: notification.actionUrl,
             metadata: notification.metadata,
+            channels: channels || { inApp: true, push: true, email: false },
             sound: sound || { enabled: false },
             createdAt: notification.createdAt,
             isRead: false,

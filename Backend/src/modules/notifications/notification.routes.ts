@@ -17,6 +17,7 @@ router.use(authenticate);
 // Listing & Types
 router.get('/', getNotifications);
 router.get('/unread-count', getUnreadCount);
+router.get('/unread', getUnreadCount);
 router.get('/types', getNotificationTypes);
 
 // Bulk & Individual Read Status
