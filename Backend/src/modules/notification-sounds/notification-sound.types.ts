@@ -1,5 +1,5 @@
 import { Document, Types } from 'mongoose';
-import { NotificationCategory, NotificationType } from '../notifications/notification.types';
+import { NotificationCategory } from '../notifications/notification.types';
 
 // ─── Sound Document Interface ───────────────────────────────────────────────
 

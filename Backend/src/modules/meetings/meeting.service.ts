@@ -2,8 +2,6 @@ import { Types } from 'mongoose';
 import { Meeting } from './models/meeting.model';
 import { MeetingParticipant } from './models/meeting-participant.model';
 import { MeetingScheduleHistory } from './models/meeting-schedule-history.model';
-import { MeetingValidationService } from './meeting-validation.service';
-import { MeetingSchedulingService } from './meeting-scheduling.service';
 import { MeetingNotificationService } from './meeting-notification.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
@@ -440,7 +438,6 @@ export class MeetingService {
         req?: any
     ): Promise<any> {
         const meetingObjectId = new Types.ObjectId(meetingId);
-        const userObjectId = new Types.ObjectId(userId);
         const companyObjectId = new Types.ObjectId(companyId);
 
         const meeting = await Meeting.findOne({
@@ -544,7 +541,6 @@ export class MeetingService {
         req?: any
     ): Promise<any> {
         const meetingObjectId = new Types.ObjectId(meetingId);
-        const userObjectId = new Types.ObjectId(userId);
         const companyObjectId = new Types.ObjectId(companyId);
 
         const meeting = await Meeting.findOne({

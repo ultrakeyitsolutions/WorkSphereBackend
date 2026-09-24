@@ -5,7 +5,7 @@ import { Types } from 'mongoose';
 import { authenticate } from '../src/middleware/auth.middleware';
 import { authorizeRoles, authorizePermissions } from '../src/middleware/authorization.middleware';
 import { blockImpersonatedOperations } from '../src/middleware/impersonation.middleware';
-import { generateAccessToken, generateRefreshToken } from '../src/utils/tokens';
+import { generateAccessToken } from '../src/utils/tokens';
 import { ImpersonationSession } from '../src/modules/super-admin/impersonation/impersonation.model';
 import { ImpersonationStatus } from '../src/modules/super-admin/impersonation/impersonation.types';
 import { User } from '../src/modules/users/user.model';

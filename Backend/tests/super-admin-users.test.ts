@@ -8,7 +8,6 @@ import { Project, ProjectTeamMember } from '../src/modules/companyadmin/projects
 import { Task } from '../src/modules/tasks/task.model';
 import { Attendance } from '../src/modules/attendance/attendance.model';
 import { TimeTracking } from '../src/modules/task-tracking/time-tracking.model';
-import { AuditLog } from '../src/modules/audit-logs/audit-log.model';
 import { AuthSession } from '../src/modules/auth/session/auth-session.model';
 import superAdminRouter from '../src/modules/super-admin';
 

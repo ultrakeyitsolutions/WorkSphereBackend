@@ -7,7 +7,6 @@ import {
     StickyNoteQueryFilters,
     ConvertToTaskInput,
     StickyNoteStats,
-    IStickyNoteDocument,
 } from './sticky-note.types';
 import { StickyNoteStatus, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from './sticky-note.constants';
 import { StickyNoteValidationService } from './sticky-note-validation.service';

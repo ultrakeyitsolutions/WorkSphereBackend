@@ -11,7 +11,6 @@ const USER_B_ID = '64d0a1b2c3d4e5f6a7b8c9d2';
 const COMPANY_ID = '64e0a1b2c3d4e5f6a7b8c9d0';
 const PROJECT_ID = '64d0a1b2c3d4e5f6a7b8c9aa';
 const TASK_ID = '64d0a1b2c3d4e5f6a7b8c9bb';
-const NOTE_ID_1 = '64f1a2b3c4d5e6f7a8b9c0d1';
 
 // ─── In-Memory Mock Store ──────────────────────────────────────────────────────
 interface MockNote {

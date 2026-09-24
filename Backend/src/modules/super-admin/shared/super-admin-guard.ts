@@ -1,6 +1,5 @@
 import { Response, NextFunction } from 'express';
 import { authenticate } from '../../../middleware/auth.middleware';
-import { authorizeRoles } from '../../../middleware/authorization.middleware';
 import { AuthenticatedRequest } from '../../auth/auth.types';
 import { sendError } from '../../../utils/response';
 

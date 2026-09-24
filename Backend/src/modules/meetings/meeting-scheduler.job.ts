@@ -37,12 +37,10 @@ export class MeetingSchedulerJob {
                 const diffMinutes = Math.floor((startMs - now) / (60 * 1000));
 
                 const updates: any = {};
-                let send15 = false;
                 let send5 = false;
 
                 if (diffMinutes <= 15 && diffMinutes > 5 && !meeting.reminded15Min) {
                     updates.reminded15Min = true;
-                    send15 = true;
                 } else if (diffMinutes <= 5 && diffMinutes >= -1 && !meeting.reminded5Min) {
                     updates.reminded5Min = true;
                     if (!meeting.reminded15Min) {

@@ -32,7 +32,7 @@ export class MeetingRequestService {
         );
 
         // 2. Validate Participants (Tenant isolation enforced)
-        const { validParticipantIds, users: participantUsers } =
+        const { validParticipantIds } =
             await MeetingValidationService.validateParticipants(
                 dto.participantIds,
                 companyId,

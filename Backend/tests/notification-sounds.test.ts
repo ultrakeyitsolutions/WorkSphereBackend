@@ -2,9 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/app';
 import { generateAccessToken } from '../src/utils/tokens';
-import { NotificationSoundLibraryService } from '../src/modules/notification-sounds/notification-sound-library.service';
 import { NotificationSoundService } from '../src/modules/notification-sounds/notification-sound.service';
-import { NotificationService } from '../src/modules/notifications/notification.service';
 
 // Mock StorageConfigurationService
 vi.mock('../src/modules/super-admin/storage/storage-config.service', () => ({
@@ -131,7 +129,7 @@ vi.mock('../src/modules/notification-sounds/notification-sound.model', () => {
 
     const NotificationSoundMock = {
         find: vi.fn().mockImplementation((filter: any = {}) => {
-            let results = mockSounds.filter((s) => {
+            const results = mockSounds.filter((s) => {
                 if (filter.deletedAt === null && s.deletedAt !== null) return false;
                 if (filter.isActive !== undefined && s.isActive !== filter.isActive) return false;
                 return true;
@@ -177,7 +175,7 @@ vi.mock('../src/modules/notification-sounds/notification-sound.model', () => {
 vi.mock('../src/modules/notification-sounds/notification-sound-mapping.model', () => {
     const NotificationSoundMappingMock = {
         find: vi.fn().mockImplementation((filter: any = {}) => {
-            let results = mockMappings.filter((m) => {
+            const results = mockMappings.filter((m) => {
                 if (filter.soundId && m.soundId !== filter.soundId) return false;
                 if (filter.isEnabled !== undefined && m.isEnabled !== filter.isEnabled) return false;
                 return true;

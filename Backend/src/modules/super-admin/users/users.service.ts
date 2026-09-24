@@ -1,6 +1,5 @@
 import { Types } from 'mongoose';
 import { User } from '../../users/user.model';
-import { Role } from '../../roles/role.model';
 import { Project, ProjectTeamMember } from '../../companyadmin/projects/project.model';
 import { Task } from '../../tasks/task.model';
 import { Attendance, AttendanceStatus } from '../../attendance/attendance.model';
