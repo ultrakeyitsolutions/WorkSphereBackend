@@ -69,6 +69,22 @@ export class SprintService {
             description: `Sprint "${data.name}" was created in project "${project.name}"`,
         });
 
+        NotificationEventBus.getInstance().publish({
+            type: 'SPRINT_CREATED',
+            companyId,
+            actorId: userId,
+            projectId,
+            entityId: String(sprint._id),
+            entityType: 'SPRINT',
+            metadata: {
+                sprintName: data.name,
+                projectName: project.name,
+                startDate: data.startDate,
+                endDate: data.endDate,
+                projectId,
+            },
+        });
+
         return {
             ...populated,
             progress: 0,

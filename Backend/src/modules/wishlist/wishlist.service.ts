@@ -57,6 +57,21 @@ export class WishlistService {
             description: `Wishlist item "${data.title}" was created in project "${project.name}"`,
         });
 
+        NotificationEventBus.getInstance().publish({
+            type: 'WISHLIST_CREATED',
+            companyId,
+            actorId: userId,
+            projectId,
+            entityId: String(item._id),
+            entityType: 'WISHLIST',
+            metadata: {
+                title: data.title,
+                projectName: project.name,
+                priority: data.priority || WishlistPriority.MEDIUM,
+                projectId,
+            },
+        });
+
         return populated;
     }
 
@@ -230,7 +245,17 @@ export class WishlistService {
                 projectId,
                 entityId: wishlistId,
                 entityType: 'WISHLIST',
-                metadata: { itemTitle: item.title, projectId },
+                metadata: { title: item.title, itemTitle: item.title, projectId },
+            });
+        } else if (data.status === WishlistStatus.REJECTED && oldStatus !== WishlistStatus.REJECTED) {
+            NotificationEventBus.getInstance().publish({
+                type: 'WISHLIST_REJECTED',
+                companyId,
+                actorId: userId,
+                projectId,
+                entityId: wishlistId,
+                entityType: 'WISHLIST',
+                metadata: { title: item.title, itemTitle: item.title, projectId },
             });
         }
 

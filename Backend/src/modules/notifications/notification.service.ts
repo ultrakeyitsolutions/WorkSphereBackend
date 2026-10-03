@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { NOTIFICATION_TYPES, NotificationEventPayload } from './notification.types';
 import { NotificationRepository } from './notification.repository';
 import { NotificationPreferenceService } from './notification-preference.service';
@@ -51,9 +51,42 @@ export class NotificationService {
                 console.warn(`[NotificationService] Failed to resolve sound for type ${type}:`, soundErr);
             }
 
-            // 6. Render Title and Message via Safe Template Engine
+            // 6. Resolve Actor Name and Project Name if missing in metadata
+            let resolvedActorName = metadata?.actorName;
+            if (!resolvedActorName && actorId && Types.ObjectId.isValid(actorId)) {
+                try {
+                    const actorDoc = await mongoose.connection.collection('users').findOne(
+                        { _id: new Types.ObjectId(actorId) },
+                        { projection: { name: 1 } }
+                    );
+                    if (actorDoc?.name) {
+                        resolvedActorName = actorDoc.name;
+                    }
+                } catch {
+                    // Non-blocking fallback
+                }
+            }
+
+            let resolvedProjectName = metadata?.projectName;
+            if (!resolvedProjectName && payload.projectId && Types.ObjectId.isValid(payload.projectId)) {
+                try {
+                    const projDoc = await mongoose.connection.collection('projects').findOne(
+                        { _id: new Types.ObjectId(payload.projectId) },
+                        { projection: { name: 1 } }
+                    );
+                    if (projDoc?.name) {
+                        resolvedProjectName = projDoc.name;
+                    }
+                } catch {
+                    // Non-blocking fallback
+                }
+            }
+
+            // 7. Render Title and Message via Safe Template Engine
             const mergedContext = {
                 ...typeDef.defaultMetadata,
+                actorName: resolvedActorName || 'A team member',
+                projectName: resolvedProjectName || 'the project',
                 ...metadata,
                 sound: soundMetadata,
             };

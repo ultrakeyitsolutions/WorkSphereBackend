@@ -73,6 +73,15 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
     },
 
     // ── SPRINT ────────────────────────────────────────────────────────────────
+    SPRINT_CREATED: {
+        category: 'SPRINT',
+        defaultTitle: 'New Sprint Created',
+        defaultMessage: '{{actorName}} created sprint "{{sprintName}}" in {{projectName}}',
+        defaultStyle: 'INFO',
+        icon: 'zap',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'sprintName', 'startDate', 'endDate'],
+        defaultEnabled: true,
+    },
     SPRINT_STARTED: {
         category: 'SPRINT',
         defaultTitle: 'Sprint Started',
@@ -88,6 +97,15 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         defaultMessage: '{{actorName}} marked sprint {{sprintName}} as completed in {{projectName}}',
         defaultStyle: 'SUCCESS',
         icon: 'check-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'sprintName'],
+        defaultEnabled: true,
+    },
+    SPRINT_UPDATED: {
+        category: 'SPRINT',
+        defaultTitle: 'Sprint Updated',
+        defaultMessage: '{{actorName}} updated sprint "{{sprintName}}" in {{projectName}}',
+        defaultStyle: 'INFO',
+        icon: 'edit',
         allowedVariables: ['actorName', 'recipientName', 'projectName', 'sprintName'],
         defaultEnabled: true,
     },
@@ -111,13 +129,31 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
     },
 
     // ── RELEASE ───────────────────────────────────────────────────────────────
+    RELEASE_CREATED: {
+        category: 'RELEASE',
+        defaultTitle: 'New Release Planned',
+        defaultMessage: '{{actorName}} planned release {{version}} ("{{releaseName}}") in {{projectName}}',
+        defaultStyle: 'INFO',
+        icon: 'package',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'releaseName', 'version', 'targetDate'],
+        defaultEnabled: true,
+    },
     RELEASE_STARTED: {
         category: 'RELEASE',
         defaultTitle: 'Release In Progress',
         defaultMessage: '{{actorName}} started release {{releaseName}} ({{version}})',
         defaultStyle: 'INFO',
-        icon: 'rocket',
+        icon: 'play-circle',
         allowedVariables: ['actorName', 'recipientName', 'projectName', 'releaseName', 'version'],
+        defaultEnabled: true,
+    },
+    RELEASE_PUBLISHED: {
+        category: 'RELEASE',
+        defaultTitle: 'Release Shipped 🎉',
+        defaultMessage: 'Release {{version}} ("{{releaseName}}") has been officially released!',
+        defaultStyle: 'SUCCESS',
+        icon: 'rocket',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'releaseName', 'version', 'releaseDate'],
         defaultEnabled: true,
     },
     RELEASE_RELEASED: {
@@ -126,6 +162,15 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         defaultMessage: 'Release {{releaseName}} ({{version}}) has been deployed',
         defaultStyle: 'SUCCESS',
         icon: 'check-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'releaseName', 'version'],
+        defaultEnabled: true,
+    },
+    RELEASE_UPDATED: {
+        category: 'RELEASE',
+        defaultTitle: 'Release Updated',
+        defaultMessage: '{{actorName}} updated release {{version}} ("{{releaseName}}")',
+        defaultStyle: 'INFO',
+        icon: 'edit',
         allowedVariables: ['actorName', 'recipientName', 'projectName', 'releaseName', 'version'],
         defaultEnabled: true,
     },
@@ -140,13 +185,40 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
     },
 
     // ── WISHLIST ──────────────────────────────────────────────────────────────
+    WISHLIST_CREATED: {
+        category: 'WISHLIST',
+        defaultTitle: 'New Wishlist Idea Proposed',
+        defaultMessage: '{{actorName}} proposed a new idea: "{{title}}" in {{projectName}}',
+        defaultStyle: 'INFO',
+        icon: 'lightbulb',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'title', 'priority'],
+        defaultEnabled: true,
+    },
+    WISHLIST_UPDATED: {
+        category: 'WISHLIST',
+        defaultTitle: 'Wishlist Item Updated',
+        defaultMessage: '{{actorName}} updated wishlist item "{{title}}"',
+        defaultStyle: 'INFO',
+        icon: 'edit',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'title', 'status'],
+        defaultEnabled: true,
+    },
     WISHLIST_APPROVED: {
         category: 'WISHLIST',
         defaultTitle: 'Wishlist Item Approved',
         defaultMessage: 'Wishlist item "{{itemTitle}}" was approved by {{actorName}}',
         defaultStyle: 'SUCCESS',
         icon: 'thumbs-up',
-        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle'],
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle', 'title'],
+        defaultEnabled: true,
+    },
+    WISHLIST_REJECTED: {
+        category: 'WISHLIST',
+        defaultTitle: 'Wishlist Item Rejected',
+        defaultMessage: 'Wishlist item "{{itemTitle}}" was rejected by {{actorName}}',
+        defaultStyle: 'WARNING',
+        icon: 'x-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle', 'title'],
         defaultEnabled: true,
     },
     WISHLIST_CONVERTED_TO_TASK: {
@@ -155,7 +227,7 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         defaultMessage: 'Wishlist item "{{itemTitle}}" was converted to a task by {{actorName}}',
         defaultStyle: 'INFO',
         icon: 'arrow-right-circle',
-        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle', 'taskName'],
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle', 'taskName', 'taskNumber'],
         defaultEnabled: true,
     },
 

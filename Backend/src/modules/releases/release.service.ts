@@ -76,6 +76,22 @@ export class ReleaseService {
             description: `Release "${data.name}" (${data.version}) was created in project "${project.name}"`,
         });
 
+        NotificationEventBus.getInstance().publish({
+            type: 'RELEASE_CREATED',
+            companyId,
+            actorId: userId,
+            projectId,
+            entityId: String(release._id),
+            entityType: 'RELEASE',
+            metadata: {
+                releaseName: data.name,
+                version: data.version,
+                projectName: project.name,
+                targetDate: data.targetDate,
+                projectId,
+            },
+        });
+
         return {
             ...populated,
             progress: 0,

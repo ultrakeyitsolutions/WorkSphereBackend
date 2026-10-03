@@ -92,6 +92,54 @@ export class RecipientResolver {
                 break;
             }
 
+            case 'WISHLIST':
+            case 'SPRINT':
+            case 'RELEASE': {
+                let targetProjectId = payload.projectId ? (Types.ObjectId.isValid(payload.projectId) ? new Types.ObjectId(payload.projectId) : null) : null;
+                if (!targetProjectId) {
+                    const collectionName = entityType.toUpperCase() === 'WISHLIST'
+                        ? 'wishlists'
+                        : entityType.toUpperCase() === 'SPRINT'
+                            ? 'sprints'
+                            : 'releases';
+                    const doc = await db.collection(collectionName).findOne(
+                        { _id: objectId, companyId: new Types.ObjectId(companyId) },
+                        { projection: { projectId: 1, createdBy: 1 } }
+                    );
+                    if (doc?.projectId) {
+                        targetProjectId = doc.projectId;
+                    }
+                    if (doc?.createdBy) {
+                        recipients.push(doc.createdBy.toString());
+                    }
+                }
+
+                if (targetProjectId) {
+                    const teamMembers = await db.collection('projectteammembers').find(
+                        { projectId: targetProjectId }
+                    ).toArray();
+                    for (const tm of teamMembers) {
+                        if (tm.userId) recipients.push(tm.userId.toString());
+                    }
+
+                    const inCharges = await db.collection('projectincharges').find(
+                        { projectId: targetProjectId }
+                    ).toArray();
+                    for (const ic of inCharges) {
+                        if (ic.userId) recipients.push(ic.userId.toString());
+                    }
+
+                    const projectDoc = await db.collection('projects').findOne(
+                        { _id: targetProjectId },
+                        { projection: { createdById: 1 } }
+                    );
+                    if (projectDoc?.createdById) {
+                        recipients.push(projectDoc.createdById.toString());
+                    }
+                }
+                break;
+            }
+
             case 'CONVERSATION':
             case 'CHAT': {
                 const participants = await db.collection('participants').find(
