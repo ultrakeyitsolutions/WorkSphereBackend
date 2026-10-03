@@ -82,10 +82,27 @@ export const sprintTasksQuerySchema = z.object({
     query: z.object({
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(100).default(20),
+        status: z.string().trim().optional(),
         statusId: idSchema.optional(),
         stageId: idSchema.optional(),
         priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+        assigneeId: idSchema.optional(),
         assignedToId: idSchema.optional(),
         search: z.string().trim().optional(),
     }),
 });
+
+export const updateSprintTaskStatusSchema = z.object({
+    params: z.object({
+        projectId: idSchema,
+        sprintId: idSchema,
+        taskId: idSchema,
+    }),
+    body: z.object({
+        status: z.string().trim().min(1, 'Status is required'),
+        stageId: idSchema.optional(),
+        statusId: idSchema.optional(),
+        progress: z.number().min(0).max(100).optional(),
+    }),
+});
+

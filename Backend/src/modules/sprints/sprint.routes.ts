@@ -7,6 +7,7 @@ import {
     listSprintSchema,
     sprintParamSchema,
     sprintTasksQuerySchema,
+    updateSprintTaskStatusSchema,
 } from './sprint.validator';
 
 const router = Router({ mergeParams: true });
@@ -22,6 +23,9 @@ router.get('/:sprintId/summary', validateRequest(sprintParamSchema), SprintContr
 
 // GET /api/projects/:projectId/sprints/:sprintId/tasks
 router.get('/:sprintId/tasks', validateRequest(sprintTasksQuerySchema), SprintController.getSprintTasks);
+
+// PATCH /api/projects/:projectId/sprints/:sprintId/tasks/:taskId/status
+router.patch('/:sprintId/tasks/:taskId/status', validateRequest(updateSprintTaskStatusSchema), SprintController.updateSprintTaskStatus);
 
 // POST /api/projects/:projectId/sprints/:sprintId/start
 router.post('/:sprintId/start', validateRequest(sprintParamSchema), SprintController.startSprint);
@@ -39,3 +43,4 @@ router.patch('/:sprintId', validateRequest(updateSprintSchema), SprintController
 router.delete('/:sprintId', validateRequest(sprintParamSchema), SprintController.deleteSprint);
 
 export default router;
+

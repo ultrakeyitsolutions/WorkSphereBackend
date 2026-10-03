@@ -47,6 +47,11 @@ const releaseSchema = new Schema<IRelease>(
             type: Date,
             default: null,
         },
+        releasedBy: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
         status: {
             type: String,
             enum: Object.values(ReleaseStatus),
@@ -66,6 +71,17 @@ const releaseSchema = new Schema<IRelease>(
                 ref: 'Sprint',
             },
         ],
+        taskSnapshot: {
+            totalTasks: { type: Number, default: 0 },
+            completedTasks: { type: Number, default: 0 },
+            completionPercentage: { type: Number, default: 0 },
+            taskIds: [
+                {
+                    type: Schema.Types.ObjectId,
+                    ref: 'Task',
+                },
+            ],
+        },
         createdBy: {
             type: Schema.Types.ObjectId,
             ref: 'User',

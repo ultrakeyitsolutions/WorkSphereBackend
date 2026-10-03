@@ -53,7 +53,7 @@ export class NotificationService {
 
             // 6. Resolve Actor Name and Project Name if missing in metadata
             let resolvedActorName = metadata?.actorName;
-            if (!resolvedActorName && actorId && Types.ObjectId.isValid(actorId)) {
+            if (!resolvedActorName && actorId && Types.ObjectId.isValid(actorId) && mongoose.connection.readyState === 1) {
                 try {
                     const actorDoc = await mongoose.connection.collection('users').findOne(
                         { _id: new Types.ObjectId(actorId) },
@@ -68,7 +68,7 @@ export class NotificationService {
             }
 
             let resolvedProjectName = metadata?.projectName;
-            if (!resolvedProjectName && payload.projectId && Types.ObjectId.isValid(payload.projectId)) {
+            if (!resolvedProjectName && payload.projectId && Types.ObjectId.isValid(payload.projectId) && mongoose.connection.readyState === 1) {
                 try {
                     const projDoc = await mongoose.connection.collection('projects').findOne(
                         { _id: new Types.ObjectId(payload.projectId) },

@@ -7,6 +7,7 @@ import {
     listReleaseSchema,
     releaseParamSchema,
     releaseVersionBodySchema,
+    shipReleaseSchema,
     releaseTasksQuerySchema,
 } from './release.validator';
 
@@ -27,6 +28,9 @@ router.get('/:releaseId/tasks', validateRequest(releaseTasksQuerySchema), Releas
 // POST /api/projects/:projectId/releases/:releaseId/start
 router.post('/:releaseId/start', validateRequest(releaseParamSchema), ReleaseController.startRelease);
 
+// POST /api/projects/:projectId/releases/:releaseId/ship
+router.post('/:releaseId/ship', validateRequest(shipReleaseSchema), ReleaseController.shipRelease);
+
 // POST /api/projects/:projectId/releases/:releaseId/release
 router.post('/:releaseId/release', validateRequest(releaseVersionBodySchema), ReleaseController.releaseVersion);
 
@@ -40,3 +44,4 @@ router.patch('/:releaseId', validateRequest(updateReleaseSchema), ReleaseControl
 router.delete('/:releaseId', validateRequest(releaseParamSchema), ReleaseController.deleteRelease);
 
 export default router;
+

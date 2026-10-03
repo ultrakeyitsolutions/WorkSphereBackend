@@ -95,6 +95,19 @@ export const releaseVersionBodySchema = z.object({
     body: z.object({
         releaseNotes: z.string().trim().max(10000).optional().nullable(),
         releasedAt: z.string().or(z.date()).transform((val) => new Date(val)).optional(),
+        overrideIncomplete: z.boolean().optional().default(false),
+    }).optional(),
+});
+
+export const shipReleaseSchema = z.object({
+    params: z.object({
+        projectId: idSchema,
+        releaseId: idSchema,
+    }),
+    body: z.object({
+        releaseNotes: z.string().trim().max(10000).optional().nullable(),
+        releasedAt: z.string().or(z.date()).transform((val) => new Date(val)).optional(),
+        overrideIncomplete: z.boolean().optional().default(false),
     }).optional(),
 });
 
@@ -106,11 +119,14 @@ export const releaseTasksQuerySchema = z.object({
     query: z.object({
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(100).default(20),
+        status: z.string().trim().optional(),
         statusId: idSchema.optional(),
         stageId: idSchema.optional(),
         priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+        assigneeId: idSchema.optional(),
         assignedToId: idSchema.optional(),
         sprintId: idSchema.optional(),
         search: z.string().trim().optional(),
     }),
 });
+

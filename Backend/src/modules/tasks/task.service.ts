@@ -1066,10 +1066,17 @@ export class TaskService {
         if (!task) throw AppError.notFound('Task not found');
 
         let sprintName = '';
+        const previousSprintId = task.sprintId?.toString();
+
         if (sprintId) {
             if (!Types.ObjectId.isValid(sprintId)) throw AppError.badRequest('Invalid sprintId');
             const sprint = await Sprint.findOne({ _id: sprintId, projectId, companyId }).lean();
             if (!sprint) throw AppError.notFound('Sprint not found in this project');
+
+            if (sprint.status === 'COMPLETED' || sprint.status === 'CANCELLED') {
+                throw AppError.badRequest(`Cannot assign tasks to a ${sprint.status.toLowerCase()} sprint`);
+            }
+
             sprintName = sprint.name;
             task.sprintId = new Types.ObjectId(sprintId);
         } else {
@@ -1090,11 +1097,15 @@ export class TaskService {
             .populate('releaseId', 'name version status')
             .lean();
 
+        const action = !sprintId
+            ? AuditAction.TASK_REMOVED_FROM_SPRINT
+            : (previousSprintId && previousSprintId !== sprintId ? AuditAction.TASK_MOVED_TO_SPRINT : AuditAction.TASK_ASSIGNED_TO_SPRINT);
+
         AuditLogService.log({
-            action: sprintId ? AuditAction.TASK_ASSIGNED_TO_SPRINT : AuditAction.TASK_REMOVED_FROM_SPRINT,
+            action,
             actorId: userId,
             companyId,
-            metadata: { projectId, taskId, sprintId },
+            metadata: { projectId, taskId, sprintId, previousSprintId },
             description: sprintId
                 ? `Task "${task.title}" was assigned to sprint "${sprintName}"`
                 : `Task "${task.title}" was removed from sprint`,
@@ -1137,6 +1148,14 @@ export class TaskService {
             if (!Types.ObjectId.isValid(releaseId)) throw AppError.badRequest('Invalid releaseId');
             const release = await Release.findOne({ _id: releaseId, projectId, companyId }).lean();
             if (!release) throw AppError.notFound('Release not found in this project');
+
+            if (release.status === 'RELEASED') {
+                throw AppError.conflict('Cannot assign tasks to an already released version');
+            }
+            if (release.status === 'CANCELLED') {
+                throw AppError.badRequest('Cannot assign tasks to a cancelled release');
+            }
+
             releaseName = release.name;
             task.releaseId = new Types.ObjectId(releaseId);
         } else {
@@ -1207,6 +1226,11 @@ export class TaskService {
                 if (!Types.ObjectId.isValid(sprintId)) throw AppError.badRequest('Invalid sprintId');
                 const sprint = await Sprint.findOne({ _id: sprintId, projectId, companyId }).lean();
                 if (!sprint) throw AppError.notFound('Sprint not found in this project');
+
+                if (sprint.status === 'COMPLETED' || sprint.status === 'CANCELLED') {
+                    throw AppError.badRequest(`Cannot assign tasks to a ${sprint.status.toLowerCase()} sprint`);
+                }
+
                 task.sprintId = new Types.ObjectId(sprintId);
             } else {
                 task.sprintId = null;
@@ -1218,6 +1242,14 @@ export class TaskService {
                 if (!Types.ObjectId.isValid(releaseId)) throw AppError.badRequest('Invalid releaseId');
                 const release = await Release.findOne({ _id: releaseId, projectId, companyId }).lean();
                 if (!release) throw AppError.notFound('Release not found in this project');
+
+                if (release.status === 'RELEASED') {
+                    throw AppError.conflict('Cannot assign tasks to an already released version');
+                }
+                if (release.status === 'CANCELLED') {
+                    throw AppError.badRequest('Cannot assign tasks to a cancelled release');
+                }
+
                 task.releaseId = new Types.ObjectId(releaseId);
             } else {
                 task.releaseId = null;

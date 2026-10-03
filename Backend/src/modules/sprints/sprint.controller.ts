@@ -137,4 +137,26 @@ export class SprintController {
             next(error);
         }
     }
+
+    static async updateSprintTaskStatus(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+        try {
+            const companyId = req.user?.companyId as string;
+            const userId = req.user?.userId as string;
+            const projectId = req.params.projectId as string;
+            const sprintId = req.params.sprintId as string;
+            const taskId = req.params.taskId as string;
+
+            const updatedTask = await SprintService.updateSprintTaskStatus(
+                projectId,
+                sprintId,
+                taskId,
+                companyId,
+                userId,
+                req.body
+            );
+            return sendSuccess(res, 'Task status updated successfully', updatedTask);
+        } catch (error) {
+            next(error);
+        }
+    }
 }

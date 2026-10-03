@@ -154,13 +154,21 @@ describe('Sprint API', () => {
 
     describe(`GET /api/projects/${PROJECT_ID}/sprints/${SPRINT_ID}/summary`, () => {
         it('should return computed sprint task summary -> 200', async () => {
-            mocks.sprintFindOne.mockReturnValue({ lean: vi.fn().mockResolvedValue({ _id: SPRINT_ID, name: 'Sprint 12' }) });
+            mocks.sprintFindOne.mockReturnValue({
+                populate: vi.fn().mockReturnValue({
+                    populate: vi.fn().mockReturnValue({
+                        lean: vi.fn().mockResolvedValue({ _id: SPRINT_ID, name: 'Sprint 12' }),
+                    }),
+                }),
+                lean: vi.fn().mockResolvedValue({ _id: SPRINT_ID, name: 'Sprint 12' }),
+            });
             mocks.taskAggregate.mockResolvedValue([
                 {
-                    totalTasks: 10,
-                    completedTasks: 8,
-                    inProgressTasks: 1,
-                    todoTasks: 1,
+                    total: 10,
+                    done: 8,
+                    inProgress: 1,
+                    todo: 1,
+                    onHold: 0,
                     overdueTasks: 0,
                     totalEstimatedHours: 40,
                     actualHours: 35,
@@ -171,8 +179,8 @@ describe('Sprint API', () => {
 
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
-            expect(res.body.data.totalTasks).toBe(10);
-            expect(res.body.data.completedTasks).toBe(8);
+            expect(res.body.data.counts.total).toBe(10);
+            expect(res.body.data.counts.done).toBe(8);
             expect(res.body.data.completionPercentage).toBe(80);
         });
     });

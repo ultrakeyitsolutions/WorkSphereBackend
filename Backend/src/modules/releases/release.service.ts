@@ -421,14 +421,14 @@ export class ReleaseService {
     }
 
     /**
-     * Mark a release as delivered (Transition -> RELEASED).
+     * Ship / Release a Version (Transition -> RELEASED with validation and snapshot).
      */
-    static async releaseVersion(
+    static async shipRelease(
         projectId: string,
         releaseId: string,
         companyId: string,
         userId: string,
-        data: { releaseNotes?: string | null; releasedAt?: Date } = {}
+        data: { releaseNotes?: string | null; releasedAt?: Date; overrideIncomplete?: boolean } = {}
     ) {
         const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
         if (!canAccess) throw AppError.forbidden('You do not have permission to access this project');
@@ -441,11 +441,59 @@ export class ReleaseService {
 
         if (!release) throw AppError.notFound('Release not found');
 
+        if (release.status === ReleaseStatus.RELEASED) {
+            throw AppError.conflict('Release has already been shipped and cannot be shipped again');
+        }
+
+        if (release.status === ReleaseStatus.CANCELLED) {
+            throw AppError.badRequest('Cannot ship a cancelled release');
+        }
+
+        // Query task completion stats
+        const taskStats = await Task.aggregate([
+            {
+                $match: {
+                    projectId: new Types.ObjectId(projectId),
+                    companyId: new Types.ObjectId(companyId),
+                    releaseId: new Types.ObjectId(releaseId),
+                    isArchived: false,
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    total: { $sum: 1 },
+                    done: {
+                        $sum: { $cond: [{ $eq: ['$progress', 100] }, 1, 0] },
+                    },
+                    taskIds: { $push: '$_id' },
+                },
+            },
+        ]);
+
+        const total = taskStats[0]?.total || 0;
+        const done = taskStats[0]?.done || 0;
+        const taskIds = taskStats[0]?.taskIds || [];
+
+        // Incomplete tasks validation
+        if (total > 0 && done < total && !data.overrideIncomplete) {
+            throw AppError.conflict('Release contains incomplete tasks');
+        }
+
         release.status = ReleaseStatus.RELEASED;
         release.releasedAt = data.releasedAt || new Date();
+        release.releasedBy = new Types.ObjectId(userId);
         if (data.releaseNotes !== undefined) {
             release.releaseNotes = data.releaseNotes;
         }
+
+        release.taskSnapshot = {
+            totalTasks: total,
+            completedTasks: done,
+            completionPercentage: total > 0 ? Math.round((done / total) * 100) : 0,
+            taskIds,
+        };
+
         release.updatedBy = new Types.ObjectId(userId);
         await release.save();
 
@@ -453,8 +501,16 @@ export class ReleaseService {
             action: AuditAction.RELEASE_RELEASED,
             actorId: userId,
             companyId,
-            metadata: { projectId, releaseId, name: release.name, version: release.version, releasedAt: release.releasedAt },
-            description: `Release "${release.name}" (${release.version}) has been deployed/released`,
+            metadata: {
+                projectId,
+                releaseId,
+                name: release.name,
+                version: release.version,
+                releasedAt: release.releasedAt,
+                totalTasks: total,
+                completedTasks: done,
+            },
+            description: `Release "${release.name}" (${release.version}) was shipped (${done}/${total} tasks completed)`,
         });
 
         NotificationEventBus.getInstance().publish({
@@ -464,10 +520,35 @@ export class ReleaseService {
             projectId,
             entityId: releaseId,
             entityType: 'RELEASE',
-            metadata: { releaseName: release.name, version: release.version, projectId },
+            metadata: {
+                releaseName: release.name,
+                version: release.version,
+                releaseDate: release.releasedAt,
+                projectId,
+            },
         });
 
-        return release;
+        const populated = await Release.findById(release._id)
+            .populate('createdBy', 'name email avatar')
+            .populate('updatedBy', 'name email avatar')
+            .populate('releasedBy', 'name email avatar')
+            .populate('sprintIds', 'name status startDate endDate')
+            .lean();
+
+        return populated;
+    }
+
+    /**
+     * Mark a release as delivered (alias to shipRelease).
+     */
+    static async releaseVersion(
+        projectId: string,
+        releaseId: string,
+        companyId: string,
+        userId: string,
+        data: { releaseNotes?: string | null; releasedAt?: Date; overrideIncomplete?: boolean } = {}
+    ) {
+        return this.shipRelease(projectId, releaseId, companyId, userId, data);
     }
 
     /**
@@ -513,9 +594,11 @@ export class ReleaseService {
         query: {
             page?: number;
             limit?: number;
+            status?: string;
             statusId?: string;
             stageId?: string;
             priority?: string;
+            assigneeId?: string;
             assignedToId?: string;
             sprintId?: string;
             search?: string;
@@ -543,6 +626,11 @@ export class ReleaseService {
             isArchived: false,
         };
 
+        const effectiveAssignee = query.assignedToId || query.assigneeId;
+        if (effectiveAssignee && Types.ObjectId.isValid(effectiveAssignee)) {
+            filter.assignedToId = new Types.ObjectId(effectiveAssignee);
+        }
+
         if (query.statusId && Types.ObjectId.isValid(query.statusId)) {
             filter.statusId = new Types.ObjectId(query.statusId);
         }
@@ -552,12 +640,24 @@ export class ReleaseService {
         if (query.priority) {
             filter.priority = query.priority;
         }
-        if (query.assignedToId && Types.ObjectId.isValid(query.assignedToId)) {
-            filter.assignedToId = new Types.ObjectId(query.assignedToId);
-        }
         if (query.sprintId && Types.ObjectId.isValid(query.sprintId)) {
             filter.sprintId = new Types.ObjectId(query.sprintId);
         }
+
+        // Kanban named status filter support (TODO, IN_PROGRESS, ON_HOLD, DONE)
+        if (query.status) {
+            const normalized = query.status.toUpperCase().replace(/\s+/g, '_');
+            if (normalized === 'DONE' || normalized === 'COMPLETED') {
+                filter.progress = 100;
+            } else if (normalized === 'TODO' || normalized === 'NEW' || normalized === 'BACKLOG') {
+                filter.$or = [{ progress: 0 }, { progress: { $exists: false } }, { progress: null }];
+            } else if (normalized === 'IN_PROGRESS') {
+                filter.progress = { $gt: 0, $lt: 100 };
+            } else if (normalized === 'ON_HOLD' || normalized === 'HOLD' || normalized === 'REVIEW') {
+                filter.progress = { $lt: 100 };
+            }
+        }
+
         if (query.search) {
             const escaped = query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             filter.title = { $regex: escaped, $options: 'i' };
@@ -601,7 +701,12 @@ export class ReleaseService {
             _id: releaseId,
             projectId: new Types.ObjectId(projectId),
             companyId: new Types.ObjectId(companyId),
-        }).lean();
+        })
+            .populate('createdBy', 'name email avatar')
+            .populate('updatedBy', 'name email avatar')
+            .populate('releasedBy', 'name email avatar')
+            .populate('sprintIds', 'name status startDate endDate')
+            .lean();
 
         if (!release) throw AppError.notFound('Release not found');
 
@@ -619,11 +724,11 @@ export class ReleaseService {
             {
                 $group: {
                     _id: null,
-                    totalTasks: { $sum: 1 },
-                    completedTasks: {
+                    total: { $sum: 1 },
+                    done: {
                         $sum: { $cond: [{ $eq: ['$progress', 100] }, 1, 0] },
                     },
-                    inProgressTasks: {
+                    inProgress: {
                         $sum: {
                             $cond: [
                                 {
@@ -637,13 +742,29 @@ export class ReleaseService {
                             ],
                         },
                     },
-                    todoTasks: {
+                    todo: {
                         $sum: {
                             $cond: [
                                 {
                                     $or: [
                                         { $eq: ['$progress', 0] },
                                         { $eq: ['$progress', null] },
+                                        { $not: ['$progress'] },
+                                    ],
+                                },
+                                1,
+                                0,
+                            ],
+                        },
+                    },
+                    onHold: {
+                        $sum: {
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $lt: ['$progress', 100] },
+                                        { $gt: ['$progress', 0] },
+                                        { $eq: ['$isPinned', true] },
                                     ],
                                 },
                                 1,
@@ -666,31 +787,52 @@ export class ReleaseService {
                             ],
                         },
                     },
+                    totalEstimatedHours: {
+                        $sum: {
+                            $add: [
+                                { $ifNull: ['$estimatedTime.hours', 0] },
+                                { $divide: [{ $ifNull: ['$estimatedTime.minutes', 0] }, 60] },
+                            ],
+                        },
+                    },
+                    actualHours: { $sum: { $ifNull: ['$actualHours', 0] } },
                 },
             },
         ];
 
         const results = await Task.aggregate(pipeline);
         const stats = results[0] || {
-            totalTasks: 0,
-            completedTasks: 0,
-            inProgressTasks: 0,
-            todoTasks: 0,
+            total: 0,
+            done: 0,
+            inProgress: 0,
+            todo: 0,
+            onHold: 0,
             overdueTasks: 0,
+            totalEstimatedHours: 0,
+            actualHours: 0,
         };
 
-        const completionPercentage = stats.totalTasks > 0
-            ? Math.round((stats.completedTasks / stats.totalTasks) * 100)
+        const completionPercentage = stats.total > 0
+            ? Math.round((stats.done / stats.total) * 100)
             : 0;
 
+        const isReadyToShip = (stats.total > 0 && stats.done === stats.total) || release.status === ReleaseStatus.READY_TO_SHIP;
+
         return {
-            totalTasks: stats.totalTasks,
-            completedTasks: stats.completedTasks,
-            inProgressTasks: stats.inProgressTasks,
-            todoTasks: stats.todoTasks,
-            overdueTasks: stats.overdueTasks,
-            sprintCount: (release.sprintIds || []).length,
+            release,
+            counts: {
+                total: stats.total,
+                todo: stats.todo,
+                inProgress: stats.inProgress,
+                onHold: stats.onHold,
+                done: stats.done,
+            },
             completionPercentage,
+            isReadyToShip,
+            sprintCount: (release.sprintIds || []).length,
+            overdueTasks: stats.overdueTasks || 0,
+            estimatedHours: Number((stats.totalEstimatedHours || 0).toFixed(2)),
+            actualHours: Number((stats.actualHours || 0).toFixed(2)),
         };
     }
 }

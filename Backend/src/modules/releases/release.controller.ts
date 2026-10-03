@@ -77,6 +77,20 @@ export class ReleaseController {
         }
     }
 
+    static async shipRelease(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+        try {
+            const companyId = req.user?.companyId as string;
+            const userId = req.user?.userId as string;
+            const projectId = req.params.projectId as string;
+            const releaseId = req.params.releaseId as string;
+
+            const release = await ReleaseService.shipRelease(projectId, releaseId, companyId, userId, req.body || {});
+            return sendSuccess(res, 'Release shipped successfully', release);
+        } catch (error) {
+            next(error);
+        }
+    }
+
     static async releaseVersion(req: AuthenticatedRequest, res: Response, next: NextFunction) {
         try {
             const companyId = req.user?.companyId as string;
@@ -84,7 +98,7 @@ export class ReleaseController {
             const projectId = req.params.projectId as string;
             const releaseId = req.params.releaseId as string;
 
-            const release = await ReleaseService.releaseVersion(projectId, releaseId, companyId, userId, req.body || {});
+            const release = await ReleaseService.shipRelease(projectId, releaseId, companyId, userId, req.body || {});
             return sendSuccess(res, 'Release deployed/marked as released successfully', release);
         } catch (error) {
             next(error);

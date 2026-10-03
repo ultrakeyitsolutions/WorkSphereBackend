@@ -26,6 +26,7 @@ router.use('/:projectId/releases', releaseRoutes);
 // ── Task Relationship endpoints ───────────────────────────────────────────────
 router.patch('/:projectId/tasks/:taskId/sprint', assignSprint);
 router.patch('/:projectId/tasks/:taskId/release', assignRelease);
+router.patch('/:projectId/tasks/:taskId/planning', assignSprintRelease);
 router.patch('/:projectId/tasks/:taskId/sprint-release', assignSprintRelease);
 
 export default router;

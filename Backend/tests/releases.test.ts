@@ -128,6 +128,23 @@ describe('Release API', () => {
                 save: vi.fn().mockResolvedValue(true),
             };
             mocks.releaseFindOne.mockResolvedValue(mockReleaseDoc);
+            mocks.taskAggregate.mockResolvedValue([{ total: 5, done: 5, taskIds: [] }]);
+            mocks.releaseFindById.mockReturnValue({
+                populate: vi.fn().mockReturnValue({
+                    populate: vi.fn().mockReturnValue({
+                        populate: vi.fn().mockReturnValue({
+                            populate: vi.fn().mockReturnValue({
+                                lean: vi.fn().mockResolvedValue({
+                                    _id: RELEASE_ID,
+                                    name: 'Release v1.4.0',
+                                    version: 'v1.4.0',
+                                    status: 'RELEASED',
+                                }),
+                            }),
+                        }),
+                    }),
+                }),
+            });
 
             const res = await request(app)
                 .post(`/api/projects/${PROJECT_ID}/releases/${RELEASE_ID}/release`)
@@ -145,14 +162,24 @@ describe('Release API', () => {
     describe(`GET /api/projects/${PROJECT_ID}/releases/${RELEASE_ID}/summary`, () => {
         it('should return release dashboard summary -> 200', async () => {
             mocks.releaseFindOne.mockReturnValue({
+                populate: vi.fn().mockReturnValue({
+                    populate: vi.fn().mockReturnValue({
+                        populate: vi.fn().mockReturnValue({
+                            populate: vi.fn().mockReturnValue({
+                                lean: vi.fn().mockResolvedValue({ _id: RELEASE_ID, name: 'Release v1.4.0', sprintIds: ['s1', 's2'] }),
+                            }),
+                        }),
+                    }),
+                }),
                 lean: vi.fn().mockResolvedValue({ _id: RELEASE_ID, name: 'Release v1.4.0', sprintIds: ['s1', 's2'] }),
             });
             mocks.taskAggregate.mockResolvedValue([
                 {
-                    totalTasks: 20,
-                    completedTasks: 15,
-                    inProgressTasks: 3,
-                    todoTasks: 2,
+                    total: 20,
+                    done: 15,
+                    inProgress: 3,
+                    todo: 2,
+                    onHold: 0,
                     overdueTasks: 0,
                 },
             ]);
@@ -161,8 +188,8 @@ describe('Release API', () => {
 
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
-            expect(res.body.data.totalTasks).toBe(20);
-            expect(res.body.data.completedTasks).toBe(15);
+            expect(res.body.data.counts.total).toBe(20);
+            expect(res.body.data.counts.done).toBe(15);
             expect(res.body.data.completionPercentage).toBe(75);
             expect(res.body.data.sprintCount).toBe(2);
         });
