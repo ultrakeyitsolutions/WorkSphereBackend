@@ -85,6 +85,9 @@ export const createTaskSchema = z.object({
         isUseTemplate: z.boolean().default(false),
         templateId: idSchema.optional().nullable(),
 
+        sprintId: idSchema.optional().nullable(),
+        releaseId: idSchema.optional().nullable(),
+
         assignedToId: idSchema.optional(),
 
         isRecurring: z.boolean().default(false),
@@ -106,6 +109,8 @@ export const updateTaskSchema = z.object({
         criticality: z.enum(['NON_CRITICAL', 'CRITICAL']).optional(),
         priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
         stageId: idSchema.optional(),
+        sprintId: idSchema.optional().nullable(),
+        releaseId: idSchema.optional().nullable(),
 
         startDate: z.string().or(z.date()).transform((val) => new Date(val)).optional(),
         deliveryDate: z.string().or(z.date()).transform((val) => new Date(val)).optional().nullable(),

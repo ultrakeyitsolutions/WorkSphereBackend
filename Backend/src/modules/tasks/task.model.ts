@@ -30,6 +30,8 @@ export interface ITask extends Document {
     companyId: Types.ObjectId;
     projectId: Types.ObjectId;
     moduleId?: Types.ObjectId;
+    sprintId?: Types.ObjectId | null;
+    releaseId?: Types.ObjectId | null;
 
     title: string;
 
@@ -109,6 +111,8 @@ const taskSchema = new Schema<ITask>(
         companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true, index: true },
         projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
         moduleId: { type: Schema.Types.ObjectId, ref: 'Module' },
+        sprintId: { type: Schema.Types.ObjectId, ref: 'Sprint', default: null },
+        releaseId: { type: Schema.Types.ObjectId, ref: 'Release', default: null },
 
         title: { type: String, required: true, trim: true },
 
@@ -185,5 +189,7 @@ taskSchema.index({ companyId: 1, projectId: 1, isArchived: 1 });
 taskSchema.index({ companyId: 1, isArchived: 1 });
 taskSchema.index({ companyId: 1, assignedToId: 1, statusId: 1 });
 taskSchema.index({ companyId: 1, assignedToId: 1, createdAt: 1 });
+taskSchema.index({ projectId: 1, sprintId: 1 });
+taskSchema.index({ projectId: 1, releaseId: 1 });
 
 export const Task = model<ITask>('Task', taskSchema);

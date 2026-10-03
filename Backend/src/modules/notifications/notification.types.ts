@@ -6,7 +6,7 @@
 //   - Admin Preferences UI (rendered dynamically)
 
 export type NotificationStyle = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'SYSTEM';
-export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER';
+export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST';
 export type NotificationChannel = 'inApp' | 'push' | 'email';
 
 export interface NotificationTypeDefinition {
@@ -69,6 +69,93 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         defaultStyle: 'WARNING',
         icon: 'user-minus',
         allowedVariables: ['actorName', 'recipientName', 'projectName'],
+        defaultEnabled: true,
+    },
+
+    // ── SPRINT ────────────────────────────────────────────────────────────────
+    SPRINT_STARTED: {
+        category: 'SPRINT',
+        defaultTitle: 'Sprint Started',
+        defaultMessage: '{{actorName}} started sprint {{sprintName}} in {{projectName}}',
+        defaultStyle: 'INFO',
+        icon: 'play',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'sprintName'],
+        defaultEnabled: true,
+    },
+    SPRINT_COMPLETED: {
+        category: 'SPRINT',
+        defaultTitle: 'Sprint Completed',
+        defaultMessage: '{{actorName}} marked sprint {{sprintName}} as completed in {{projectName}}',
+        defaultStyle: 'SUCCESS',
+        icon: 'check-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'sprintName'],
+        defaultEnabled: true,
+    },
+    TASK_ADDED_TO_SPRINT: {
+        category: 'SPRINT',
+        defaultTitle: 'Task Added to Sprint',
+        defaultMessage: '{{actorName}} added task {{taskName}} to sprint {{sprintName}}',
+        defaultStyle: 'INFO',
+        icon: 'plus-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'taskName', 'sprintName'],
+        defaultEnabled: true,
+    },
+    TASK_REMOVED_FROM_SPRINT: {
+        category: 'SPRINT',
+        defaultTitle: 'Task Removed from Sprint',
+        defaultMessage: '{{actorName}} removed task {{taskName}} from sprint {{sprintName}}',
+        defaultStyle: 'WARNING',
+        icon: 'minus-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'taskName', 'sprintName'],
+        defaultEnabled: true,
+    },
+
+    // ── RELEASE ───────────────────────────────────────────────────────────────
+    RELEASE_STARTED: {
+        category: 'RELEASE',
+        defaultTitle: 'Release In Progress',
+        defaultMessage: '{{actorName}} started release {{releaseName}} ({{version}})',
+        defaultStyle: 'INFO',
+        icon: 'rocket',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'releaseName', 'version'],
+        defaultEnabled: true,
+    },
+    RELEASE_RELEASED: {
+        category: 'RELEASE',
+        defaultTitle: 'Version Released',
+        defaultMessage: 'Release {{releaseName}} ({{version}}) has been deployed',
+        defaultStyle: 'SUCCESS',
+        icon: 'check-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'releaseName', 'version'],
+        defaultEnabled: true,
+    },
+    TASK_ADDED_TO_RELEASE: {
+        category: 'RELEASE',
+        defaultTitle: 'Task Added to Release',
+        defaultMessage: '{{actorName}} added task {{taskName}} to release {{releaseName}}',
+        defaultStyle: 'INFO',
+        icon: 'plus-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'taskName', 'releaseName'],
+        defaultEnabled: true,
+    },
+
+    // ── WISHLIST ──────────────────────────────────────────────────────────────
+    WISHLIST_APPROVED: {
+        category: 'WISHLIST',
+        defaultTitle: 'Wishlist Item Approved',
+        defaultMessage: 'Wishlist item "{{itemTitle}}" was approved by {{actorName}}',
+        defaultStyle: 'SUCCESS',
+        icon: 'thumbs-up',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle'],
+        defaultEnabled: true,
+    },
+    WISHLIST_CONVERTED_TO_TASK: {
+        category: 'WISHLIST',
+        defaultTitle: 'Wishlist Converted to Task',
+        defaultMessage: 'Wishlist item "{{itemTitle}}" was converted to a task by {{actorName}}',
+        defaultStyle: 'INFO',
+        icon: 'arrow-right-circle',
+        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle', 'taskName'],
         defaultEnabled: true,
     },
 

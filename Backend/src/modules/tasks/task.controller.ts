@@ -304,3 +304,58 @@ export const unarchiveTask = async (req: AuthenticatedRequest, res: Response) =>
         return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
     }
 };
+
+export const assignSprint = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const projectId = req.params.projectId as string;
+        const taskId = req.params.taskId as string;
+        const { sprintId } = req.body;
+
+        if (!companyId || !userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const result = await TaskService.assignTaskSprint(projectId, taskId, sprintId, companyId as string, userId as string);
+        return res.status(200).json({ success: true, message: 'Sprint assigned successfully', data: result });
+    } catch (error: any) {
+        const statusCode = error.statusCode || (error.message === 'TASK_NOT_FOUND' || error.message === 'PROJECT_NOT_FOUND' ? 404 : 500);
+        return res.status(statusCode).json({ success: false, message: error.message });
+    }
+};
+
+export const assignRelease = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const projectId = req.params.projectId as string;
+        const taskId = req.params.taskId as string;
+        const { releaseId } = req.body;
+
+        if (!companyId || !userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const result = await TaskService.assignTaskRelease(projectId, taskId, releaseId, companyId as string, userId as string);
+        return res.status(200).json({ success: true, message: 'Release assigned successfully', data: result });
+    } catch (error: any) {
+        const statusCode = error.statusCode || (error.message === 'TASK_NOT_FOUND' || error.message === 'PROJECT_NOT_FOUND' ? 404 : 500);
+        return res.status(statusCode).json({ success: false, message: error.message });
+    }
+};
+
+export const assignSprintRelease = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        const projectId = req.params.projectId as string;
+        const taskId = req.params.taskId as string;
+        const { sprintId, releaseId } = req.body;
+
+        if (!companyId || !userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const result = await TaskService.assignTaskSprintAndRelease(projectId, taskId, sprintId, releaseId, companyId as string, userId as string);
+        return res.status(200).json({ success: true, message: 'Sprint and Release assigned successfully', data: result });
+    } catch (error: any) {
+        const statusCode = error.statusCode || (error.message === 'TASK_NOT_FOUND' || error.message === 'PROJECT_NOT_FOUND' ? 404 : 500);
+        return res.status(statusCode).json({ success: false, message: error.message });
+    }
+};
+

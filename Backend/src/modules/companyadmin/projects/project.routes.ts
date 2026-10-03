@@ -27,9 +27,25 @@ import {
     getClientSelector,
     getMemberSelector,
 } from './project-selector.controller';
-import { getTaskContext, getTasksByProject, createTask, getArchivedTasksByProject } from '../../tasks/task.controller';
+import {
+    getTaskContext,
+    getTasksByProject,
+    createTask,
+    getArchivedTasksByProject,
+    assignSprint,
+    assignRelease,
+    assignSprintRelease,
+} from '../../tasks/task.controller';
+import wishlistRoutes from '../../wishlist/wishlist.routes';
+import sprintRoutes from '../../sprints/sprint.routes';
+import releaseRoutes from '../../releases/release.routes';
 
 const router = Router();
+
+// ── Nested Module Routes ──────────────────────────────────────────────────────
+router.use('/:projectId/wishlist', wishlistRoutes);
+router.use('/:projectId/sprints', sprintRoutes);
+router.use('/:projectId/releases', releaseRoutes);
 
 // ── Selector routes — MUST be registered before /:projectId routes ─────────────
 
@@ -94,6 +110,24 @@ router.post(
     '/:projectId/tasks',
     validateRequest(projectParamSchema),
     createTask
+);
+
+// ── PATCH  /api/v1/company/projects/:projectId/tasks/:taskId/sprint ──────────────
+router.patch(
+    '/:projectId/tasks/:taskId/sprint',
+    assignSprint
+);
+
+// ── PATCH  /api/v1/company/projects/:projectId/tasks/:taskId/release ─────────────
+router.patch(
+    '/:projectId/tasks/:taskId/release',
+    assignRelease
+);
+
+// ── PATCH  /api/v1/company/projects/:projectId/tasks/:taskId/sprint-release ──────
+router.patch(
+    '/:projectId/tasks/:taskId/sprint-release',
+    assignSprintRelease
 );
 
 // ── PATCH  /api/v1/company/projects/:projectId   Edit project ───────────────────

@@ -9,9 +9,14 @@ import { UserService } from '../users/user.service';
 import { Stage } from './stage.model';
 import { Status } from './status.model';
 import { TaskAssignment } from './task-assignment.model';
+import { Sprint } from '../sprints/sprint.model';
+import { Release } from '../releases/release.model';
 import { TimeTracking, TrackingState } from '../task-tracking/time-tracking.model';
 import { TaskActivity, ActivityType } from '../task-activities/task-activity.model';
 import { NotificationEventBus } from '../notifications/notification.event-bus';
+import { AuditLogService } from '../audit-logs/audit-log.service';
+import { AuditAction } from '../audit-logs/audit-log.types';
+import { AppError } from '../../utils/AppError';
 
 export class TaskService {
 
@@ -74,6 +79,14 @@ export class TaskService {
             isUseTemplate: t.isUseTemplate || false,
             templateId: t.templateId ? t.templateId._id : null,
             templateName: t.templateId ? t.templateId.name : null,
+            sprintId: t.sprintId ? (t.sprintId._id || t.sprintId) : null,
+            sprint: t.sprintId && typeof t.sprintId === 'object' && t.sprintId.name
+                ? { id: t.sprintId._id, name: t.sprintId.name, status: t.sprintId.status }
+                : null,
+            releaseId: t.releaseId ? (t.releaseId._id || t.releaseId) : null,
+            release: t.releaseId && typeof t.releaseId === 'object' && t.releaseId.name
+                ? { id: t.releaseId._id, name: t.releaseId.name, version: t.releaseId.version, status: t.releaseId.status }
+                : null,
             isRecurring: t.isRecurring,
             recurringRuleId: t.recurringRuleId || null,
             // Reopen tracking
@@ -384,7 +397,23 @@ export class TaskService {
         }
 
         if (query.stageId) filter.stageId = query.stageId;
+        if (query.statusId) filter.statusId = query.statusId;
         if (query.priority) filter.priority = query.priority;
+        if (query.assignedToId) filter.assignedToId = query.assignedToId;
+        if (query.assignee) filter.assignedToId = query.assignee;
+        if (query.sprintId !== undefined) {
+            filter.sprintId = query.sprintId === 'null' || query.sprintId === null ? null : query.sprintId;
+        }
+        if (query.sprint !== undefined) {
+            filter.sprintId = query.sprint === 'null' || query.sprint === null ? null : query.sprint;
+        }
+        if (query.releaseId !== undefined) {
+            filter.releaseId = query.releaseId === 'null' || query.releaseId === null ? null : query.releaseId;
+        }
+        if (query.release !== undefined) {
+            filter.releaseId = query.release === 'null' || query.release === null ? null : query.release;
+        }
+        if (query.dueDate) filter.dueDate = new Date(query.dueDate);
         if (query.isRecurring !== undefined) filter.isRecurring = query.isRecurring;
         if (query.search) filter.title = { $regex: query.search, $options: 'i' };
 
@@ -396,6 +425,8 @@ export class TaskService {
                 .populate('statusId', 'name')
                 .populate('moduleId', 'name')
                 .populate('templateId', 'name')
+                .populate('sprintId', 'name status')
+                .populate('releaseId', 'name version status')
                 .sort({ orderIndex: 1, createdAt: -1 })
                 .skip(skip)
                 .limit(pageSize)
@@ -485,6 +516,8 @@ export class TaskService {
             .populate('stageId', 'name orderIndex')
             .populate('statusId', 'name')
             .populate('moduleId', 'name')
+            .populate('sprintId', 'name status')
+            .populate('releaseId', 'name version status')
             .lean();
         if (!task) throw new Error('TASK_NOT_FOUND');
 
@@ -1016,5 +1049,195 @@ export class TaskService {
         }
 
         return members;
+    }
+
+    // ─── Assign Task to Sprint ────────────────────────────────────────────────
+    static async assignTaskSprint(
+        projectId: string,
+        taskId: string,
+        sprintId: string | null,
+        companyId: string,
+        userId: string
+    ) {
+        const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
+        if (!canAccess) throw AppError.forbidden('You do not have permission to modify tasks in this project');
+
+        const task = await Task.findOne({ _id: taskId, projectId, companyId });
+        if (!task) throw AppError.notFound('Task not found');
+
+        let sprintName = '';
+        if (sprintId) {
+            if (!Types.ObjectId.isValid(sprintId)) throw AppError.badRequest('Invalid sprintId');
+            const sprint = await Sprint.findOne({ _id: sprintId, projectId, companyId }).lean();
+            if (!sprint) throw AppError.notFound('Sprint not found in this project');
+            sprintName = sprint.name;
+            task.sprintId = new Types.ObjectId(sprintId);
+        } else {
+            task.sprintId = null;
+        }
+
+        await task.save();
+
+        const project = await Project.findById(projectId).select('name').lean();
+        const loadedTask = await Task.findById(task._id)
+            .populate('assignedToId', 'name email avatar')
+            .populate('createdBy', 'name email avatar')
+            .populate('stageId', 'name orderIndex')
+            .populate('statusId', 'name')
+            .populate('moduleId', 'name')
+            .populate('templateId', 'name')
+            .populate('sprintId', 'name status')
+            .populate('releaseId', 'name version status')
+            .lean();
+
+        AuditLogService.log({
+            action: sprintId ? AuditAction.TASK_ASSIGNED_TO_SPRINT : AuditAction.TASK_REMOVED_FROM_SPRINT,
+            actorId: userId,
+            companyId,
+            metadata: { projectId, taskId, sprintId },
+            description: sprintId
+                ? `Task "${task.title}" was assigned to sprint "${sprintName}"`
+                : `Task "${task.title}" was removed from sprint`,
+        });
+
+        NotificationEventBus.getInstance().publish({
+            type: sprintId ? 'TASK_ADDED_TO_SPRINT' : 'TASK_REMOVED_FROM_SPRINT',
+            companyId,
+            actorId: userId,
+            projectId,
+            taskId,
+            entityId: sprintId || taskId,
+            entityType: 'SPRINT',
+            metadata: {
+                taskName: task.title,
+                sprintName,
+                projectId,
+            },
+        });
+
+        return this.mapTaskResponse(loadedTask, project?.name || '');
+    }
+
+    // ─── Assign Task to Release ───────────────────────────────────────────────
+    static async assignTaskRelease(
+        projectId: string,
+        taskId: string,
+        releaseId: string | null,
+        companyId: string,
+        userId: string
+    ) {
+        const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
+        if (!canAccess) throw AppError.forbidden('You do not have permission to modify tasks in this project');
+
+        const task = await Task.findOne({ _id: taskId, projectId, companyId });
+        if (!task) throw AppError.notFound('Task not found');
+
+        let releaseName = '';
+        if (releaseId) {
+            if (!Types.ObjectId.isValid(releaseId)) throw AppError.badRequest('Invalid releaseId');
+            const release = await Release.findOne({ _id: releaseId, projectId, companyId }).lean();
+            if (!release) throw AppError.notFound('Release not found in this project');
+            releaseName = release.name;
+            task.releaseId = new Types.ObjectId(releaseId);
+        } else {
+            task.releaseId = null;
+        }
+
+        await task.save();
+
+        const project = await Project.findById(projectId).select('name').lean();
+        const loadedTask = await Task.findById(task._id)
+            .populate('assignedToId', 'name email avatar')
+            .populate('createdBy', 'name email avatar')
+            .populate('stageId', 'name orderIndex')
+            .populate('statusId', 'name')
+            .populate('moduleId', 'name')
+            .populate('templateId', 'name')
+            .populate('sprintId', 'name status')
+            .populate('releaseId', 'name version status')
+            .lean();
+
+        AuditLogService.log({
+            action: releaseId ? AuditAction.TASK_ASSIGNED_TO_RELEASE : AuditAction.TASK_REMOVED_FROM_RELEASE,
+            actorId: userId,
+            companyId,
+            metadata: { projectId, taskId, releaseId },
+            description: releaseId
+                ? `Task "${task.title}" was assigned to release "${releaseName}"`
+                : `Task "${task.title}" was removed from release`,
+        });
+
+        if (releaseId) {
+            NotificationEventBus.getInstance().publish({
+                type: 'TASK_ADDED_TO_RELEASE',
+                companyId,
+                actorId: userId,
+                projectId,
+                taskId,
+                entityId: releaseId,
+                entityType: 'RELEASE',
+                metadata: {
+                    taskName: task.title,
+                    releaseName,
+                    projectId,
+                },
+            });
+        }
+
+        return this.mapTaskResponse(loadedTask, project?.name || '');
+    }
+
+    // ─── Assign Task to Sprint & Release ──────────────────────────────────────
+    static async assignTaskSprintAndRelease(
+        projectId: string,
+        taskId: string,
+        sprintId: string | null | undefined,
+        releaseId: string | null | undefined,
+        companyId: string,
+        userId: string
+    ) {
+        const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
+        if (!canAccess) throw AppError.forbidden('You do not have permission to modify tasks in this project');
+
+        const task = await Task.findOne({ _id: taskId, projectId, companyId });
+        if (!task) throw AppError.notFound('Task not found');
+
+        if (sprintId !== undefined) {
+            if (sprintId) {
+                if (!Types.ObjectId.isValid(sprintId)) throw AppError.badRequest('Invalid sprintId');
+                const sprint = await Sprint.findOne({ _id: sprintId, projectId, companyId }).lean();
+                if (!sprint) throw AppError.notFound('Sprint not found in this project');
+                task.sprintId = new Types.ObjectId(sprintId);
+            } else {
+                task.sprintId = null;
+            }
+        }
+
+        if (releaseId !== undefined) {
+            if (releaseId) {
+                if (!Types.ObjectId.isValid(releaseId)) throw AppError.badRequest('Invalid releaseId');
+                const release = await Release.findOne({ _id: releaseId, projectId, companyId }).lean();
+                if (!release) throw AppError.notFound('Release not found in this project');
+                task.releaseId = new Types.ObjectId(releaseId);
+            } else {
+                task.releaseId = null;
+            }
+        }
+
+        await task.save();
+
+        const project = await Project.findById(projectId).select('name').lean();
+        const loadedTask = await Task.findById(task._id)
+            .populate('assignedToId', 'name email avatar')
+            .populate('createdBy', 'name email avatar')
+            .populate('stageId', 'name orderIndex')
+            .populate('statusId', 'name')
+            .populate('moduleId', 'name')
+            .populate('templateId', 'name')
+            .populate('sprintId', 'name status')
+            .populate('releaseId', 'name version status')
+            .lean();
+
+        return this.mapTaskResponse(loadedTask, project?.name || '');
     }
 }
