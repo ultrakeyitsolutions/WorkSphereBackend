@@ -124,6 +124,9 @@ export class NotificationSoundService {
             const cache = await this.getOrBuildCache();
             const cached = cache.get(notificationType);
             if (cached) {
+                if (cached.enabled && !cached.url) {
+                    return { enabled: false };
+                }
                 return cached;
             }
 
@@ -140,8 +143,8 @@ export class NotificationSoundService {
                     deletedAt: null,
                 }).lean();
 
-                if (sound) {
-                    return {
+                if (sound && sound.fileUrl) {
+                    const result: ResolvedSoundMetadata = {
                         enabled: true,
                         soundId: sound.soundId,
                         name: sound.name,
@@ -149,6 +152,7 @@ export class NotificationSoundService {
                         durationMs: sound.durationMs || 0,
                         platformSounds: sound.platformSounds || {},
                     };
+                    return result;
                 }
             }
 
@@ -159,8 +163,8 @@ export class NotificationSoundService {
                 deletedAt: null,
             }).lean();
 
-            if (defaultSound) {
-                return {
+            if (defaultSound && defaultSound.fileUrl) {
+                const result: ResolvedSoundMetadata = {
                     enabled: true,
                     soundId: defaultSound.soundId,
                     name: defaultSound.name,
@@ -168,6 +172,7 @@ export class NotificationSoundService {
                     durationMs: defaultSound.durationMs || 0,
                     platformSounds: defaultSound.platformSounds || {},
                 };
+                return result;
             }
 
             return { enabled: false };
