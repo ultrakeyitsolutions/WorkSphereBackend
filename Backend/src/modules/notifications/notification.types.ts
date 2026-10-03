@@ -6,7 +6,7 @@
 //   - Admin Preferences UI (rendered dynamically)
 
 export type NotificationStyle = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'SYSTEM';
-export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST';
+export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST' | 'SHIFT';
 export type NotificationChannel = 'inApp' | 'push' | 'email';
 
 export interface NotificationTypeDefinition {
@@ -239,13 +239,14 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle', 'title'],
         defaultEnabled: true,
     },
-    WISHLIST_CONVERTED_TO_TASK: {
-        category: 'WISHLIST',
-        defaultTitle: 'Wishlist Converted to Task',
-        defaultMessage: 'Wishlist item "{{itemTitle}}" was converted to a task by {{actorName}}',
+    // ── SHIFT ─────────────────────────────────────────────────────────────────
+    SHIFT_ASSIGNED: {
+        category: 'SHIFT',
+        defaultTitle: 'Shift Assigned',
+        defaultMessage: 'You have been assigned to shift "{{shiftName}}" ({{startTime}} - {{endTime}}) starting {{effectiveFrom}}',
         defaultStyle: 'INFO',
-        icon: 'arrow-right-circle',
-        allowedVariables: ['actorName', 'recipientName', 'projectName', 'itemTitle', 'taskName', 'taskNumber'],
+        icon: 'clock',
+        allowedVariables: ['actorName', 'recipientName', 'shiftName', 'startTime', 'endTime', 'effectiveFrom'],
         defaultEnabled: true,
     },
 

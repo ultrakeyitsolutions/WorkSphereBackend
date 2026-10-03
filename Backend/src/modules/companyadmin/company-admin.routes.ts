@@ -107,6 +107,14 @@ router.use('/task-explanation-ratings', taskExplanationRatingRoutes);
 // ── /api/v1/company/timesheets ────────────────────────────────────────────────
 router.use('/timesheets', timesheetRoutes);
 
+import { shiftRoutes, shiftAssignmentRoutes } from '../shifts';
+
+// ── /api/v1/company/shifts ────────────────────────────────────────────────────
+router.use('/shifts', shiftRoutes);
+
+// ── /api/v1/company/shift-assignments ─────────────────────────────────────────
+router.use('/shift-assignments', shiftAssignmentRoutes);
+
 // ── /api/v1/company/[modules|statuses|stages|task-templates] ─────────────────
 router.use('/', taskMetaRoutes);
 
