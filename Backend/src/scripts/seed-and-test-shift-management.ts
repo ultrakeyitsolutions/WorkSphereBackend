@@ -4,7 +4,6 @@ import { EmployeeShiftAssignment } from '../modules/shifts/employee-shift-assign
 import { ShiftService } from '../modules/shifts/shift.service';
 import { EmployeeShiftAssignmentService } from '../modules/shifts/employee-shift-assignment.service';
 import { AttendanceEvaluationService } from '../modules/shifts/attendance-evaluation.service';
-import { AttendanceService } from '../modules/attendance/attendance.service';
 import { Attendance } from '../modules/attendance/attendance.model';
 import User from '../modules/users/user.model';
 import CompanyMember from '../modules/companyadmin/invitations/company-member.model';
@@ -134,7 +133,7 @@ export async function runShiftManagementVerification() {
         console.log('\n--- Assigning Individual Shifts ---');
 
         // Manohar -> Morning
-        const manoharAssign = await EmployeeShiftAssignmentService.assignShift(companyId, adminId, {
+        await EmployeeShiftAssignmentService.assignShift(companyId, adminId, {
             employeeId: employeeDocs['Manohar']._id.toString(),
             shiftId: morningShift._id.toString(),
             effectiveFrom: '2026-10-01',
@@ -243,7 +242,7 @@ export async function runShiftManagementVerification() {
                     isActive: true,
                 });
             }
-            let m = await CompanyMember.findOne({ companyId: company._id, userId: u._id });
+            const m = await CompanyMember.findOne({ companyId: company._id, userId: u._id });
             if (!m) {
                 await CompanyMember.create({
                     companyId: company._id,

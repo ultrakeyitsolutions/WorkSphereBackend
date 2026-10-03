@@ -1,7 +1,6 @@
 import { Types } from 'mongoose';
 import { EmployeeShiftAssignmentService } from './employee-shift-assignment.service';
 import {
-    ResolvedEmployeeShift,
     CheckInEvaluationResult,
     CheckOutEvaluationResult,
 } from './shift.types';

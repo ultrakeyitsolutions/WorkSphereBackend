@@ -6,10 +6,6 @@ import {
     updateShiftSchema,
     shiftParamSchema,
     listShiftQuerySchema,
-    assignShiftSchema,
-    bulkAssignShiftSchema,
-    listShiftAssignmentQuerySchema,
-    employeeParamSchema,
 } from './shift.validator';
 
 const router = Router();
