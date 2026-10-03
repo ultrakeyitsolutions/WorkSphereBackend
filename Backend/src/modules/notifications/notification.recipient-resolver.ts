@@ -33,12 +33,16 @@ export class RecipientResolver {
             }
         }
 
-        // 3. Exclude actor (the person who triggered the event) unless requested
+        // 3. Include actor (the person who triggered the event) by default so creator receives notification & desktop alert
+        if (payload.actorId) {
+            recipientsSet.add(payload.actorId.toString());
+        }
+
         const actorIdStr = payload.actorId ? payload.actorId.toString() : null;
 
         const finalRecipientIds: Types.ObjectId[] = [];
         for (const idStr of recipientsSet) {
-            if (idStr === actorIdStr && !payload.metadata?.includeActor) {
+            if (idStr === actorIdStr && payload.metadata?.excludeActor === true) {
                 continue;
             }
             if (Types.ObjectId.isValid(idStr)) {
@@ -66,11 +70,40 @@ export class RecipientResolver {
             case 'TASK': {
                 const task = await db.collection('tasks').findOne(
                     { _id: objectId, companyId: new Types.ObjectId(companyId) },
-                    { projection: { assignedToId: 1, createdBy: 1 } }
+                    { projection: { assignedToId: 1, createdBy: 1, projectId: 1, sprintId: 1, releaseId: 1 } }
                 );
                 if (task) {
                     if (task.assignedToId) recipients.push(task.assignedToId.toString());
                     if (task.createdBy) recipients.push(task.createdBy.toString());
+                }
+
+                // Resolve all members of the task's project
+                const targetProjectId = payload.projectId
+                    ? (Types.ObjectId.isValid(payload.projectId) ? new Types.ObjectId(payload.projectId) : null)
+                    : (task?.projectId || null);
+
+                if (targetProjectId) {
+                    const teamMembers = await db.collection('projectteammembers').find(
+                        { projectId: targetProjectId }
+                    ).toArray();
+                    for (const tm of teamMembers) {
+                        if (tm.userId) recipients.push(tm.userId.toString());
+                    }
+
+                    const inCharges = await db.collection('projectincharges').find(
+                        { projectId: targetProjectId }
+                    ).toArray();
+                    for (const ic of inCharges) {
+                        if (ic.userId) recipients.push(ic.userId.toString());
+                    }
+
+                    const projectDoc = await db.collection('projects').findOne(
+                        { _id: targetProjectId },
+                        { projection: { createdById: 1 } }
+                    );
+                    if (projectDoc?.createdById) {
+                        recipients.push(projectDoc.createdById.toString());
+                    }
                 }
                 break;
             }
@@ -88,6 +121,14 @@ export class RecipientResolver {
                 ).toArray();
                 for (const ic of inCharges) {
                     if (ic.userId) recipients.push(ic.userId.toString());
+                }
+
+                const projectDoc = await db.collection('projects').findOne(
+                    { _id: objectId },
+                    { projection: { createdById: 1 } }
+                );
+                if (projectDoc?.createdById) {
+                    recipients.push(projectDoc.createdById.toString());
                 }
                 break;
             }
