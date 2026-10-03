@@ -75,6 +75,14 @@ router.use('/v1/calls', callRoutes);
 router.use('/v1/notifications', notificationRoutes);
 router.use('/v1/company/notification-preferences', notificationPreferenceRoutes);
 
+import attendanceRoutes from '../modules/attendance/attendance.routes';
+
+// ── Attendance Module (auth required) ─────────────────────────────────────────
+router.use('/attendance', attendanceRoutes);
+router.use('/v1/attendance', attendanceRoutes);
+router.use('/admin/attendance', attendanceRoutes);
+router.use('/v1/admin/attendance', attendanceRoutes);
+
 import impersonationRoutes from '../modules/super-admin/impersonation/impersonation.routes';
 
 // ── Super Admin Impersonation Routes ──────────────────────────────────────────
