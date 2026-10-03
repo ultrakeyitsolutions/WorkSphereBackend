@@ -232,7 +232,7 @@ export const runBenchmark = async () => {
                 metric.errors++;
             }
             return duration;
-        } catch (err) {
+        } catch {
             const duration = performance.now() - start;
             metric.latencies.push(duration);
             metric.errors++;
@@ -340,7 +340,7 @@ export const runBenchmark = async () => {
     console.log(`\n✅ Benchmark run completed in ${(totalDurationMs / 1000).toFixed(2)}s\n`);
 
     // 5. Aggregate Results
-    let allLatencies: number[] = [];
+    const allLatencies: number[] = [];
     let totalRequests = 0;
     let totalErrors = 0;
 

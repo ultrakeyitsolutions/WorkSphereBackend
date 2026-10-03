@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import mongoose, { Types } from 'mongoose';
+import mongoose from 'mongoose';
 import { connectDatabase } from '../config/database';
 import { Company } from '../modules/super-admin/companies/company.model';
 import { Project } from '../modules/companyadmin/projects/project.model';

@@ -178,7 +178,9 @@ export const runK6LoadTest = async () => {
         server.close();
         try {
             await mongoose.disconnect();
-        } catch (_) {}
+        } catch {
+            // Ignore disconnect errors during teardown
+        }
         process.exit(code || 0);
     });
 };
