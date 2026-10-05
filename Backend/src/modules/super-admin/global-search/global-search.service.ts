@@ -3,29 +3,35 @@
  *
  * Architecture & Design:
  *  1. Atlas Search ($search) is the primary engine for high-relevance,
- *     fuzzy, and token-order aware matching across:
+ *     fuzzy, phrase, and token-order aware matching across:
  *     - Companies (name, slug, domain)
- *     - Projects (name)
+ *     - Projects (name, description)
  *     - Users / Members (name, email, designation)
  *     - Tasks (title, taskNumber, ticketId)
  *
- *  2. Role & Authorization Scopes:
+ *  2. Token-Aware & Multi-Word Search:
+ *     - Multi-word search terms (e.g. "Garuda Project", "CRM api", "kiran kumar")
+ *       match both complete phrases and individual constituent tokens across all fields.
+ *     - Fallback search uses token-aware lookahead regex `(?=.*token1)(?=.*token2)`
+ *       so multi-word searches match documents regardless of word order, casing, or position.
+ *
+ *  3. Role & Authorization Scopes:
  *     - SUPER_ADMIN: Global search across Companies, Projects, Members, and Tasks.
  *     - COMPANY_ADMIN: Company-scoped search across Projects, Members, and Tasks (no companies).
  *     - EMPLOYEE / MEMBER: Project-scoped search across authorized Projects and Tasks (no companies or members).
  *       Accessible projects are strictly resolved from ProjectTeamMember, ProjectInCharge,
  *       and created projects (identical to DashboardScopeService).
  *
- *  3. Cache Partitioning:
+ *  4. Cache Partitioning:
  *     - Keys are strictly partitioned by role & company/user to prevent cross-tenant data leakage:
  *       SuperAdmin:   superadmin:global-search:superadmin:<query>:<cursor>
  *       CompanyAdmin: superadmin:global-search:company:<companyId>:<query>:<cursor>
  *       Employee:     superadmin:global-search:employee:<companyId>:<userId>:<query>:<cursor>
  *
- *  4. Zero N+1 Queries:
+ *  5. Zero N+1 Queries:
  *     - Company & Project context enrichment is performed via single batched queries and Map lookups.
  *
- *  5. Graceful Fallback:
+ *  6. Graceful Fallback:
  *     - If MongoDB Atlas Search index ($search) is not provisioned or throws IndexNotFound,
  *       bounded regex fallback queries execute transparently without failing the request.
  */
@@ -160,30 +166,61 @@ function buildAtlasSearchStage(
     fields: string[],
     indexName = 'globalSearch'
 ): PipelineStage {
-    const shouldClauses: unknown[] = fields.flatMap((field) => [
-        {
+    const trimmed = query.trim();
+    const tokens = trimmed.split(/\s+/).filter(Boolean);
+
+    const shouldClauses: unknown[] = [];
+
+    // 1. Exact phrase match across entire query (highest relevance boost)
+    fields.forEach((field) => {
+        shouldClauses.push({
+            phrase: {
+                query: trimmed,
+                path: field,
+                score: { boost: { value: 10 } },
+            },
+        });
+    });
+
+    // 2. Full text match (Lucene standard text analyzer splits terms automatically)
+    fields.forEach((field) => {
+        shouldClauses.push({
             text: {
-                query,
+                query: trimmed,
                 path: field,
                 score: { boost: { value: 5 } },
             },
-        },
-        {
-            autocomplete: {
-                query,
-                path: field,
-                tokenOrder: 'sequential',
-                score: { boost: { value: 3 } },
-            },
-        },
-        {
-            text: {
-                query,
-                path: field,
-                fuzzy: { maxEdits: 1, prefixLength: 2 },
-            },
-        },
-    ]);
+        });
+    });
+
+    // 3. Per-token text and autocomplete matches
+    tokens.forEach((token) => {
+        fields.forEach((field) => {
+            shouldClauses.push({
+                text: {
+                    query: token,
+                    path: field,
+                    score: { boost: { value: 4 } },
+                },
+            });
+            shouldClauses.push({
+                autocomplete: {
+                    query: token,
+                    path: field,
+                    tokenOrder: 'any',
+                    score: { boost: { value: 3 } },
+                },
+            });
+            shouldClauses.push({
+                text: {
+                    query: token,
+                    path: field,
+                    fuzzy: { maxEdits: 1, prefixLength: 2 },
+                    score: { boost: { value: 1 } },
+                },
+            });
+        });
+    });
 
     return {
         $search: {
@@ -197,14 +234,36 @@ function buildAtlasSearchStage(
     } as unknown as PipelineStage;
 }
 
-// ─── Fallback regex search ────────────────────────────────────────────────────
+// ─── Fallback token-aware regex search ────────────────────────────────────────
 
 function buildRegexSearchStage(query: string, fields: string[]): Record<string, unknown> {
-    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`^${escapedQuery}`, 'i');
+    const trimmed = query.trim();
+    const tokens = trimmed.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+        return {};
+    }
+
+    const escapedTokens = tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const escapedFull = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // 1. Regex matching ALL individual tokens in any order: (?=.*token1)(?=.*token2)
+    const allTokensRegex = new RegExp(
+        escapedTokens.map((t) => `(?=.*${t})`).join(''),
+        'i'
+    );
+
+    // 2. Direct substring regex of full query (case-insensitive)
+    const fullSubstringRegex = new RegExp(escapedFull, 'i');
+
+    // 3. Substring regex matching ANY token: (token1|token2)
+    const anyTokenRegex = new RegExp(escapedTokens.join('|'), 'i');
 
     return {
-        $or: fields.map((f) => ({ [f]: { $regex: regex } })),
+        $or: fields.flatMap((f) => [
+            { [f]: { $regex: allTokensRegex } },
+            { [f]: { $regex: fullSubstringRegex } },
+            { [f]: { $regex: anyTokenRegex } },
+        ]),
     };
 }
 
@@ -576,7 +635,7 @@ export class GlobalSearchService {
 
         try {
             const pipeline: PipelineStage[] = [
-                buildAtlasSearchStage(query, ['name']),
+                buildAtlasSearchStage(query, ['name', 'description']),
                 { $match: matchCondition } as PipelineStage,
                 {
                     $project: {
@@ -597,7 +656,7 @@ export class GlobalSearchService {
             const docs = raw.slice(0, CAP);
 
             const countPipeline: PipelineStage[] = [
-                buildAtlasSearchStage(query, ['name']),
+                buildAtlasSearchStage(query, ['name', 'description']),
                 { $match: matchCondition } as PipelineStage,
                 { $count: 'n' } as PipelineStage,
             ];
@@ -638,7 +697,7 @@ export class GlobalSearchService {
         cap: number,
         scopeMatch: Record<string, any>
     ): Promise<{ results: ProjectSearchResult[]; total: number; hasMore: boolean }> {
-        const regexFilter = buildRegexSearchStage(query, ['name']);
+        const regexFilter = buildRegexSearchStage(query, ['name', 'description']);
         const filter = {
             ...regexFilter,
             ...scopeMatch,
@@ -875,11 +934,10 @@ export class GlobalSearchService {
         companyId?: Types.ObjectId
     ): Promise<string[]> {
         try {
-            const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`^${escaped}`, 'i');
+            const regexFilter = buildRegexSearchStage(query, ['name']);
 
             const matchingDesignations = await Designation.find({
-                name: { $regex: regex },
+                ...regexFilter,
                 isActive: true,
                 ...(companyId && { companyId }),
             })
@@ -913,11 +971,10 @@ export class GlobalSearchService {
         matchCondition: Record<string, any>,
         scope: SearchScopeContext
     ): Promise<{ results: MemberSearchResult[]; total: number; hasMore: boolean }> {
-        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`^${escaped}`, 'i');
+        const regexFilter = buildRegexSearchStage(query, ['name', 'email']);
 
         const filter = {
-            $or: [{ name: { $regex: regex } }, { email: { $regex: regex } }],
+            ...regexFilter,
             ...matchCondition,
         };
 

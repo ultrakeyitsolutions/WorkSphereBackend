@@ -797,4 +797,39 @@ describe('WorkSphere Global Search API', () => {
             expect(res.status).toBe(200);
         });
     });
+
+    // ── Multi-word and Token Search ──────────────────────────────────────────
+
+    describe('Multi-word and Token Search', () => {
+        it('supports multi-word queries like "garuda project" for SuperAdmin', async () => {
+            mockCompanyAggregate();
+            mockProjectAggregate();
+            mockUserAggregate();
+            mockTaskAggregate();
+
+            const res = await request(app)
+                .get('/api/superadmin/global-search?q=garuda%20project')
+                .set('Authorization', `Bearer ${superAdminToken}`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.query).toBe('garuda project');
+            expect(Project.aggregate).toHaveBeenCalled();
+        });
+
+        it('supports multi-word queries like "garuda project" for CompanyAdmin', async () => {
+            mockProjectAggregate();
+            mockUserAggregate();
+            mockTaskAggregate();
+
+            const res = await request(app)
+                .get('/api/superadmin/global-search?q=garuda%20project')
+                .set('Authorization', `Bearer ${companyAdminToken}`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.query).toBe('garuda project');
+            expect(Project.aggregate).toHaveBeenCalled();
+        });
+    });
 });
