@@ -130,26 +130,46 @@ export class BunnyStorageProvider implements StorageProvider {
             body: new Uint8Array(buffer),
         });
 
-        // Fallback check: If regional endpoint (e.g. ny) returned 401, test primary Europe endpoint (storage.bunnycdn.com)
-        if (response.status === 401 && this.getStorageHost() !== 'https://storage.bunnycdn.com') {
-            const fallbackUrl = `https://storage.bunnycdn.com/${this.config.storageZone}/${cleanKey}`;
-            const fallbackResponse = await fetch(fallbackUrl, {
-                method: 'PUT',
-                headers: {
-                    AccessKey: this.config.accessKey,
-                    'Content-Type': mimeType,
-                    'Content-Length': buffer.length.toString(),
-                },
-                body: new Uint8Array(buffer),
-            });
+        // Fallback check: If the configured/attempted endpoint returned 401, test all other Bunny regional endpoints
+        if (response.status === 401) {
+            const CANDIDATE_REGIONS: Array<{ code: string; host: string }> = [
+                { code: 'de', host: 'https://storage.bunnycdn.com' },
+                { code: 'uk', host: 'https://uk.storage.bunnycdn.com' },
+                { code: 'ny', host: 'https://ny.storage.bunnycdn.com' },
+                { code: 'la', host: 'https://la.storage.bunnycdn.com' },
+                { code: 'sg', host: 'https://sg.storage.bunnycdn.com' },
+                { code: 'se', host: 'https://se.storage.bunnycdn.com' },
+                { code: 'syd', host: 'https://syd.storage.bunnycdn.com' },
+                { code: 'br', host: 'https://br.storage.bunnycdn.com' },
+                { code: 'jh', host: 'https://jh.storage.bunnycdn.com' },
+            ];
 
-            if (fallbackResponse.ok || fallbackResponse.status === 201 || fallbackResponse.status === 200) {
-                this.config.region = 'de';
-                return {
-                    storageKey: cleanKey,
-                    storageUrl: this.getFileUrl(cleanKey),
-                    size: buffer.length,
-                };
+            for (const candidate of CANDIDATE_REGIONS) {
+                if (candidate.host === this.getStorageHost()) continue;
+
+                try {
+                    const fallbackUrl = `${candidate.host}/${this.config.storageZone}/${cleanKey}`;
+                    const fallbackResponse = await fetch(fallbackUrl, {
+                        method: 'PUT',
+                        headers: {
+                            AccessKey: this.config.accessKey,
+                            'Content-Type': mimeType,
+                            'Content-Length': buffer.length.toString(),
+                        },
+                        body: new Uint8Array(buffer),
+                    });
+
+                    if (fallbackResponse.ok || fallbackResponse.status === 201 || fallbackResponse.status === 200) {
+                        this.config.region = candidate.code;
+                        return {
+                            storageKey: cleanKey,
+                            storageUrl: this.getFileUrl(cleanKey),
+                            size: buffer.length,
+                        };
+                    }
+                } catch {
+                    // Try next candidate
+                }
             }
         }
 
@@ -181,17 +201,35 @@ export class BunnyStorageProvider implements StorageProvider {
             },
         });
 
-        if (response.status === 401 && this.getStorageHost() !== 'https://storage.bunnycdn.com') {
-            const fallbackUrl = `https://storage.bunnycdn.com/${this.config.storageZone}/${cleanKey}`;
-            const fallbackResponse = await fetch(fallbackUrl, {
-                method: 'DELETE',
-                headers: {
-                    AccessKey: this.config.accessKey,
-                },
-            });
-            if (fallbackResponse.status === 200 || fallbackResponse.status === 404) {
-                this.config.region = 'de';
-                return true;
+        if (response.status === 401) {
+            const CANDIDATE_HOSTS = [
+                'https://storage.bunnycdn.com',
+                'https://uk.storage.bunnycdn.com',
+                'https://ny.storage.bunnycdn.com',
+                'https://la.storage.bunnycdn.com',
+                'https://sg.storage.bunnycdn.com',
+                'https://se.storage.bunnycdn.com',
+                'https://syd.storage.bunnycdn.com',
+                'https://br.storage.bunnycdn.com',
+                'https://jh.storage.bunnycdn.com',
+            ];
+
+            for (const host of CANDIDATE_HOSTS) {
+                if (host === this.getStorageHost()) continue;
+                try {
+                    const fallbackUrl = `${host}/${this.config.storageZone}/${cleanKey}`;
+                    const fallbackResponse = await fetch(fallbackUrl, {
+                        method: 'DELETE',
+                        headers: {
+                            AccessKey: this.config.accessKey,
+                        },
+                    });
+                    if (fallbackResponse.status === 200 || fallbackResponse.status === 404) {
+                        return true;
+                    }
+                } catch {
+                    // ignore
+                }
             }
         }
 
