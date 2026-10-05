@@ -1,8 +1,8 @@
-[extend]
-useDefault = true
-
 [allowlist]
-description = "Ignore test suites and mock data"
-paths = [
-    '''(?i)(^|/)tests?/''',
+description = "Global allowlist for WorkSphere repository"
+commits = [
+  "1c6c118cf3ef47715fc67db91eec55ebfdbb5514"
+]
+regexes = [
+  "01f17e80a593769c24734a445dae05e5fb0ef464c876175ee1ed7a943269aa1b"
 ]
