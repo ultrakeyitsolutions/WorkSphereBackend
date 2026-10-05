@@ -177,6 +177,7 @@ function buildAtlasSearchStage(
             phrase: {
                 query: trimmed,
                 path: field,
+                slop: 2,
                 score: { boost: { value: 10 } },
             },
         });
@@ -193,7 +194,7 @@ function buildAtlasSearchStage(
         });
     });
 
-    // 3. Per-token text and autocomplete matches
+    // 3. Per-token text and wildcard/fuzzy matches
     tokens.forEach((token) => {
         fields.forEach((field) => {
             shouldClauses.push({
@@ -204,19 +205,11 @@ function buildAtlasSearchStage(
                 },
             });
             shouldClauses.push({
-                autocomplete: {
-                    query: token,
+                wildcard: {
+                    query: `*${token}*`,
                     path: field,
-                    tokenOrder: 'any',
-                    score: { boost: { value: 3 } },
-                },
-            });
-            shouldClauses.push({
-                text: {
-                    query: token,
-                    path: field,
-                    fuzzy: { maxEdits: 1, prefixLength: 2 },
-                    score: { boost: { value: 1 } },
+                    allowAnalyzedField: true,
+                    score: { boost: { value: 2 } },
                 },
             });
         });
@@ -560,15 +553,8 @@ export class GlobalSearchService {
                 hasMore,
             };
         } catch (err: any) {
-            if (
-                err?.codeName === 'IndexNotFound' ||
-                err?.message?.includes('$search') ||
-                err?.code === 40324
-            ) {
-                console.warn('[GlobalSearch] Atlas Search unavailable for companies, using regex fallback');
-                return GlobalSearchService.searchCompaniesFallback(query, skip, CAP);
-            }
-            throw err;
+            console.warn('[GlobalSearch] Atlas Search unavailable for companies, using regex fallback:', err?.message || err);
+            return GlobalSearchService.searchCompaniesFallback(query, skip, CAP);
         }
     }
 
@@ -679,15 +665,8 @@ export class GlobalSearchService {
                 hasMore,
             };
         } catch (err: any) {
-            if (
-                err?.codeName === 'IndexNotFound' ||
-                err?.message?.includes('$search') ||
-                err?.code === 40324
-            ) {
-                console.warn('[GlobalSearch] Atlas Search unavailable for projects, using regex fallback');
-                return GlobalSearchService.searchProjectsFallback(query, skip, CAP, matchCondition);
-            }
-            throw err;
+            console.warn('[GlobalSearch] Atlas Search unavailable for projects, using regex fallback:', err?.message || err);
+            return GlobalSearchService.searchProjectsFallback(query, skip, CAP, matchCondition);
         }
     }
 
@@ -751,9 +730,7 @@ export class GlobalSearchService {
             status: { $nin: ['DEACTIVATED' as const] },
         };
 
-        if (scope.isSuperAdmin) {
-            matchCondition.companyId = { $ne: null };
-        } else if (scope.companyId) {
+        if (scope.companyId) {
             matchCondition.companyId = scope.companyId;
         }
 
@@ -802,15 +779,8 @@ export class GlobalSearchService {
                 scope
             );
         } catch (err: any) {
-            if (
-                err?.codeName === 'IndexNotFound' ||
-                err?.message?.includes('$search') ||
-                err?.code === 40324
-            ) {
-                console.warn('[GlobalSearch] Atlas Search unavailable for users, using regex fallback');
-                return GlobalSearchService.searchMembersFallback(query, skip, CAP, matchCondition, scope);
-            }
-            throw err;
+            console.warn('[GlobalSearch] Atlas Search unavailable for users, using regex fallback:', err?.message || err);
+            return GlobalSearchService.searchMembersFallback(query, skip, CAP, matchCondition, scope);
         }
     }
 
@@ -864,15 +834,6 @@ export class GlobalSearchService {
             designationMap.set(String(d._id), d.name);
         }
 
-        const companyIds = [
-            ...new Set(
-                memberRecords
-                    .map((m) => String(m.companyId))
-                    .filter(Boolean)
-            ),
-        ];
-        const companyMap = await GlobalSearchService.fetchCompanyMap(companyIds);
-
         // Also check designation search
         const extraUserIds = await GlobalSearchService.findUsersByDesignationName(
             query,
@@ -889,6 +850,16 @@ export class GlobalSearchService {
                       .select('name email companyId status')
                       .lean()
                 : users;
+
+        const companyIds = [
+            ...new Set(
+                [
+                    ...memberRecords.map((m) => String(m.companyId)),
+                    ...allUsers.map((u: any) => String(u.companyId)),
+                ].filter(Boolean)
+            ),
+        ];
+        const companyMap = await GlobalSearchService.fetchCompanyMap(companyIds);
 
         const userIdOrder = new Map<string, number>();
         userIds.forEach((id, i) => userIdOrder.set(String(id), i));
@@ -907,8 +878,9 @@ export class GlobalSearchService {
                 const designationName = member?.designationId
                     ? (designationMap.get(String(member.designationId)) ?? null)
                     : null;
-                const company = member?.companyId
-                    ? (companyMap.get(String(member.companyId)) ?? null)
+                const cId = member?.companyId || u.companyId;
+                const company = cId
+                    ? (companyMap.get(String(cId)) ?? null)
                     : null;
 
                 return {
@@ -1063,15 +1035,8 @@ export class GlobalSearchService {
 
             return await GlobalSearchService.buildTaskResults(docs, total, hasMore);
         } catch (err: any) {
-            if (
-                err?.codeName === 'IndexNotFound' ||
-                err?.message?.includes('$search') ||
-                err?.code === 40324
-            ) {
-                console.warn('[GlobalSearch] Atlas Search unavailable for tasks, using regex fallback');
-                return GlobalSearchService.searchTasksFallback(query, skip, CAP, matchCondition);
-            }
-            throw err;
+            console.warn('[GlobalSearch] Atlas Search unavailable for tasks, using regex fallback:', err?.message || err);
+            return GlobalSearchService.searchTasksFallback(query, skip, CAP, matchCondition);
         }
     }
 
