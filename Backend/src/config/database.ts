@@ -1,6 +1,14 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
 import { env } from './env';
 import { performance } from 'perf_hooks';
+
+// Ensure Node uses public DNS resolvers to handle SRV lookups reliably on Windows
+try {
+    dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+} catch {
+    // Ignore if not supported
+}
 
 export const connectDatabase = async (): Promise<void> => {
     const start = performance.now();

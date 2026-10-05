@@ -530,6 +530,10 @@ export class GlobalSearchService {
             ];
 
             const raw = await Company.aggregate(pipeline);
+            if (raw.length === 0) {
+                return GlobalSearchService.searchCompaniesFallback(query, skip, CAP);
+            }
+
             const hasMore = raw.length > CAP;
             const docs = raw.slice(0, CAP);
 
@@ -638,6 +642,10 @@ export class GlobalSearchService {
             ];
 
             const raw = await Project.aggregate(pipeline);
+            if (raw.length === 0) {
+                return GlobalSearchService.searchProjectsFallback(query, skip, CAP, matchCondition);
+            }
+
             const hasMore = raw.length > CAP;
             const docs = raw.slice(0, CAP);
 
@@ -757,6 +765,10 @@ export class GlobalSearchService {
             ];
 
             const raw = await User.aggregate(pipeline);
+            if (raw.length === 0) {
+                return GlobalSearchService.searchMembersFallback(query, skip, CAP, matchCondition, scope);
+            }
+
             hasMore = raw.length > CAP;
             const docs = raw.slice(0, CAP);
 
@@ -1022,6 +1034,10 @@ export class GlobalSearchService {
             ];
 
             const raw = await Task.aggregate(pipeline);
+            if (raw.length === 0) {
+                return GlobalSearchService.searchTasksFallback(query, skip, CAP, matchCondition);
+            }
+
             const hasMore = raw.length > CAP;
             const docs = raw.slice(0, CAP);
 
