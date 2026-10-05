@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "seed": "tsx src/scripts/seed.ts",
-    "patch:permissions": "tsx src/scripts/patch-super-admin-permissions.ts"
+    "patch:permissions": "tsx src/scripts/patch-super-admin-permissions.ts",
+    "migrate:search-indexes": "tsx src/scripts/add-global-search-indexes.ts"
   },
   "keywords": [],
   "author": "",

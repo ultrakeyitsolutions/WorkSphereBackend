@@ -102,6 +102,11 @@ router.use('/super-admin', superAdminDashboardRoutes);
 router.use('/v1/superadmin', superAdminDashboardRoutes);
 router.use('/v1/super-admin', superAdminDashboardRoutes);
 
+// ── Global Search Routes (auth required, role-aware) ─────────────────────────
+import globalSearchRoutes from '../modules/super-admin/global-search/global-search.routes';
+router.use('/global-search', globalSearchRoutes);
+router.use('/v1/global-search', globalSearchRoutes);
+
 // ── Legacy / Plan / Storage Super Admin Routes ────────────────────────────────
 router.use('/super-admin', superAdminRoutes);
 

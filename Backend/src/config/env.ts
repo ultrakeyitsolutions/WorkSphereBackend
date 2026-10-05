@@ -65,5 +65,13 @@ export const env = {
     MS_CLIENT_ID: (process.env.MS_CLIENT_ID || '') as string,
     MS_CLIENT_SECRET: (process.env.MS_CLIENT_SECRET || '') as string,
     MS_REDIRECT_URI: (process.env.MS_REDIRECT_URI || '') as string,
+
+    // ── Redis (optional — used for search caching) ────────────────────────────
+    // Provide either REDIS_URL (preferred) or REDIS_HOST + REDIS_PORT.
+    // If neither is set the cache layer will be silently disabled.
+    REDIS_URL: (process.env.REDIS_URL || '') as string,
+    REDIS_HOST: (process.env.REDIS_HOST || '127.0.0.1') as string,
+    REDIS_PORT: parseInt(process.env.REDIS_PORT || '6379', 10),
+    REDIS_PASSWORD: (process.env.REDIS_PASSWORD || '') as string,
 };
 

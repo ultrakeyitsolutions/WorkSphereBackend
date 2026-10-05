@@ -10,6 +10,7 @@ import auditRoutes from './audit/audit.routes';
 import impersonationRoutes from './impersonation/impersonation.routes';
 import systemHealthRoutes from './system-health/system-health.routes';
 import { notificationSoundRoutes } from '../notification-sounds';
+import globalSearchRoutes from './global-search/global-search.routes';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.use('/audit', auditRoutes);
 router.use('/impersonation', impersonationRoutes);
 router.use('/system-health', systemHealthRoutes);
 router.use('/notification-sounds', notificationSoundRoutes);
+router.use('/global-search', globalSearchRoutes);
 
 export default router;
 
