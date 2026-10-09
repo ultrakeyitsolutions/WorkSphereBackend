@@ -2,8 +2,28 @@ import { Types } from 'mongoose';
 import { TaskActivity, ActivityType } from './task-activity.model';
 import { Task } from '../tasks/task.model';
 import { Project } from '../companyadmin/projects/project.model';
+import { StorageConfigurationService } from '../super-admin/storage/storage-config.service';
 
 export class TaskActivityService {
+    private static async formatActivity(activityDoc: any) {
+        if (!activityDoc) return null;
+        const plain = activityDoc.toObject ? activityDoc.toObject() : { ...activityDoc };
+
+        if (plain.audio && (plain.audio.storageKey || plain.audio.url)) {
+            plain.audio.url = await StorageConfigurationService.signUrl(
+                plain.audio.storageKey || plain.audio.url
+            );
+        }
+
+        if (plain.video && (plain.video.storageKey || plain.video.url)) {
+            plain.video.url = await StorageConfigurationService.signUrl(
+                plain.video.storageKey || plain.video.url
+            );
+        }
+
+        return plain;
+    }
+
     static async createActivity(taskId: string, userId: string, companyId: string, data: any) {
         const task = await Task.findOne({ _id: taskId, companyId });
         if (!task) {
@@ -14,9 +34,6 @@ export class TaskActivityService {
         if (!project) {
             throw new Error('PROJECT_NOT_FOUND');
         }
-
-        // Ideally, check if user belongs to project here, assuming already checked or we do basic validation
-        // (Depends on existing logic, but we enforce companyId)
 
         let parentId = null;
         if (data.parentId) {
@@ -43,7 +60,8 @@ export class TaskActivityService {
 
         await activity.save();
 
-        return TaskActivity.findById(activity._id).populate('userId', 'id name avatar role').exec();
+        const created = await TaskActivity.findById(activity._id).populate('userId', 'id name avatar role').exec();
+        return this.formatActivity(created);
     }
 
     static async getActivities(taskId: string, companyId: string, query: any) {
@@ -56,12 +74,22 @@ export class TaskActivityService {
         const cursor = query.cursor;
 
         const filter: any = { taskId: task._id, companyId };
+        if (query.type) {
+            if (query.type.includes(',')) {
+                filter.type = { $in: query.type.split(',').map((t: string) => t.trim().toUpperCase()) };
+            } else {
+                filter.type = query.type.trim().toUpperCase();
+            }
+        }
+
+        if (query.parentId !== undefined) {
+            filter.parentId = query.parentId === 'null' || query.parentId === '' ? null : new Types.ObjectId(query.parentId);
+        }
+
         if (cursor) {
             filter.createdAt = { $lt: new Date(cursor as string) };
         }
 
-        // Fetch top level activities or replies
-        // If we just want all activities ordered by newest
         const activities = await TaskActivity.find(filter)
             .sort({ createdAt: -1 })
             .limit(limit + 1)
@@ -74,10 +102,14 @@ export class TaskActivityService {
             activities.pop(); // remove the extra item
         }
 
-        const nextCursor = hasMore ? activities[activities.length - 1].createdAt.toISOString() : null;
+        const formattedItems = await Promise.all(
+            activities.map(act => this.formatActivity(act))
+        );
+
+        const nextCursor = hasMore && activities.length > 0 ? activities[activities.length - 1].createdAt.toISOString() : null;
 
         return {
-            items: activities,
+            items: formattedItems,
             nextCursor,
             hasMore
         };
