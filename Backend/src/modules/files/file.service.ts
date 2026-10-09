@@ -168,5 +168,32 @@ export class FileService {
         await file.save();
         return true;
     }
+
+    /**
+     * Resolve a fresh, secure delivery URL (signed if token security key is configured).
+     */
+    static async resolveFileUrl(fileDoc: IFileDocument, expiresInSeconds = 3600): Promise<string> {
+        if (!fileDoc.storageKey) {
+            return fileDoc.storageUrl;
+        }
+
+        try {
+            const activeConfig = await StorageConfigurationService.getActiveConfiguration();
+            if (activeConfig && activeConfig.enabled) {
+                const provider = StorageProviderFactory.createProvider(
+                    activeConfig.provider,
+                    activeConfig.configuration
+                );
+                if (typeof (provider as any).getSignedUrl === 'function') {
+                    return (provider as any).getSignedUrl(fileDoc.storageKey, expiresInSeconds);
+                }
+                return provider.getFileUrl(fileDoc.storageKey);
+            }
+        } catch {
+            // Fallback to stored URL
+        }
+
+        return fileDoc.storageUrl;
+    }
 }
 export default FileService;

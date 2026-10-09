@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { StorageProvider } from '../storage-provider.interface';
 
 export interface BunnyConfig {
@@ -6,6 +7,8 @@ export interface BunnyConfig {
     region?: string;
     pullZoneUrl: string;
     basePath?: string;
+    tokenSecurityKey?: string;
+    tokenExpirySeconds?: number;
 }
 
 export class BunnyStorageProvider implements StorageProvider {
@@ -21,6 +24,7 @@ export class BunnyStorageProvider implements StorageProvider {
         }
 
         const cleanKey = (config.accessKey || '').trim().replace(/^['"]|['"]$/g, '');
+        const cleanTokenKey = (config.tokenSecurityKey || '').trim().replace(/^['"]|['"]$/g, '');
 
         this.config = {
             ...config,
@@ -29,6 +33,8 @@ export class BunnyStorageProvider implements StorageProvider {
             region: (config.region || '').toLowerCase().trim(),
             pullZoneUrl: (config.pullZoneUrl || '').trim(),
             basePath: (config.basePath || 'worksphere').replace(/^\/+|\/+$/g, ''),
+            tokenSecurityKey: cleanTokenKey || undefined,
+            tokenExpirySeconds: config.tokenExpirySeconds && config.tokenExpirySeconds > 0 ? config.tokenExpirySeconds : 3600,
         };
     }
 
@@ -281,17 +287,56 @@ export class BunnyStorageProvider implements StorageProvider {
     }
 
     /**
-     * Generate the public CDN delivery URL for a storage key.
+     * Generate a cryptographic HMAC-SHA256 expiring token URL for Bunny CDN.
+     * @param storageKey Path / key within the storage provider
+     * @param expiresInSeconds Duration in seconds before expiration (default: configured TTL or 3600s)
      */
-    getFileUrl(storageKey: string): string {
+    getSignedUrl(storageKey: string, expiresInSeconds?: number): string {
         const cleanKey = this.sanitizeKey(storageKey);
         const pullZone = this.config.pullZoneUrl
             ? this.config.pullZoneUrl.replace(/\/+$/, '')
             : `${this.getStorageHost()}/${this.config.storageZone}`;
 
-        const fullUrl = `${pullZone}/${cleanKey}`;
-        return fullUrl.startsWith('http://') || fullUrl.startsWith('https://')
-            ? fullUrl
-            : `https://${fullUrl}`;
+        const rawUrl = `${pullZone}/${cleanKey}`;
+        const normalizedUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+            ? rawUrl
+            : `https://${rawUrl}`;
+
+        // If no tokenSecurityKey is configured, return the direct clean URL
+        if (!this.config.tokenSecurityKey) {
+            return normalizedUrl;
+        }
+
+        try {
+            const parsedUrl = new URL(normalizedUrl);
+            const ttl = expiresInSeconds && expiresInSeconds > 0 ? expiresInSeconds : (this.config.tokenExpirySeconds || 3600);
+            const expires = Math.floor(Date.now() / 1000) + ttl;
+            const path = parsedUrl.pathname;
+
+            // Bunny Token Authentication algorithm: sha256(securityKey + path + expires)
+            const hashable = `${this.config.tokenSecurityKey}${path}${expires}`;
+            const token = crypto
+                .createHash('sha256')
+                .update(hashable)
+                .digest('base64')
+                .replace(/\n/g, '')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+
+            parsedUrl.searchParams.set('token', token);
+            parsedUrl.searchParams.set('expires', expires.toString());
+
+            return parsedUrl.toString();
+        } catch {
+            return normalizedUrl;
+        }
+    }
+
+    /**
+     * Generate the delivery URL for a storage key (automatically signed if tokenSecurityKey is active).
+     */
+    getFileUrl(storageKey: string): string {
+        return this.getSignedUrl(storageKey);
     }
 }

@@ -10,6 +10,8 @@ export const updateStorageConfigSchema = z.object({
             region: z.string().trim().optional(),
             pullZoneUrl: z.string().trim().min(1, 'pullZoneUrl cannot be empty').optional(),
             basePath: z.string().trim().regex(/^[^./\\][^/\\]*$/, 'Invalid basePath: path traversal is not allowed').optional(),
+            tokenSecurityKey: z.string().trim().optional(),
+            tokenExpirySeconds: z.number().int().min(60).max(86400 * 30).optional(),
         }).optional(),
         limits: z.object({
             imageMaxSizeMB: z.number().positive().max(100).optional(),
@@ -35,6 +37,8 @@ export const testStorageConfigSchema = z.object({
             region: z.string().trim().optional(),
             pullZoneUrl: z.string().trim().min(1, 'pullZoneUrl is required'),
             basePath: z.string().trim().optional(),
+            tokenSecurityKey: z.string().trim().optional(),
+            tokenExpirySeconds: z.number().int().min(60).max(86400 * 30).optional(),
         }),
     }),
 });

@@ -6,6 +6,7 @@ import { Project, ProjectTeamMember, ProjectInCharge } from '../companyadmin/pro
 import { ProjectService } from '../companyadmin/projects/project.service';
 import { User } from '../users/user.model';
 import { PresenceService } from '../../sockets/presence.service';
+import { StorageConfigurationService } from '../super-admin/storage/storage-config.service';
 
 export class ChatService {
     /**
@@ -355,8 +356,27 @@ export class ChatService {
         const lastMsg: any = messages.length > 0 ? messages[messages.length - 1] : null;
         const nextCursor = hasMore && lastMsg && lastMsg.createdAt ? new Date(lastMsg.createdAt).toISOString() : null;
 
+        // Sign media URLs for attached images, screen recordings, voice notes, and documents
+        const formattedMessages = await Promise.all(
+            messages.map(async (msg: any) => {
+                if (msg.fileId && (msg.fileId.storageKey || msg.fileId.storageUrl)) {
+                    const secureUrl = await StorageConfigurationService.signUrl(
+                        msg.fileId.storageKey || msg.fileId.storageUrl
+                    );
+                    return {
+                        ...msg,
+                        fileId: {
+                            ...msg.fileId,
+                            storageUrl: secureUrl,
+                        },
+                    };
+                }
+                return msg;
+            })
+        );
+
         return {
-            messages: messages.reverse(), // return in chronological order
+            messages: formattedMessages.reverse(), // return in chronological order
             nextCursor,
         };
     }

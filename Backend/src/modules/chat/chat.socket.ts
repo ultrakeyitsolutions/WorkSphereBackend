@@ -7,6 +7,7 @@ import { FileModel } from '../files/file.model';
 import { ProjectService } from '../companyadmin/projects/project.service';
 import { PresenceService } from '../../sockets/presence.service';
 import { NotificationEventBus } from '../notifications/notification.event-bus';
+import { StorageConfigurationService } from '../super-admin/storage/storage-config.service';
 
 export const registerChatHandlers = (io: Server, socket: Socket): void => {
     const user = socket.data.user;
@@ -168,6 +169,13 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
 
                 if (!populatedMessage) {
                     throw new Error('Failed to retrieve created message');
+                }
+
+                // Sign file storageUrl for secure media access (images, screen recordings, voice notes)
+                if (populatedMessage.fileId && ((populatedMessage.fileId as any).storageKey || (populatedMessage.fileId as any).storageUrl)) {
+                    const fileObj = populatedMessage.fileId as any;
+                    const secureUrl = await StorageConfigurationService.signUrl(fileObj.storageKey || fileObj.storageUrl);
+                    fileObj.storageUrl = secureUrl;
                 }
 
                 // Emit new_message to conversation room AND recipient's personal room

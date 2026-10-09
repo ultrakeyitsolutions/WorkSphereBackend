@@ -56,7 +56,13 @@ export class FileController {
                 role: req.user.role,
             });
 
-            return sendSuccess(res, 'File retrieved successfully', file);
+            const secureUrl = await FileService.resolveFileUrl(file);
+            const responseData = {
+                ...(file.toObject ? file.toObject() : file),
+                storageUrl: secureUrl,
+            };
+
+            return sendSuccess(res, 'File retrieved successfully', responseData);
         } catch (error: any) {
             if (error.message === 'FILE_NOT_FOUND' || error.message === 'INVALID_FILE_ID') {
                 return sendError(res, 'File not found', 404);
@@ -84,8 +90,9 @@ export class FileController {
                 role: req.user.role,
             });
 
-            // Redirect user directly to high-speed CDN delivery URL
-            res.redirect(file.storageUrl);
+            const secureUrl = await FileService.resolveFileUrl(file);
+            // Redirect user to authorized expiring signed URL
+            res.redirect(secureUrl);
         } catch (error: any) {
             if (error.message === 'FILE_NOT_FOUND' || error.message === 'INVALID_FILE_ID') {
                 sendError(res, 'File not found', 404);

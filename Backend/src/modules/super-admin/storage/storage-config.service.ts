@@ -23,6 +23,26 @@ export class StorageConfigurationService {
     }
 
     /**
+     * Sign a storage key or CDN URL with active token authentication security.
+     */
+    static async signUrl(urlOrKey: string, expiresInSeconds = 3600): Promise<string> {
+        if (!urlOrKey || !urlOrKey.trim()) return urlOrKey;
+        try {
+            const active = await this.getActiveConfiguration();
+            if (active && active.enabled) {
+                const provider = StorageProviderFactory.createProvider(active.provider, active.configuration);
+                if (typeof (provider as any).getSignedUrl === 'function') {
+                    return (provider as any).getSignedUrl(urlOrKey, expiresInSeconds);
+                }
+                return provider.getFileUrl(urlOrKey);
+            }
+        } catch {
+            // fallback
+        }
+        return urlOrKey;
+    }
+
+    /**
      * Get the active storage configuration from Cache, DB, or Environment Fallback.
      */
     static async getActiveConfiguration(): Promise<IStorageConfigurationDocument | any> {
@@ -76,6 +96,7 @@ export class StorageConfigurationService {
     static toSafeResponse(config: any): any {
         const plain = config.toObject ? config.toObject() : { ...config };
         const rawKey = plain.configuration?.accessKey || '';
+        const rawTokenKey = plain.configuration?.tokenSecurityKey || '';
         return {
             _id: plain._id,
             provider: plain.provider,
@@ -86,6 +107,8 @@ export class StorageConfigurationService {
                 pullZoneUrl: plain.configuration?.pullZoneUrl || '',
                 basePath: plain.configuration?.basePath || 'worksphere',
                 accessKeyConfigured: Boolean(rawKey && rawKey.trim().length > 0),
+                tokenSecurityKeyConfigured: Boolean(rawTokenKey && rawTokenKey.trim().length > 0),
+                tokenExpirySeconds: plain.configuration?.tokenExpirySeconds || 3600,
             },
             limits: plain.limits,
             allowedTypes: plain.allowedTypes,
@@ -195,6 +218,11 @@ export class StorageConfigurationService {
             accessKey: newConf.accessKey && newConf.accessKey.trim().length > 0
                 ? newConf.accessKey.trim()
                 : existingConf.accessKey || '',
+            // Retain existing tokenSecurityKey if not provided in update payload
+            tokenSecurityKey: newConf.tokenSecurityKey !== undefined
+                ? (newConf.tokenSecurityKey && newConf.tokenSecurityKey.trim().length > 0 ? newConf.tokenSecurityKey.trim() : undefined)
+                : existingConf.tokenSecurityKey,
+            tokenExpirySeconds: newConf.tokenExpirySeconds || existingConf.tokenExpirySeconds || 3600,
         };
 
         // Merge limits
@@ -235,6 +263,8 @@ export class StorageConfigurationService {
             if (newConf.region && newConf.region !== existingConf.region) changedFields.push('configuration.region');
             if (newConf.pullZoneUrl && newConf.pullZoneUrl !== existingConf.pullZoneUrl) changedFields.push('configuration.pullZoneUrl');
             if (newConf.basePath && newConf.basePath !== existingConf.basePath) changedFields.push('configuration.basePath');
+            if (newConf.tokenSecurityKey !== undefined && newConf.tokenSecurityKey !== existingConf.tokenSecurityKey) changedFields.push('configuration.tokenSecurityKey');
+            if (newConf.tokenExpirySeconds && newConf.tokenExpirySeconds !== existingConf.tokenExpirySeconds) changedFields.push('configuration.tokenExpirySeconds');
             if (data.limits) changedFields.push('limits');
             if (data.allowedTypes) changedFields.push('allowedTypes');
         } else {

@@ -203,4 +203,19 @@ describe('Super Admin Storage Configuration & Provider Architecture', () => {
         expect(health.configured).toBe(true);
         expect(health.provider).toBe('BUNNY');
     });
+
+    it('Bunny Signed URLs: Generates secure expiring signed URLs when tokenSecurityKey is configured', () => {
+        const provider = new BunnyStorageProvider({
+            storageZone: 'ultrakeyitsolutions',
+            accessKey: 'test-access-key',
+            pullZoneUrl: 'https://uworksphere.b-cdn.net',
+            tokenSecurityKey: 'my-super-secret-token-key',
+            tokenExpirySeconds: 1800,
+        });
+
+        const signedUrl = provider.getFileUrl('worksphere/tasks/confidential-doc.pdf');
+        expect(signedUrl).toContain('https://uworksphere.b-cdn.net/worksphere/tasks/confidential-doc.pdf');
+        expect(signedUrl).toContain('token=');
+        expect(signedUrl).toContain('expires=');
+    });
 });

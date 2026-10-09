@@ -22,6 +22,8 @@ export interface BunnyStorageSettings {
     region?: string;
     pullZoneUrl: string;
     basePath?: string;
+    tokenSecurityKey?: string;
+    tokenExpirySeconds?: number;
 }
 
 export interface IStorageConfiguration {

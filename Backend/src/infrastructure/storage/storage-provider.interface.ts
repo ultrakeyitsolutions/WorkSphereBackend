@@ -32,4 +32,11 @@ export interface StorageProvider {
      * @param storageKey Path / key within the storage provider
      */
     getFileUrl(storageKey: string): string;
+
+    /**
+     * Get a secure signed URL with expiration for a given storage key.
+     * @param storageKey Path / key within the storage provider
+     * @param expiresInSeconds Optional expiry duration in seconds (default: 3600)
+     */
+    getSignedUrl?(storageKey: string, expiresInSeconds?: number): string;
 }

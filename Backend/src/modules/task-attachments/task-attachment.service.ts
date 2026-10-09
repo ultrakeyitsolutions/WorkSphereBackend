@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { TaskAttachment, AttachmentType } from './task-attachment.model';
 import { Task } from '../tasks/task.model';
+import { StorageConfigurationService } from '../super-admin/storage/storage-config.service';
 
 export class TaskAttachmentService {
     private static async findTask(taskId: string, companyId: string) {
@@ -20,7 +21,7 @@ export class TaskAttachmentService {
         });
     }
 
-    public static formatAttachment(att: any) {
+    public static async formatAttachment(att: any): Promise<any> {
         if (!att) return null;
         const doc = att.toObject ? att.toObject({ virtuals: true }) : att;
         const uploadedByDoc = doc.uploadedBy;
@@ -52,13 +53,18 @@ export class TaskAttachmentService {
         const rawTaskId = doc.taskId;
         const taskIdStr = rawTaskId ? (rawTaskId._id ? rawTaskId._id.toString() : rawTaskId.toString()) : null;
 
+        const rawUrl = doc.url || doc.filePath || '';
+        const secureUrl = doc.storageKey
+            ? await StorageConfigurationService.signUrl(doc.storageKey)
+            : (rawUrl ? await StorageConfigurationService.signUrl(rawUrl) : '');
+
         return {
             id: doc._id ? doc._id.toString() : (doc.id || ''),
             _id: doc._id,
             taskId: taskIdStr,
             fileName: doc.fileName,
-            filePath: doc.filePath || doc.url || '',
-            url: doc.url || doc.filePath || '',
+            filePath: secureUrl || rawUrl,
+            url: secureUrl || rawUrl,
             fileType: resolvedFileType,
             fileSize: doc.fileSize ?? doc.size ?? 0,
             contentType: resolvedContentType,
@@ -155,7 +161,7 @@ export class TaskAttachmentService {
             .populate('taskId', 'id title taskNumber itemNumber projectId')
             .exec();
 
-        return this.formatAttachment(created);
+        return await this.formatAttachment(created);
     }
 
     static async getAttachments(taskId: string, companyId: string) {
@@ -175,7 +181,7 @@ export class TaskAttachmentService {
             .populate('uploadedBy', 'id name email avatar role')
             .exec();
 
-        return attachments.map(att => this.formatAttachment(att));
+        return Promise.all(attachments.map(att => this.formatAttachment(att)));
     }
 
     static async deleteAttachment(attachmentId: string, companyId: string, _userId?: string, _role?: string) {
