@@ -44,7 +44,7 @@ export class FileService {
         );
 
         if (!validation.valid) {
-            const error: any = new Error(validation.error || 'Invalid file.');
+            const error: any = new Error(validation.error || 'Invalid files.');
             error.statusCode = 400;
             error.details = {
                 category: validation.category,
