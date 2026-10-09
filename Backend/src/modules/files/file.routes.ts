@@ -16,8 +16,34 @@ const upload = multer({
 // All file routes require authentication
 router.use(authenticate);
 
-// POST /api/files/upload
-router.post('/upload', upload.single('file'), FileController.uploadFile);
+// POST /api/files/upload with graceful multer error handling
+router.post(
+    '/upload',
+    (req, res, next) => {
+        upload.single('file')(req, res, (err: any) => {
+            if (err) {
+                if (err instanceof multer.MulterError) {
+                    if (err.code === 'LIMIT_FILE_SIZE') {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'File size exceeds maximum upload threshold.',
+                        });
+                    }
+                    return res.status(400).json({
+                        success: false,
+                        message: `Upload error: ${err.message}`,
+                    });
+                }
+                return res.status(400).json({
+                    success: false,
+                    message: err.message || 'File upload error',
+                });
+            }
+            next();
+        });
+    },
+    FileController.uploadFile
+);
 
 // GET /api/files/:fileId
 router.get('/:fileId', FileController.getFile);

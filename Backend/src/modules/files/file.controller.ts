@@ -37,7 +37,12 @@ export class FileController {
 
             return sendSuccess(res, 'File uploaded successfully', uploadedFile, 201);
         } catch (error: any) {
-            return sendError(res, error.message || 'File upload failed', 400);
+            return sendError(
+                res,
+                error.message || 'File upload failed',
+                error.statusCode || 400,
+                error.details || undefined
+            );
         }
     }
 

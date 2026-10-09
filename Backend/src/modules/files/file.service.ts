@@ -44,7 +44,14 @@ export class FileService {
         );
 
         if (!validation.valid) {
-            throw new Error(validation.error || 'Invalid file.');
+            const error: any = new Error(validation.error || 'Invalid file.');
+            error.statusCode = 400;
+            error.details = {
+                category: validation.category,
+                limitMB: validation.limitMB,
+                currentSizeMB: validation.currentSizeMB,
+            };
+            throw error;
         }
 
         // 3. Generate structured storage key

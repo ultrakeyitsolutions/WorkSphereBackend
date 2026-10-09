@@ -13,6 +13,8 @@ export interface ValidationResult {
     valid: boolean;
     error?: string;
     category?: 'image' | 'document' | 'audio' | 'video' | 'other';
+    limitMB?: number;
+    currentSizeMB?: number;
 }
 
 export const validateUploadedFile = (
@@ -59,16 +61,23 @@ export const validateUploadedFile = (
     else if (category === 'video') maxMB = limits.videoMaxSizeMB;
 
     const maxBytes = maxMB * 1024 * 1024;
+    const currentMB = Number((fileSizeBytes / (1024 * 1024)).toFixed(2));
+
     if (fileSizeBytes > maxBytes) {
         return {
             valid: false,
-            error: `File size exceeds the configured maximum limit of ${maxMB} MB for ${category} files.`,
+            error: `File size (${currentMB} MB) exceeds the configured maximum limit of ${maxMB} MB for ${category} files.`,
+            limitMB: maxMB,
+            currentSizeMB: currentMB,
+            category,
         };
     }
 
     return {
         valid: true,
         category,
+        limitMB: maxMB,
+        currentSizeMB: currentMB,
     };
 };
 
