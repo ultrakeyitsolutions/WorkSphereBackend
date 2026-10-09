@@ -50,6 +50,9 @@ export class TaskAttachmentService {
             ? doc.uploadedById.toString()
             : (uploadedByFormatted?.id || (doc.uploadedBy ? (doc.uploadedBy._id ? doc.uploadedBy._id.toString() : doc.uploadedBy.toString()) : null));
 
+
+
+            
         const rawTaskId = doc.taskId;
         const taskIdStr = rawTaskId ? (rawTaskId._id ? rawTaskId._id.toString() : rawTaskId.toString()) : null;
 
