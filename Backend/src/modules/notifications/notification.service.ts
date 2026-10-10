@@ -5,6 +5,8 @@ import { NotificationPreferenceService } from './notification-preference.service
 import { RecipientResolver } from './notification.recipient-resolver';
 import { TemplateEngine } from './notification.template-engine';
 import { SocketNotificationChannel } from './notification-socket.service';
+import { EmailNotificationChannel } from './notification-email.service';
+import { PushNotificationService } from './notification-push.service';
 import { INotification } from './notification.model';
 import { NotificationSoundService } from '../notification-sounds/notification-sound.service';
 
@@ -190,9 +192,18 @@ export class NotificationService {
                     }).catch(() => { });
                 }
 
-                // 11b. Email Channel hook (extensible for nodemailer / SES)
+                // 11b. Native Mobile Push Channel (Expo / APNs / FCM)
+                if (pref.channels.push) {
+                    PushNotificationService.sendPushNotification(recipientIdStr, notif).catch((pushErr) => {
+                        console.error('[NotificationService] Push delivery error:', pushErr);
+                    });
+                }
+
+                // 11c. Email Channel hook (nodemailer / SMTP)
                 if (pref.channels.email) {
-                    // Future: EmailNotificationChannel.send(...)
+                    EmailNotificationChannel.sendNotificationEmail(recipientIdStr, notif).catch((mailErr) => {
+                        console.error('[NotificationService] Email delivery error:', mailErr);
+                    });
                 }
             }
 

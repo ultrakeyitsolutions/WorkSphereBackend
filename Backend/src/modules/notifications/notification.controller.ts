@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../auth/auth.types';
 import { NotificationService } from './notification.service';
+import { PushNotificationService } from './notification-push.service';
 import { NOTIFICATION_TYPES } from './notification.types';
 
 const service = new NotificationService();
@@ -165,5 +166,60 @@ export const deleteNotification = async (req: AuthenticatedRequest, res: Respons
         });
     } catch (err: any) {
         return res.status(500).json({ success: false, message: 'Failed to delete notification', error: err.message });
+    }
+};
+
+/**
+ * POST /api/v1/notifications/push-token
+ * Registers a native Expo/FCM push notification token for the authenticated user.
+ */
+export const registerPushToken = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        const companyId = req.user?.companyId;
+        const { pushToken, platform, deviceId } = req.body;
+
+        if (!userId || !companyId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        if (!pushToken) {
+            return res.status(400).json({ success: false, message: 'pushToken is required' });
+        }
+
+        await PushNotificationService.registerPushToken(userId, companyId, pushToken, platform, deviceId);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Push token registered successfully',
+        });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: 'Failed to register push token', error: err.message });
+    }
+};
+
+/**
+ * DELETE /api/v1/notifications/push-token
+ * Removes a device push token when the user logs out.
+ */
+export const removePushToken = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        const { pushToken } = req.body;
+
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        if (pushToken) {
+            await PushNotificationService.removePushToken(userId, pushToken);
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Push token removed successfully',
+        });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: 'Failed to remove push token', error: err.message });
     }
 };

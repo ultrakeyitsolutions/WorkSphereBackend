@@ -7,12 +7,18 @@ import {
     markNotificationAsRead,
     markAllNotificationsAsRead,
     deleteNotification,
+    registerPushToken,
+    removePushToken,
 } from './notification.controller';
 
 const router = Router();
 
 // Apply authentication middleware to all notification routes
 router.use(authenticate);
+
+// Push Token Registration & Removal
+router.post('/push-token', registerPushToken);
+router.delete('/push-token', removePushToken);
 
 // Listing & Types
 router.get('/', getNotifications);

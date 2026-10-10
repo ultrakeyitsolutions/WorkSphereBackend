@@ -71,6 +71,15 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         allowedVariables: ['actorName', 'recipientName', 'projectName'],
         defaultEnabled: true,
     },
+    PROJECT_DELETED: {
+        category: 'PROJECT',
+        defaultTitle: 'Project Deleted',
+        defaultMessage: '{{actorName}} deleted project {{projectName}}',
+        defaultStyle: 'WARNING',
+        icon: 'trash-2',
+        allowedVariables: ['actorName', 'recipientName', 'projectName'],
+        defaultEnabled: true,
+    },
 
     // ── SPRINT ────────────────────────────────────────────────────────────────
     SPRINT_CREATED: {

@@ -6,6 +6,7 @@ import { Company } from '../../super-admin/companies/company.model';
 import { AuditLogService } from '../../audit-logs/audit-log.service';
 import { AuditAction } from '../../audit-logs/audit-log.types';
 import { UserService } from '../../users/user.service';
+import { NotificationEventBus } from '../../notifications/notification.event-bus';
 import { CreateProjectBody } from './project.validator';
 import { AppError } from '../../../utils/AppError';
 
@@ -429,6 +430,44 @@ export class ProjectService {
             success: true,
         });
 
+        // ── 10b. Publish Notification Events (respects In-App, Push & Email preferences) ──
+        NotificationEventBus.getInstance().publish({
+            companyId: String(companyId),
+            type: 'PROJECT_CREATED',
+            actorId: String(currentUserId),
+            entityId: String(projectId),
+            entityType: 'PROJECT',
+            projectId: String(projectId),
+            actionUrl: `/projects/${projectId}`,
+            metadata: {
+                projectName,
+                actorName: creatorDoc.name,
+            },
+        });
+
+        const assignedMemberIds = [...filteredTeamMemberIds];
+        if (input.projectManagerId && !assignedMemberIds.includes(input.projectManagerId)) {
+            assignedMemberIds.push(input.projectManagerId);
+        }
+        for (const memberId of assignedMemberIds) {
+            if (memberId !== String(currentUserId)) {
+                NotificationEventBus.getInstance().publish({
+                    companyId: String(companyId),
+                    type: 'PROJECT_MEMBER_ADDED',
+                    actorId: String(currentUserId),
+                    recipientIds: [memberId],
+                    entityId: String(projectId),
+                    entityType: 'PROJECT',
+                    projectId: String(projectId),
+                    actionUrl: `/projects/${projectId}`,
+                    metadata: {
+                        projectName,
+                        actorName: creatorDoc.name,
+                    },
+                });
+            }
+        }
+
         // ── 11. Build response ────────────────────────────────────────────────
         const teamMembersRaw = filteredTeamMemberIds.map((id) => teamMemberMap.get(id)!);
         const clientsRaw = uniqueClientIds.map((id) => clientMap.get(id)!);
@@ -835,6 +874,16 @@ export class ProjectService {
             await validateCompanyUsers(uniqueClientIds, companyId, 'Client');
         }
 
+        // Pre-fetch existing members to detect additions & removals for notifications
+        const [existingTeamMembers, existingInCharges] = await Promise.all([
+            ProjectTeamMember.find({ projectId: new Types.ObjectId(projectId) }).lean(),
+            ProjectInCharge.find({ projectId: new Types.ObjectId(projectId) }).lean(),
+        ]);
+        const previousMemberIds = new Set([
+            ...existingTeamMembers.map(m => String(m.userId)),
+            ...existingInCharges.map(m => String(m.userId)),
+        ]);
+
         const session = await mongoose.startSession();
         session.startTransaction();
         try {
@@ -943,6 +992,90 @@ export class ProjectService {
             success: true,
         });
 
+        // ── Publish Notification Events ──
+        const effectiveProjectName = projectUpdate.name || project.name;
+
+        // 1. Status Change vs General Update
+        if (input.status && input.status !== project.status) {
+            NotificationEventBus.getInstance().publish({
+                companyId,
+                type: 'PROJECT_STATUS_CHANGED',
+                actorId,
+                entityId: projectId,
+                entityType: 'PROJECT',
+                projectId,
+                actionUrl: `/projects/${projectId}`,
+                metadata: {
+                    projectName: effectiveProjectName,
+                    status: input.status,
+                },
+            });
+        } else if (Object.keys(projectUpdate).length > 0 || input.settings) {
+            NotificationEventBus.getInstance().publish({
+                companyId,
+                type: 'PROJECT_UPDATED',
+                actorId,
+                entityId: projectId,
+                entityType: 'PROJECT',
+                projectId,
+                actionUrl: `/projects/${projectId}`,
+                metadata: {
+                    projectName: effectiveProjectName,
+                },
+            });
+        }
+
+        // 2. Member additions / removals
+        if (filteredTeamMemberIds !== undefined || input.projectManagerId !== undefined) {
+            const currentMembers = new Set<string>();
+            if (filteredTeamMemberIds !== undefined) {
+                filteredTeamMemberIds.forEach(id => currentMembers.add(id));
+            } else {
+                existingTeamMembers.forEach(m => currentMembers.add(String(m.userId)));
+            }
+            if (input.projectManagerId !== undefined) {
+                currentMembers.add(input.projectManagerId);
+            } else if (existingInCharges[0]) {
+                currentMembers.add(String(existingInCharges[0].userId));
+            }
+
+            for (const memberId of currentMembers) {
+                if (!previousMemberIds.has(memberId) && memberId !== actorId) {
+                    NotificationEventBus.getInstance().publish({
+                        companyId,
+                        type: 'PROJECT_MEMBER_ADDED',
+                        actorId,
+                        recipientIds: [memberId],
+                        entityId: projectId,
+                        entityType: 'PROJECT',
+                        projectId,
+                        actionUrl: `/projects/${projectId}`,
+                        metadata: {
+                            projectName: effectiveProjectName,
+                        },
+                    });
+                }
+            }
+
+            for (const memberId of previousMemberIds) {
+                if (!currentMembers.has(memberId) && memberId !== actorId) {
+                    NotificationEventBus.getInstance().publish({
+                        companyId,
+                        type: 'PROJECT_MEMBER_REMOVED',
+                        actorId,
+                        recipientIds: [memberId],
+                        entityId: projectId,
+                        entityType: 'PROJECT',
+                        projectId,
+                        actionUrl: `/projects/${projectId}`,
+                        metadata: {
+                            projectName: effectiveProjectName,
+                        },
+                    });
+                }
+            }
+        }
+
         return { id: projectId, message: 'Project updated successfully' };
     }
 
@@ -972,6 +1105,20 @@ export class ProjectService {
             metadata: { projectId },
             description: `Project "${project.name}" archived`,
             success: true,
+        });
+
+        NotificationEventBus.getInstance().publish({
+            companyId,
+            type: 'PROJECT_STATUS_CHANGED',
+            actorId,
+            entityId: projectId,
+            entityType: 'PROJECT',
+            projectId,
+            actionUrl: `/projects/${projectId}`,
+            metadata: {
+                projectName: project.name,
+                status: 'Archived',
+            },
         });
 
         return { id: projectId, message: 'Project archived successfully' };
@@ -1005,6 +1152,20 @@ export class ProjectService {
             success: true,
         });
 
+        NotificationEventBus.getInstance().publish({
+            companyId,
+            type: 'PROJECT_STATUS_CHANGED',
+            actorId,
+            entityId: projectId,
+            entityType: 'PROJECT',
+            projectId,
+            actionUrl: `/projects/${projectId}`,
+            metadata: {
+                projectName: project.name,
+                status: 'Active',
+            },
+        });
+
         return { id: projectId, message: 'Project unarchived successfully' };
     }
 
@@ -1023,6 +1184,16 @@ export class ProjectService {
         actorRole: string
     ): Promise<{ message: string }> {
         const project = await ProjectService.resolveProject(projectId, companyId);
+
+        // Collect recipient user IDs before relationship records are deleted
+        const [teamMembers, inCharges] = await Promise.all([
+            ProjectTeamMember.find({ projectId: new Types.ObjectId(projectId) }).lean(),
+            ProjectInCharge.find({ projectId: new Types.ObjectId(projectId) }).lean(),
+        ]);
+        const recipientUserIds = new Set<string>();
+        if (project.createdById) recipientUserIds.add(String(project.createdById));
+        teamMembers.forEach(m => recipientUserIds.add(String(m.userId)));
+        inCharges.forEach(ic => recipientUserIds.add(String(ic.userId)));
 
         const session = await mongoose.startSession();
         session.startTransaction();
@@ -1054,6 +1225,19 @@ export class ProjectService {
             metadata: { projectId, projectName: project.name },
             description: `Project "${project.name}" permanently deleted`,
             success: true,
+        });
+
+        NotificationEventBus.getInstance().publish({
+            companyId,
+            type: 'PROJECT_DELETED',
+            actorId,
+            recipientIds: Array.from(recipientUserIds),
+            entityId: projectId,
+            entityType: 'PROJECT',
+            projectId,
+            metadata: {
+                projectName: project.name,
+            },
         });
 
         return { message: 'Project permanently deleted' };
@@ -1155,6 +1339,20 @@ export class ProjectService {
             success: true,
         });
 
+        NotificationEventBus.getInstance().publish({
+            companyId,
+            type: 'PROJECT_STATUS_CHANGED',
+            actorId,
+            entityId: projectId,
+            entityType: 'PROJECT',
+            projectId,
+            actionUrl: `/projects/${projectId}`,
+            metadata: {
+                projectName: project.name,
+                status: 'Active',
+            },
+        });
+
         return { id: projectId, message: 'Project activated successfully' };
     }
 
@@ -1188,6 +1386,20 @@ export class ProjectService {
             metadata: { projectId },
             description: `Project "${project.name}" put on hold`,
             success: true,
+        });
+
+        NotificationEventBus.getInstance().publish({
+            companyId,
+            type: 'PROJECT_STATUS_CHANGED',
+            actorId,
+            entityId: projectId,
+            entityType: 'PROJECT',
+            projectId,
+            actionUrl: `/projects/${projectId}`,
+            metadata: {
+                projectName: project.name,
+                status: 'OnHold',
+            },
         });
 
         return { id: projectId, message: 'Project put on hold successfully' };
