@@ -20,6 +20,8 @@ export class NotificationService {
      * Publishes a notification event.
      * Always safe to call (error isolated). Returns the list of created notifications.
      */
+
+    
     public async publish(payload: NotificationEventPayload): Promise<INotification[]> {
         try {
             const { companyId, type, actorId, entityId, entityType, actionUrl, metadata, eventId } = payload;
