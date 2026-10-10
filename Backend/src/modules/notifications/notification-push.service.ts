@@ -61,15 +61,19 @@ export class PushNotificationService {
 
             const expoPushTokens = tokens
                 .map((t) => t.pushToken)
-                .filter((token) => token && token.startsWith('ExponentPushToken'));
+                .filter((token) => token && (token.startsWith('ExponentPushToken') || token.startsWith('ExpoPushToken')));
 
-            if (expoPushTokens.length === 0) return;
+            if (expoPushTokens.length === 0) {
+                console.log(`[PushNotificationService] No valid Expo push tokens found for recipient: ${recipientId}`);
+                return;
+            }
 
             const messages = expoPushTokens.map((token) => ({
                 to: token,
                 sound: 'default',
                 title: notification.title || 'WorkSphere Notification',
                 body: notification.message || '',
+                priority: 'high',
                 data: {
                     id: notification._id?.toString(),
                     type: notification.type,
@@ -82,7 +86,7 @@ export class PushNotificationService {
                     conversationId: notification.conversationId?.toString(),
                     actionUrl: notification.actionUrl,
                 },
-                channelId: 'worksphere-notifications',
+                channelId: 'worksphere-notifications-v2',
             }));
 
             // Chunk in groups of 100 per Expo API specification
@@ -93,15 +97,23 @@ export class PushNotificationService {
 
             for (const chunk of chunks) {
                 try {
-                    await fetch('https://exp.host/--/api/v2/push/send', {
+                    const headers: Record<string, string> = {
+                        'Accept': 'application/json',
+                        'Accept-encoding': 'gzip, deflate',
+                        'Content-Type': 'application/json',
+                    };
+
+                    if (process.env.EXPO_ACCESS_TOKEN) {
+                        headers['Authorization'] = `Bearer ${process.env.EXPO_ACCESS_TOKEN}`;
+                    }
+
+                    const response = await fetch('https://exp.host/--/api/v2/push/send', {
                         method: 'POST',
-                        headers: {
-                            'Accept': 'application/json',
-                            'Accept-encoding': 'gzip, deflate',
-                            'Content-Type': 'application/json',
-                        },
+                        headers,
                         body: JSON.stringify(chunk),
                     });
+                    const resJson = await response.json();
+                    console.log(`[PushNotificationService] Expo push response for recipient ${recipientId}:`, JSON.stringify(resJson));
                 } catch (pushErr) {
                     console.error('[PushNotificationService] Failed to send push chunk to Expo:', pushErr);
                 }
