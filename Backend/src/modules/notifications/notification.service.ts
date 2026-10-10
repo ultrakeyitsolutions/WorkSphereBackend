@@ -244,4 +244,10 @@ export class NotificationService {
     public async deleteNotification(notificationId: string, recipientId: string): Promise<boolean> {
         return NotificationRepository.delete(notificationId, recipientId);
     }
+
+    public async deleteAllNotifications(recipientId: string, companyId: string): Promise<number> {
+        const count = await NotificationRepository.deleteAll(recipientId, companyId);
+        SocketNotificationChannel.deliverUnreadCount(recipientId, 0);
+        return count;
+    }
 }

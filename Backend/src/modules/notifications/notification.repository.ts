@@ -135,6 +135,14 @@ export class NotificationRepository {
         return result.deletedCount > 0;
     }
 
+    static async deleteAll(recipientId: string, companyId: string): Promise<number> {
+        const result = await Notification.deleteMany({
+            recipientId: new Types.ObjectId(recipientId),
+            companyId: new Types.ObjectId(companyId),
+        });
+        return result.deletedCount;
+    }
+
     // ── Preference Helpers ──────────────────────────────────────────────────
 
     static async getPreference(

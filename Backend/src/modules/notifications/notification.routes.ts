@@ -7,6 +7,7 @@ import {
     markNotificationAsRead,
     markAllNotificationsAsRead,
     deleteNotification,
+    clearAllNotifications,
     registerPushToken,
     removePushToken,
 } from './notification.controller';
@@ -30,7 +31,9 @@ router.get('/types', getNotificationTypes);
 router.patch('/read-all', markAllNotificationsAsRead);
 router.patch('/:id/read', markNotificationAsRead);
 
-// Deletion
+// Deletion & Clear All
+router.delete('/clear-all', clearAllNotifications);
+router.delete('/', clearAllNotifications);
 router.delete('/:id', deleteNotification);
 
 export default router;

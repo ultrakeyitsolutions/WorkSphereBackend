@@ -170,6 +170,31 @@ export const deleteNotification = async (req: AuthenticatedRequest, res: Respons
 };
 
 /**
+ * DELETE /api/v1/notifications
+ * Deletes / Clears all notifications for the authenticated user.
+ */
+export const clearAllNotifications = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        const companyId = req.user?.companyId;
+
+        if (!userId || !companyId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const deletedCount = await service.deleteAllNotifications(userId, companyId);
+
+        return res.status(200).json({
+            success: true,
+            message: `${deletedCount} notifications cleared successfully`,
+            data: { deletedCount },
+        });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: 'Failed to clear notifications', error: err.message });
+    }
+};
+
+/**
  * POST /api/v1/notifications/push-token
  * Registers a native Expo/FCM push notification token for the authenticated user.
  */
