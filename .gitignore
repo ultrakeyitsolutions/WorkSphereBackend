@@ -1,0 +1,6 @@
+
+# Dependencies and generated test caches
+node_modules/
+**/node_modules/
+.vitest-cache/
+**/.vitest-cache/
