@@ -18,6 +18,11 @@ vi.mock('../src/modules/companyadmin/settings/feature-revocation.service', () =>
         revokeCompanyFeature: vi.fn().mockResolvedValue(undefined),
     },
 }));
+vi.mock('../src/config/redis', () => ({
+    getRedisClient: vi.fn().mockReturnValue(null),
+    redisGet: vi.fn().mockResolvedValue(null),
+    redisSet: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
     const mockCompanyId = new Types.ObjectId().toString();
