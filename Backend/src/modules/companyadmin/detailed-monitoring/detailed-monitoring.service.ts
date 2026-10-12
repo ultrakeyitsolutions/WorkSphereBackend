@@ -1600,7 +1600,7 @@ export class DetailedMonitoringService {
         ]);
 
         // Task breakdown
-        let assigned = tasks.length;
+        const assigned = tasks.length;
         let completed = 0;
         let inProgress = 0;
         let overdue = 0;

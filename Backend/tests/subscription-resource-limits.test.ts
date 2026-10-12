@@ -4,11 +4,7 @@ import request from 'supertest';
 import { Types } from 'mongoose';
 import { SubscriptionQuotaService } from '../src/services/subscription-quota.service';
 import { EntitlementService } from '../src/services/entitlement.service';
-import { ProjectService } from '../src/modules/companyadmin/projects/project.service';
-import { TaskService } from '../src/modules/tasks/task.service';
 import { FileService } from '../src/modules/files/file.service';
-import { InvitationService } from '../src/modules/companyadmin/invitations/invitation.service';
-import { MemberService } from '../src/modules/companyadmin/invitations/member.service';
 import { Project } from '../src/modules/companyadmin/projects/project.model';
 import { Task } from '../src/modules/tasks/task.model';
 import { CompanyMember } from '../src/modules/companyadmin/invitations/company-member.model';
@@ -18,7 +14,6 @@ import { FileModel } from '../src/modules/files/file.model';
 import { QuotaReservation } from '../src/modules/super-admin/entitlements/quota-reservation.model';
 import { Subscription } from '../src/modules/super-admin/subscriptions/subscription.model';
 import { SubscriptionStatus } from '../src/modules/super-admin/subscriptions/subscription.types';
-import { Plan } from '../src/modules/super-admin/plans/plans.model';
 import { Feature } from '../src/modules/super-admin/features/features.model';
 import { PlanFeature } from '../src/modules/super-admin/plan-features/plan-features.model';
 import { StorageConfigurationService } from '../src/modules/super-admin/storage/storage-config.service';
@@ -571,9 +566,7 @@ describe('WorkSphere: Subscription Resource Limits Enforcement Suite', () => {
     // Scenario 11: Storage uploads exceeding GB limit are rejected before upload
     // ─────────────────────────────────────────────────────────────────────────
     it('11. Storage upload exceeding GB limit is rejected before persisting to storage provider', async () => {
-        // 10 GB limit = 10 * 1024 * 1024 * 1024 = 10,737,418,240 bytes
-        const tenGB = 10 * 1024 * 1024 * 1024;
-        // Already used: 9.9 GB
+        // Already used: 9.9 GB of 10 GB limit
         const usedBytes = 9.9 * 1024 * 1024 * 1024;
         inMemoryFiles.push({ companyId: new Types.ObjectId(companyAId), size: usedBytes, deletedAt: null });
 

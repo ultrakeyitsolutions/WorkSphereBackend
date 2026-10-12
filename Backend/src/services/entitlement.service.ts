@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import { PlanFeature } from '../modules/super-admin/plan-features/plan-features.model';
 import { Feature } from '../modules/super-admin/features/features.model';
 import { Subscription } from '../modules/super-admin/subscriptions/subscription.model';

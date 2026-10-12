@@ -466,7 +466,7 @@ export class LeaveCalculatorService {
 
         // SALARY_DIVISOR method:
         // Use customSalary if configured in override, or fallback to fixed amount
-        let monthlySalary = lopPolicy.customSalary || 0;
+        const monthlySalary = lopPolicy.customSalary || 0;
 
         if (!monthlySalary || monthlySalary <= 0) {
             // If no explicit employee salary configured, fallback gracefully to fixed daily amount

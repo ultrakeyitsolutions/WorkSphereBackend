@@ -620,7 +620,7 @@ export class ModuleAccessService {
         const idObjectIds = ids.map((id) => new Types.ObjectId(id));
 
         // 1. Verify tenant membership of ALL supplied IDs
-        let memberDocs: any[] = [];
+        const memberDocs: any[] = [];
         const byUserId = await CompanyMember.find({
             companyId: cObjectId,
             userId: { $in: idObjectIds },
@@ -961,7 +961,7 @@ export class ModuleAccessService {
 
         // 1. Verify tenant membership of ALL supplied IDs
         const rawObjectIds = rawIds.map((id) => new Types.ObjectId(id));
-        let validMembers: any[] = [];
+        const validMembers: any[] = [];
         const byUserId = await CompanyMember.find({
             companyId: cObjectId,
             userId: { $in: rawObjectIds },

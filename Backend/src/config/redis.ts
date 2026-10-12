@@ -28,7 +28,7 @@ export function getRedisClient(): Redis {
         return redisClient;
     }
 
-    let rawRedisUrl = (process.env.REDIS_URL || (process.env as any)[' REDIS_URL'])?.trim();
+    const rawRedisUrl = (process.env.REDIS_URL || (process.env as any)[' REDIS_URL'])?.trim();
     let redisUrl: string | undefined = undefined;
 
     if (rawRedisUrl) {

@@ -370,7 +370,7 @@ export class CompanyThemeService {
             );
         }
 
-        let settings = await CompanySettings.findOne({ companyId: companyObjId });
+        const settings = await CompanySettings.findOne({ companyId: companyObjId });
         const currentVersion = settings?.theme?.version || 1;
         const nextVersion = currentVersion + 1;
         const updatedAt = new Date();
