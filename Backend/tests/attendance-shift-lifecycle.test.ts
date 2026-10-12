@@ -13,7 +13,8 @@ import { User } from '../src/modules/users/user.model';
 import { Company } from '../src/modules/super-admin/companies/company.model';
 import { generateAccessToken } from '../src/utils/tokens';
 import { Types } from 'mongoose';
-import { AttendanceCalculationService } from '../src/modules/attendance/attendance-calculation.service';
+import { EntitlementService } from '../src/services/entitlement.service';
+import { TimezoneUtils } from '../src/modules/attendance/utils/timezone.utils';
 
 vi.mock('../src/modules/audit-logs/audit-log.model', () => ({
     AuditLog: {
@@ -32,8 +33,6 @@ describe('Attendance Shift Lifecycle & API Endpoints Tests', () => {
 
     let adminAToken: string;
     let memberA1Token: string;
-    let memberA2Token: string;
-    let memberB1Token: string;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -50,20 +49,6 @@ describe('Attendance Shift Lifecycle & API Endpoints Tests', () => {
             email: 'member1@companya.com',
             role: 'EMPLOYEE',
             companyId: companyAId,
-        });
-
-        memberA2Token = generateAccessToken({
-            userId: memberA2Id,
-            email: 'member2@companya.com',
-            role: 'EMPLOYEE',
-            companyId: companyAId,
-        });
-
-        memberB1Token = generateAccessToken({
-            userId: memberB1Id,
-            email: 'member1@companyb.com',
-            role: 'EMPLOYEE',
-            companyId: companyBId,
         });
 
         // Mock User.findById for auth middleware
@@ -99,12 +84,33 @@ describe('Attendance Shift Lifecycle & API Endpoints Tests', () => {
             } as any;
         });
 
-        vi.spyOn(Company, 'findById').mockResolvedValue({
-            _id: new Types.ObjectId(companyAId),
-            name: 'Company A',
-            isActive: true,
-            status: 'ACTIVE',
-            timezone: 'Asia/Kolkata',
+        vi.spyOn(EntitlementService, 'hasFeature').mockResolvedValue(true);
+        vi.spyOn(TimezoneUtils, 'getCompanyTimezone').mockResolvedValue('Asia/Kolkata');
+
+        vi.spyOn(Company, 'findById').mockReturnValue({
+            select: vi.fn().mockReturnValue({
+                lean: vi.fn().mockResolvedValue({
+                    _id: new Types.ObjectId(companyAId),
+                    name: 'Company A',
+                    isActive: true,
+                    status: 'ACTIVE',
+                    timezone: 'Asia/Kolkata',
+                }),
+            }),
+            lean: vi.fn().mockResolvedValue({
+                _id: new Types.ObjectId(companyAId),
+                name: 'Company A',
+                isActive: true,
+                status: 'ACTIVE',
+                timezone: 'Asia/Kolkata',
+            }),
+            then: (resolve: any) => Promise.resolve({
+                _id: new Types.ObjectId(companyAId),
+                name: 'Company A',
+                isActive: true,
+                status: 'ACTIVE',
+                timezone: 'Asia/Kolkata',
+            }).then(resolve),
         } as any);
 
         // Mock CompanyMember

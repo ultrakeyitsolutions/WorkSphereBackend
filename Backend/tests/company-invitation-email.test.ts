@@ -22,6 +22,7 @@ import { authenticate } from '../src/middleware/auth.middleware';
 import companySettingsRouter from '../src/modules/companyadmin/settings/company-settings.routes';
 import { mailDefaults } from '../src/config/mail';
 import { env } from '../src/config/env';
+import { SubscriptionQuotaService } from '../src/services/subscription-quota.service';
 
 // Mock Transporter for mail
 const mockSendMail = vi.fn().mockResolvedValue({
@@ -685,6 +686,7 @@ describe('Company Admin Custom Invitation Email Suite', () => {
             status: 'QUEUED',
         };
         vi.mocked(InvitationDelivery.create).mockResolvedValue(mockDelivery as any);
+        vi.spyOn(SubscriptionQuotaService, 'reserveQuota').mockResolvedValue({ reservationId: 'test', commit: vi.fn(), release: vi.fn() } as any);
 
         const batchResult = await InvitationService.invite(
             [

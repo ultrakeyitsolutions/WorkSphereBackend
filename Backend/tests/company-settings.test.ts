@@ -300,6 +300,7 @@ describe('WorkSphere Company Settings & Feature Access Engine', () => {
                     features: { enableQuickMeetings: true },
                 }),
             });
+            mocks.entitlementHasFeature.mockResolvedValue(false);
             mocks.entitlementGetDetails.mockResolvedValue({ enabled: false });
 
             const result = await FeatureAccessService.checkAccess(MOCK_COMPANY_ID, 'enableQuickMeetings');
@@ -311,6 +312,7 @@ describe('WorkSphere Company Settings & Feature Access Engine', () => {
     describe('requireCompanyFeature Middleware', () => {
         beforeEach(() => {
             FeatureAccessService.invalidateCache(MOCK_COMPANY_ID);
+            mocks.entitlementHasFeature.mockResolvedValue(true);
         });
 
         it('should call next() when feature is allowed', async () => {

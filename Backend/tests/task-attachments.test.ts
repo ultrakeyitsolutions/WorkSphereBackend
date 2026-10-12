@@ -56,6 +56,22 @@ vi.mock('../src/modules/super-admin/companies/company.model', () => ({
     }
 }));
 
+vi.mock('../src/modules/companyadmin/settings/feature-access.service', () => ({
+    FeatureAccessService: {
+        checkAccess: vi.fn().mockResolvedValue({ allowed: true }),
+        canAccess: vi.fn().mockResolvedValue(true),
+        getCompanyFeatureFlags: vi.fn().mockResolvedValue({ enableTaskAttachments: true }),
+    },
+}));
+
+vi.mock('../src/services/entitlement.service', () => ({
+    EntitlementService: {
+        hasFeature: vi.fn().mockResolvedValue(true),
+        assertCanAddStorage: vi.fn().mockResolvedValue(undefined),
+        assertCanCreateResource: vi.fn().mockResolvedValue(undefined),
+    },
+}));
+
 vi.mock('../src/utils/tokens', () => ({
     verifyAccessToken: vi.fn().mockImplementation((token: string) => {
         if (token === 'admin-token') {

@@ -15,6 +15,7 @@ import { MemberOverviewAnalytics } from '../../src/modules/dashboard/analytics/m
 import { MemberTrendsAnalytics } from '../../src/modules/dashboard/analytics/member-trends.analytics';
 import { MemberWorkAnalytics } from '../../src/modules/dashboard/analytics/member-work.analytics';
 import { MemberDashboardService } from '../../src/modules/companyadmin/members/member-dashboard.service';
+import { EntitlementService } from '../../src/services/entitlement.service';
 
 describe('Dashboard APIs HTTP & Security Integration Tests', () => {
     const mockCompanyId = new Types.ObjectId().toString();
@@ -26,6 +27,7 @@ describe('Dashboard APIs HTTP & Security Integration Tests', () => {
 
     beforeEach(() => {
         vi.restoreAllMocks();
+        vi.spyOn(EntitlementService, 'hasFeature').mockResolvedValue(true);
 
         adminToken = generateAccessToken({
             userId: mockAdminUserId,

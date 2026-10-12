@@ -22,6 +22,8 @@ import { PresenceService } from '../src/sockets/presence.service';
 import { CompanyMember } from '../src/modules/companyadmin/invitations/company-member.model';
 import { TimeTracking } from '../src/modules/task-tracking/time-tracking.model';
 
+import { FeatureAccessService } from '../src/modules/companyadmin/settings/feature-access.service';
+
 describe('Production-Grade WorkSphere Live Monitoring Module Tests', () => {
     const companyIdA = new Types.ObjectId().toString();
     const companyIdB = new Types.ObjectId().toString();
@@ -33,6 +35,7 @@ describe('Production-Grade WorkSphere Live Monitoring Module Tests', () => {
 
     beforeEach(() => {
         vi.restoreAllMocks();
+        vi.spyOn(FeatureAccessService, 'canAccess').mockResolvedValue(true);
         RealtimeEventService.resetSequenceCounter();
     });
 

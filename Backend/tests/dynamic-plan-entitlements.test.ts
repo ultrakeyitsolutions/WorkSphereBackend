@@ -34,6 +34,12 @@ vi.mock('../src/modules/super-admin/subscriptions/subscription-event.model', () 
     },
 }));
 
+vi.mock('../src/config/redis', () => ({
+    getRedisClient: vi.fn().mockReturnValue(null),
+    redisGet: vi.fn().mockResolvedValue(null),
+    redisSet: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('WorkSphere: Dynamic Plan-Based Feature Entitlements Suite', () => {
     const companyAId = new Types.ObjectId().toString();
     const companyBId = new Types.ObjectId().toString();
@@ -218,6 +224,15 @@ describe('WorkSphere: Dynamic Plan-Based Feature Entitlements Suite', () => {
                     lean: vi.fn().mockResolvedValue(populated),
                 }),
                 lean: vi.fn().mockResolvedValue(list),
+            } as any;
+        }) as any);
+
+        vi.mocked(PlanFeature.findOne).mockImplementation(((query: any) => {
+            const item = inMemoryPlanFeatures.find(
+                (pf) => String(pf.planId) === String(query.planId) && String(pf.featureId) === String(query.featureId)
+            );
+            return {
+                lean: vi.fn().mockResolvedValue(item || null),
             } as any;
         }) as any);
 

@@ -88,6 +88,30 @@ vi.mock('../src/middleware/auth.middleware', () => ({
     },
 }));
 
+vi.mock('../src/services/entitlement.service', () => ({
+    EntitlementService: {
+        getEntitlementDetails: vi.fn().mockResolvedValue({ enabled: true, isUnlimited: true }),
+        hasFeature: vi.fn().mockResolvedValue(true),
+        hasEntitlement: vi.fn().mockResolvedValue(true),
+        getQuickMeetingLimits: vi.fn().mockResolvedValue({
+            maxParticipantsPerMeeting: 50,
+            maxMeetingDurationMinutes: 120,
+            allowRecurringMeetings: true,
+            allowExternalParticipants: true,
+        }),
+    },
+}));
+
+vi.mock('../src/modules/companyadmin/module-access/module-access.service', () => ({
+    ModuleAccessService: {
+        getEffectiveMemberModuleAccess: vi.fn().mockResolvedValue({
+            effectiveModules: {
+                meetings: true,
+            },
+        }),
+    },
+}));
+
 // Mock Users
 vi.mock('../src/modules/users/user.model', () => ({
     User: {

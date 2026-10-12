@@ -125,6 +125,7 @@ describe('WorkSphere Real-Time WebSocket Feature Revocation & Eviction', () => {
         mockSockets.clear();
         FeatureAccessService.invalidateCache(COMPANY_A);
         FeatureAccessService.invalidateCache(COMPANY_B);
+        mocks.entitlementHasFeature.mockResolvedValue(true);
 
         mockDuplicateSubscriber = {
             status: 'ready',

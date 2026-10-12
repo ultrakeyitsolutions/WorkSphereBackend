@@ -68,7 +68,20 @@ vi.mock('../src/modules/companyadmin/projects/project.model', () => ({
 }));
 
 vi.mock('../src/services/entitlement.service', () => ({
-    EntitlementService: { hasFeature: mocks.entitlementHasFeature }
+    EntitlementService: {
+        hasFeature: mocks.entitlementHasFeature,
+        assertCanCreateResource: vi.fn().mockResolvedValue(undefined),
+    }
+}));
+
+vi.mock('../src/services/subscription-quota.service', () => ({
+    SubscriptionQuotaService: {
+        assertQuota: vi.fn().mockResolvedValue({ allowed: true }),
+        reserveQuota: vi.fn().mockResolvedValue({
+            commit: vi.fn().mockResolvedValue(undefined),
+            release: vi.fn().mockResolvedValue(undefined),
+        }),
+    },
 }));
 
 vi.mock('../src/modules/users/user.service', () => ({
