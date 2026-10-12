@@ -41,11 +41,42 @@ router.use('/v1/permissions', permissionRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/v1/dashboard', dashboardRoutes);
 
+// ── Company Admin Redesigned Dashboard Analytics Routes ───────────────────────
+import companyDashboardRoutes from '../modules/dashboard/routes/company-dashboard.routes';
+import memberDashboardRoutes from '../modules/dashboard/routes/member-dashboard.routes';
+
+router.use('/v1/company/dashboard', companyDashboardRoutes);
+router.use('/v1/company-admin/dashboard', companyDashboardRoutes);
+router.use('/company/dashboard', companyDashboardRoutes);
+router.use('/company-admin/dashboard', companyDashboardRoutes);
+
+// ── Member Redesigned Dashboard Analytics Routes ──────────────────────────────
+router.use('/v1/member/dashboard', memberDashboardRoutes);
+router.use('/v1/members/dashboard', memberDashboardRoutes);
+router.use('/member/dashboard', memberDashboardRoutes);
+
+// ── Company Admin Attendance Analytics Routes ────────────────────────────────
+import companyAttendanceRoutes from '../modules/attendance/company-attendance.routes';
+import memberAttendanceRoutes from '../modules/attendance/member-attendance.routes';
+
+router.use('/v1/company/attendance', companyAttendanceRoutes);
+router.use('/v1/company-admin/attendance', companyAttendanceRoutes);
+router.use('/company/attendance', companyAttendanceRoutes);
+router.use('/company-admin/attendance', companyAttendanceRoutes);
+
+// ── Member Attendance Routes ──────────────────────────────────────────────────
+router.use('/v1/member/attendance', memberAttendanceRoutes);
+router.use('/v1/members/attendance', memberAttendanceRoutes);
+router.use('/member/attendance', memberAttendanceRoutes);
+
 // ── Company & Member Routes (auth required) ──────────────────────────────────
 router.use('/company', companyAdminRoutes);
+router.use('/company-admin', companyAdminRoutes);
 router.use('/v1/company', companyAdminRoutes);
+router.use('/v1/company-admin', companyAdminRoutes);
 router.use('/v1/member', companyAdminRoutes);
 router.use('/v1/members', companyAdminRoutes);
+
 
 // ── Communication & Global Media Modules ──────────────────────────────────────
 router.use('/projects', projectMemberRoutes);

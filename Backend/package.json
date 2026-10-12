@@ -11,8 +11,10 @@
     "lint": "eslint .",
     "test": "vitest run",
     "seed": "tsx src/scripts/seed.ts",
+    "seed:company-settings": "tsx src/scripts/seed-company-settings.ts",
     "patch:permissions": "tsx src/scripts/patch-super-admin-permissions.ts",
-    "migrate:search-indexes": "tsx src/scripts/add-global-search-indexes.ts"
+    "migrate:search-indexes": "tsx src/scripts/add-global-search-indexes.ts",
+    "repair:meetings": "tsx src/scripts/repair-meetings.ts"
   },
   "keywords": [],
   "author": "",

@@ -11,12 +11,15 @@ router.put('/events/:id', CalendarController.updateEvent);
 router.patch('/events/:id/reschedule', CalendarController.rescheduleEvent);
 router.patch('/events/:id/rsvp', CalendarController.rsvpEvent);
 router.delete('/events/:id', CalendarController.deleteEvent);
+router.post('/events/:id/conference', CalendarController.prepareConference);
 
 // ── Quick Meeting Generator ────────────────────────────────────────────────
 router.post('/quick-meeting', CalendarController.quickMeeting);
 
 // ── OAuth Integrations ─────────────────────────────────────────────────────
 router.get('/oauth/status', CalendarController.getOAuthStatus);
+router.get('/oauth/:provider/config', CalendarController.getOAuthConfig);
+router.post('/oauth/:provider/config', CalendarController.saveOAuthConfig);
 router.post('/oauth/:provider/connect', CalendarController.connectOAuth);
 router.delete('/oauth/:provider/disconnect', CalendarController.disconnectOAuth);
 

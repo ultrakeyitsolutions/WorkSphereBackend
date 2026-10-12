@@ -7,8 +7,14 @@ import { Company } from '../modules/super-admin/companies/company.model';
 import { PresenceService } from './presence.service';
 import { registerChatHandlers } from '../modules/chat/chat.socket';
 import { registerCallHandlers } from '../modules/calls/call.socket';
+import { registerLiveMonitoringHandlers } from '../modules/companyadmin/live-monitoring/live-monitoring.socket';
+import { RealtimeEventService } from '../modules/companyadmin/live-monitoring/services/realtime-event.service';
+import { MONITORING_SOCKET_EVENTS } from '../modules/companyadmin/live-monitoring/live-monitoring.types';
+import { FeatureRevocationService } from '../modules/companyadmin/settings/feature-revocation.service';
+import { CompanyThemeRealtimeService } from '../modules/companyadmin/settings/company-theme-realtime.service';
 
 let ioInstance: Server | null = null;
+
 
 export const getSocketServer = (): Server | null => {
     return ioInstance;
@@ -112,11 +118,18 @@ export const initSocketServer = (httpServer: HttpServer): Server => {
         if (isFirstConnection && companyId) {
             // Broadcast user online event to company colleagues
             socket.to(`company:${companyId}`).emit('user_online', { userId });
+            // Broadcast real-time presence transition to live monitoring dashboards
+            RealtimeEventService.broadcastMonitoringEvent(companyId, MONITORING_SOCKET_EVENTS.PRESENCE_UPDATED, {
+                employeeId: userId,
+                presenceStatus: 'ONLINE',
+                lastSeenAt: new Date().toISOString(),
+            });
         }
 
         // Register feature handlers
         registerChatHandlers(io, socket);
         registerCallHandlers(io, socket);
+        registerLiveMonitoringHandlers(io, socket);
 
         // Disconnect handler
         socket.on('disconnect', () => {
@@ -124,9 +137,19 @@ export const initSocketServer = (httpServer: HttpServer): Server => {
             if (isLast && companyId) {
                 // Broadcast user offline event only when last connection disconnects
                 socket.to(`company:${companyId}`).emit('user_offline', { userId });
+                // Broadcast real-time presence transition to live monitoring dashboards
+                RealtimeEventService.broadcastMonitoringEvent(companyId, MONITORING_SOCKET_EVENTS.PRESENCE_UPDATED, {
+                    employeeId: userId,
+                    presenceStatus: 'OFFLINE',
+                    lastSeenAt: new Date().toISOString(),
+                });
             }
         });
+
     });
+
+    FeatureRevocationService.initCrossWorkerSubscriber(io);
+    CompanyThemeRealtimeService.initCrossWorkerSubscriber(io);
 
     ioInstance = io;
     return io;

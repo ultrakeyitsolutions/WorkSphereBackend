@@ -47,6 +47,10 @@ const attendanceSchema = new Schema<IAttendanceDocument>(
             startTime: { type: Date, default: null },
             endTime: { type: Date, default: null },
             workingMinutes: { type: Number, default: 480 },
+            shiftName: { type: String, default: null },
+            shiftCode: { type: String, default: null },
+            gracePeriodMinutes: { type: Number, default: 0 },
+            earlyCheckoutGraceMinutes: { type: Number, default: 0 },
         },
         actual: {
             firstCheckIn: { type: Date, default: null },
@@ -169,6 +173,11 @@ attendanceSchema.virtual('lateMinutes')
         }
     });
 
+attendanceSchema.virtual('isLate')
+    .get(function () {
+        return this.punchStatus === 'LATE' || (this.metrics?.lateMinutes || 0) > 0;
+    });
+
 attendanceSchema.virtual('earlyDepartureMinutes')
     .get(function () {
         return this.metrics?.earlyLeaveMinutes || 0;
@@ -199,6 +208,8 @@ attendanceSchema.index({ companyId: 1, employeeId: 1, date: 1 }, { unique: true 
 
 // Optimizing dashboard filtering, reporting, and calendar lookups
 attendanceSchema.index({ companyId: 1, date: 1, status: 1 });
+attendanceSchema.index({ companyId: 1, date: 1, 'metrics.lateMinutes': 1 });
+attendanceSchema.index({ companyId: 1, employeeId: 1, date: -1 });
 attendanceSchema.index({ employeeId: 1, date: 1 });
 attendanceSchema.index({ companyId: 1, shiftId: 1, date: 1 });
 attendanceSchema.index({ companyId: 1, isFinalized: 1, date: 1 });

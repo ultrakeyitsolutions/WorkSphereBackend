@@ -4,6 +4,7 @@ import { connectDatabase } from './config/database';
 import { env } from './config/env';
 import { initSocketServer } from './sockets/socket-server';
 import { NotificationEventHandler } from './modules/notifications/notification.event-handler';
+import { LiveMonitoringEventHandler } from './modules/companyadmin/live-monitoring/live-monitoring.event-handler';
 import { MeetingSchedulerJob } from './modules/meetings/meeting-scheduler.job';
 import { StickyNoteReminderJob } from './modules/sticky-notes/sticky-note-reminder.service';
 
@@ -14,8 +15,10 @@ const startServer = async () => {
         // Establish database connection in background
         await connectDatabase();
 
-        // Initialize notification event handler
+        // Initialize notification and live monitoring event handlers
         NotificationEventHandler.getInstance().initialize();
+        LiveMonitoringEventHandler.getInstance().initialize();
+
 
         // Initialize meeting reminder scheduler
         MeetingSchedulerJob.start();

@@ -11,28 +11,42 @@ import { EntitlementService } from '../modules/super-admin/entitlements/entitlem
  */
 export const requireFeature = (featureKey: string) => {
     return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-        if (!req.user) {
+        const authUser = req.currentUser || req.user;
+        if (!authUser) {
             return sendError(res, 'User context not found', 401);
         }
 
         try {
-            const user = await UserService.findById(req.user.userId);
-            if (!user) {
-                return sendError(res, 'User not found', 404);
+            const role = authUser.role;
+            if (role === 'SUPER_ADMIN') {
+                return next();
             }
 
-            const companyId = user.companyId as unknown as string | undefined;
+            let companyId = authUser.companyId ? String(authUser.companyId) : undefined;
 
             if (!companyId) {
-                // Determine if they are SUPER_ADMIN and bypass? 
-                // We could just block since this middleware is for company features.
+                const userId = (authUser as any).userId || (authUser as any)._id;
+                if (userId) {
+                    const user = await UserService.findById(String(userId));
+                    if (user?.companyId) {
+                        companyId = String(user.companyId);
+                    }
+                }
+            }
+
+            if (!companyId) {
                 return sendError(res, 'No company context for this user', 403);
             }
 
             const hasAccess = await EntitlementService.canAccess(companyId, featureKey);
 
             if (!hasAccess) {
-                return sendError(res, `Forbidden: Missing required feature entitlement: ${featureKey}`, 403);
+                return sendError(
+                    res,
+                    `Your current subscription plan does not include '${featureKey}'. Please upgrade your subscription.`,
+                    403,
+                    { code: 'PLAN_UPGRADE_REQUIRED', featureKey }
+                );
             }
 
             return next();

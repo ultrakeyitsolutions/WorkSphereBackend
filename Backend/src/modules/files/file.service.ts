@@ -7,10 +7,11 @@ import { StorageProviderFactory } from '../../infrastructure/storage/storage-pro
 import { validateUploadedFile } from './file.validator';
 import { ChatService } from '../chat/chat.service';
 import { ProjectService } from '../companyadmin/projects/project.service';
+import { SubscriptionQuotaService } from '../../services/subscription-quota.service';
 
 export interface UploadOptions {
     file: Express.Multer.File;
-    companyId: string;
+    companyId?: string;
     userId: string;
     contextType: FileContextType;
     contextId?: string;
@@ -28,82 +29,104 @@ export class FileService {
             throw new Error('No file provided or file buffer is empty.');
         }
 
-        // 1. Get active storage configuration
-        const activeConfig = await StorageConfigurationService.getActiveConfiguration();
-        if (!activeConfig || !activeConfig.enabled) {
-            throw new Error('File storage service is currently disabled or unconfigured.');
+        // 1. Quota reservation before storage upload and persistence
+        let reservation: { commit: () => Promise<void>; release: () => Promise<void> } | null = null;
+        if (companyId) {
+            reservation = await SubscriptionQuotaService.reserveQuota(companyId, 'storage', file.size);
         }
 
-        // 2. Validate file against dynamic limits and allowed types
-        const validation = validateUploadedFile(
-            file.originalname,
-            file.mimetype,
-            file.size,
-            activeConfig.limits,
-            activeConfig.allowedTypes
-        );
+        try {
+            // 2. Get active storage configuration
+            const activeConfig = await StorageConfigurationService.getActiveConfiguration();
+            if (!activeConfig || !activeConfig.enabled) {
+                const err: any = new Error('File storage service is currently disabled or unconfigured.');
+                err.statusCode = 503;
+                throw err;
+            }
 
-        if (!validation.valid) {
-            const error: any = new Error(validation.error || 'Invalid files.');
-            error.statusCode = 400;
-            error.details = {
-                category: validation.category,
-                limitMB: validation.limitMB,
-                currentSizeMB: validation.currentSizeMB,
-            };
+            // 3. Validate file against dynamic limits and allowed types
+            const validation = validateUploadedFile(
+                file.originalname,
+                file.mimetype,
+                file.size,
+                activeConfig.limits,
+                activeConfig.allowedTypes
+            );
+
+            if (!validation.valid) {
+                const error: any = new Error(validation.error || 'Invalid files.');
+                error.statusCode = 400;
+                error.details = {
+                    category: validation.category,
+                    limitMB: validation.limitMB,
+                    currentSizeMB: validation.currentSizeMB,
+                };
+                throw error;
+            }
+
+            // 4. Generate structured storage key
+            const basePath = (activeConfig.configuration?.basePath || 'worksphere').replace(/^\/+|\/+$/g, '');
+            const targetFolder = folder
+                ? folder.replace(/^\/+|\/+$/g, '')
+                : `${contextType.toLowerCase()}s`;
+            const sanitizedOriginal = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const uniquePrefix = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+            const companyFolder = companyId ? `companies/${companyId}` : 'platform';
+            const storageKey = `${basePath}/${companyFolder}/${targetFolder}/${uniquePrefix}-${sanitizedOriginal}`;
+
+            // 5. Resolve active storage provider
+            const provider = StorageProviderFactory.createProvider(
+                activeConfig.provider,
+                activeConfig.configuration
+            );
+
+            // 6. Upload to storage provider
+            let uploadResult;
+            try {
+                uploadResult = await provider.uploadFile(file.buffer, storageKey, file.mimetype);
+            } catch (uploadError: any) {
+                console.error('[FileService] Storage provider upload failed:', uploadError);
+                throw new Error(`Failed to upload file to storage: ${uploadError.message}`);
+            }
+
+            // 7. Extract extension
+            const extension = file.originalname.split('.').pop()?.toLowerCase() || '';
+
+            // 8. Persist metadata in MongoDB with rollback on failure
+            try {
+                const fileDoc = await FileModel.create({
+                    companyId: companyId && Types.ObjectId.isValid(companyId) ? new Types.ObjectId(companyId) : undefined,
+                    uploadedBy: new Types.ObjectId(userId),
+                    originalName: file.originalname,
+                    storageKey: uploadResult.storageKey,
+                    storageUrl: uploadResult.storageUrl,
+                    mimeType: file.mimetype,
+                    extension,
+                    size: file.size,
+                    contextType,
+                    contextId: (contextId ? (Types.ObjectId.isValid(contextId) ? new Types.ObjectId(contextId) : contextId) : undefined) as any,
+                });
+
+                if (reservation) {
+                    await reservation.commit();
+                }
+
+                return fileDoc;
+            } catch (dbError: any) {
+                console.error('[FileService] MongoDB file record creation failed. Rolling back storage file:', dbError);
+                // Rollback uploaded file from storage provider to prevent orphaned files
+                await provider.deleteFile(storageKey).catch((delErr) => {
+                    console.error('[FileService] Failed to clean up orphaned storage file:', delErr);
+                });
+                throw new Error('Database record creation failed. File upload rolled back.');
+            }
+        } catch (error: any) {
+            if (reservation) {
+                await reservation.release().catch((rErr) => {
+                    console.error('[FileService] Failed to release storage quota reservation:', rErr);
+                });
+            }
             throw error;
-        }
-
-        // 3. Generate structured storage key
-        const basePath = (activeConfig.configuration?.basePath || 'worksphere').replace(/^\/+|\/+$/g, '');
-        const targetFolder = folder
-            ? folder.replace(/^\/+|\/+$/g, '')
-            : `${contextType.toLowerCase()}s`;
-        const sanitizedOriginal = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const uniquePrefix = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-        const storageKey = `${basePath}/companies/${companyId}/${targetFolder}/${uniquePrefix}-${sanitizedOriginal}`;
-
-        // 4. Resolve active storage provider
-        const provider = StorageProviderFactory.createProvider(
-            activeConfig.provider,
-            activeConfig.configuration
-        );
-
-        // 5. Upload to storage provider
-        let uploadResult;
-        try {
-            uploadResult = await provider.uploadFile(file.buffer, storageKey, file.mimetype);
-        } catch (uploadError: any) {
-            console.error('[FileService] Storage provider upload failed:', uploadError);
-            throw new Error(`Failed to upload file to storage: ${uploadError.message}`);
-        }
-
-        // 6. Extract extension
-        const extension = file.originalname.split('.').pop()?.toLowerCase() || '';
-
-        // 7. Persist metadata in MongoDB with rollback on failure
-        try {
-            const fileDoc = await FileModel.create({
-                companyId: new Types.ObjectId(companyId),
-                uploadedBy: new Types.ObjectId(userId),
-                originalName: file.originalname,
-                storageKey: uploadResult.storageKey,
-                storageUrl: uploadResult.storageUrl,
-                mimeType: file.mimetype,
-                extension,
-                size: file.size,
-                contextType,
-                contextId: (contextId ? (Types.ObjectId.isValid(contextId) ? new Types.ObjectId(contextId) : contextId) : undefined) as any,
-            });
-
-            return fileDoc;
-        } catch (dbError: any) {
-            console.error('[FileService] MongoDB file record creation failed. Rolling back storage file:', dbError);
-            // Rollback uploaded file from storage provider to prevent orphaned files
-            await provider.deleteFile(storageKey).catch((delErr) => {
-                console.error('[FileService] Failed to clean up orphaned storage file:', delErr);
-            });
-            throw new Error('Database record creation failed. File upload rolled back.');
         }
     }
 
@@ -126,7 +149,7 @@ export class FileService {
         }
 
         // Company isolation check
-        if (!user.companyId || file.companyId.toString() !== user.companyId.toString()) {
+        if (!user.companyId || !file.companyId || file.companyId.toString() !== user.companyId.toString()) {
             throw new Error('FORBIDDEN_COMPANY');
         }
 

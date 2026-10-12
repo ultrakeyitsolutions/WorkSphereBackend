@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { AttendanceCalculationService } from '../src/modules/attendance/attendance-calculation.service';
 import { TimezoneUtils } from '../src/modules/attendance/utils/timezone.utils';
 import { AttendanceStatus } from '../src/modules/attendance/attendance.types';
+import { TimesheetCalculatorService } from '../src/modules/timesheet/timesheet-calculator.service';
 
 describe('Attendance Calculation Service - Unit Tests', () => {
     describe('Timezone & Date Utilities', () => {
@@ -37,20 +38,43 @@ describe('Attendance Calculation Service - Unit Tests', () => {
             const result = AttendanceCalculationService.calculateLateMinutes(punchTime, scheduledStart, 10);
             expect(result.punchStatus).toBe('ON_TIME');
             expect(result.lateMinutes).toBe(0);
+            expect(result.minutesPastScheduledStart).toBe(8);
         });
 
-        it('should mark LATE and calculate exact minutes when exceeding grace period', () => {
-            const punchTime = new Date('2026-10-03T09:25:00.000Z'); // 25 mins late
+        it('should mark LATE and calculate exact minutes when exceeding grace period: max(0, actualCheckIn - (scheduledShiftStart + gracePeriod))', () => {
+            const punchTime = new Date('2026-10-03T09:25:00.000Z'); // 25 mins after start, grace is 10 => 15 mins late
             const result = AttendanceCalculationService.calculateLateMinutes(punchTime, scheduledStart, 10);
             expect(result.punchStatus).toBe('LATE');
-            expect(result.lateMinutes).toBe(25);
+            expect(result.lateMinutes).toBe(15);
+            expect(result.minutesPastScheduledStart).toBe(25);
+        });
+
+        it('should accurately calculate lateness when grace period is zero (0 minutes)', () => {
+            // Punch at 09:05:00 with 0 grace period should be 5 minutes late
+            const punchLate = new Date('2026-10-03T09:05:00.000Z');
+            const resultLate = AttendanceCalculationService.calculateLateMinutes(punchLate, scheduledStart, 0);
+            expect(resultLate.punchStatus).toBe('LATE');
+            expect(resultLate.lateMinutes).toBe(5);
+
+            // Punch exactly at 09:00:00 with 0 grace should be ON_TIME with 0 late minutes
+            const punchOnTime = new Date('2026-10-03T09:00:00.000Z');
+            const resultOnTime = AttendanceCalculationService.calculateLateMinutes(punchOnTime, scheduledStart, 0);
+            expect(resultOnTime.punchStatus).toBe('ON_TIME');
+            expect(resultOnTime.lateMinutes).toBe(0);
+        });
+
+        it('should return 0 late minutes if shift start time is null or unassigned', () => {
+            const punchTime = new Date('2026-10-03T09:25:00.000Z');
+            const result = AttendanceCalculationService.calculateLateMinutes(punchTime, null, 10);
+            expect(result.punchStatus).toBe('ON_TIME');
+            expect(result.lateMinutes).toBe(0);
         });
     });
 
     describe('Early Departure & Overtime Calculation', () => {
         const scheduledEnd = new Date('2026-10-03T18:00:00.000Z');
 
-        it('should detect EARLY_OUT when leaving before grace period threshold', () => {
+        it('should detect EARLY_OUT when leaving before grace period threshold: max(0, scheduledShiftEnd - actualCheckOut)', () => {
             const checkOutTime = new Date('2026-10-03T17:30:00.000Z'); // 30 mins early
             const result = AttendanceCalculationService.calculateEarlyLeaveAndOvertime(
                 checkOutTime,
@@ -73,7 +97,7 @@ describe('Attendance Calculation Service - Unit Tests', () => {
             expect(result.earlyLeaveMinutes).toBe(0);
         });
 
-        it('should detect OVERTIME when working past scheduled shift end', () => {
+        it('should detect OVERTIME and 0 early leave when working past scheduled shift end', () => {
             const checkOutTime = new Date('2026-10-03T19:15:00.000Z'); // 75 mins overtime
             const result = AttendanceCalculationService.calculateEarlyLeaveAndOvertime(
                 checkOutTime,
@@ -86,12 +110,39 @@ describe('Attendance Calculation Service - Unit Tests', () => {
         });
     });
 
-    describe('Net Worked Minutes Calculation', () => {
+    describe('Net Worked Minutes Calculation & Interval Deduplication', () => {
         it('should calculate accurate worked minutes minus break', () => {
             const checkIn = new Date('2026-10-03T09:00:00.000Z');
             const checkOut = new Date('2026-10-03T18:00:00.000Z'); // 9 hours = 540 mins
             const worked = AttendanceCalculationService.calculateWorkedMinutes(checkIn, checkOut, 60); // 60 mins break
             expect(worked).toBe(480);
+        });
+
+        it('should reject reversed timestamps by returning 0 worked minutes', () => {
+            const checkIn = new Date('2026-10-03T18:00:00.000Z');
+            const checkOut = new Date('2026-10-03T09:00:00.000Z'); // Reversed
+            const worked = AttendanceCalculationService.calculateWorkedMinutes(checkIn, checkOut, 0);
+            expect(worked).toBe(0);
+        });
+
+        it('should merge overlapping work intervals without double-counting', () => {
+            const intervals = [
+                // Interval 1: 09:00 to 12:00 (180 mins)
+                { start: new Date('2026-10-03T09:00:00.000Z'), end: new Date('2026-10-03T12:00:00.000Z'), isBreak: false },
+                // Interval 2: 11:30 to 14:00 (overlaps by 30 mins, extends by 120 mins)
+                { start: new Date('2026-10-03T11:30:00.000Z'), end: new Date('2026-10-03T14:00:00.000Z'), isBreak: false },
+                // Break: 14:00 to 14:30 (30 mins break)
+                { start: new Date('2026-10-03T14:00:00.000Z'), end: new Date('2026-10-03T14:30:00.000Z'), isBreak: true },
+                // Interval 3: 14:30 to 17:30 (180 mins)
+                { start: new Date('2026-10-03T14:30:00.000Z'), end: new Date('2026-10-03T17:30:00.000Z'), isBreak: false },
+            ];
+
+            const result = AttendanceCalculationService.calculateIntervalsWorkedMinutes(intervals);
+            // Non-overlapping work: 09:00-14:00 (300 mins) + 14:30-17:30 (180 mins) = 480 mins net work
+            expect(result.netWorkedMinutes).toBe(480);
+            expect(result.breakMinutes).toBe(30);
+            // Elapsed: 09:00 to 17:30 = 510 mins
+            expect(result.elapsedMinutes).toBe(510);
         });
     });
 
@@ -215,8 +266,40 @@ describe('Attendance Calculation Service - Unit Tests', () => {
                 holiday: null,
                 isWeekOff: false,
                 isShiftConcluded: true,
+                hasAssignedShift: true,
             });
             expect(status).toBe(AttendanceStatus.ABSENT);
+        });
+
+        it('Rule 8: Concluded day without an assigned shift resolves to PENDING, not ABSENT', () => {
+            const status = AttendanceCalculationService.calculateAttendanceStatus({
+                hasCheckIn: false,
+                hasCheckOut: false,
+                workedMinutes: 0,
+                scheduledWorkingMinutes: 0,
+                halfDayThresholdMinutes: 240,
+                leave: null,
+                holiday: null,
+                isWeekOff: false,
+                isShiftConcluded: true,
+                hasAssignedShift: false, // Unassigned
+            });
+            expect(status).toBe(AttendanceStatus.PENDING);
+        });
+    });
+
+    describe('Timesheet Calculator Null-Safety', () => {
+        it('should safely return zero metrics without crashing when attendance record has null checkInTime', () => {
+            const mockAttendance: any = {
+                actual: { firstCheckIn: null, lastCheckOut: null, workedMinutes: 0 },
+                checkInTime: null,
+                checkOutTime: null,
+            };
+
+            const metrics = TimesheetCalculatorService.calculateDayMetrics(mockAttendance, []);
+            expect(metrics.totalWorkHours).toBe(0);
+            expect(metrics.productionHours).toBe(0);
+            expect(metrics.idleHours).toBe(0);
         });
     });
 });

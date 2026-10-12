@@ -9,8 +9,20 @@ import { Company } from '../companies/company.model';
 import { User } from '../../users/user.model';
 import { Feature } from '../features/features.model';
 import { PlanFeature } from '../plan-features/plan-features.model';
+import { CompanyThemeEntitlementService } from '../../companyadmin/settings/company-theme-entitlement.service';
+import { CompanyEmailEntitlementService } from '../../companyadmin/settings/company-email-entitlement.service';
+import { EntitlementService } from '../../../services/entitlement.service';
 
 export class SubscriptionService {
+    /**
+     * Invalidate all subscription and entitlement caches for a company.
+     */
+    private static invalidateCompanyEntitlementCaches(companyId: string): void {
+        CompanyThemeEntitlementService.invalidateCache(companyId);
+        CompanyEmailEntitlementService.invalidateCache(companyId);
+        EntitlementService.invalidateCache(companyId);
+    }
+
     /**
      * Create a new subscription for a company.
      */
@@ -61,6 +73,7 @@ export class SubscriptionService {
             metadata: { message: 'Initial subscription creation' },
         });
 
+        this.invalidateCompanyEntitlementCaches(companyId);
         return subscription;
     }
 
@@ -136,6 +149,7 @@ export class SubscriptionService {
                 metadata: { immediate: true },
             });
 
+            this.invalidateCompanyEntitlementCaches(companyId);
             return activeSub;
         } else {
             // Next cycle change
@@ -189,6 +203,7 @@ export class SubscriptionService {
                 performedBy: adminId,
                 metadata: { resumeAt, reason },
             });
+            this.invalidateCompanyEntitlementCaches(companyId);
         }
 
         return sub;
@@ -218,6 +233,7 @@ export class SubscriptionService {
                 effectiveAt: new Date(),
                 performedBy: adminId,
             });
+            this.invalidateCompanyEntitlementCaches(companyId);
         }
         return sub;
     }
@@ -247,6 +263,7 @@ export class SubscriptionService {
                 performedBy: adminId,
                 metadata: { immediate: true, reason },
             });
+            this.invalidateCompanyEntitlementCaches(companyId);
         } else {
             sub.cancelAtPeriodEnd = true;
             sub.cancellationReason = reason;

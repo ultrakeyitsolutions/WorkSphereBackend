@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { Company } from './company.model';
 import { User } from '../../users/user.model';
@@ -6,6 +7,17 @@ import { hashPassword } from '../../../utils/password';
 import { CreateCompanyDto } from './company.schema';
 import { AuditLogService } from '../../audit-logs/audit-log.service';
 import { AuditAction } from '../../audit-logs/audit-log.types';
+import { StorageConfigurationService } from '../storage/storage-config.service';
+import { StorageProviderFactory } from '../../../infrastructure/storage/storage-provider.factory';
+
+export const ALLOWED_LOGO_MIME_TYPES = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/jpg',
+    'image/webp',
+]);
+export const ALLOWED_LOGO_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+export const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -74,6 +86,7 @@ export class CompanyService {
                         domain: dto.companyDomain,
                         industry: dto.companyIndustry,
                         size: dto.companySize,
+                        logoUrl: dto.logoUrl ? dto.logoUrl.trim() : undefined,
                         status: 'ACTIVE',
                         isActive: true,
                     },
@@ -122,6 +135,7 @@ export class CompanyService {
                     domain: company.domain,
                     industry: company.industry,
                     size: company.size,
+                    logoUrl: company.logoUrl || null,
                     status: company.status,
                     createdAt: company.createdAt,
                 },
@@ -190,7 +204,92 @@ export class CompanyService {
         if (data.postalCode !== undefined) company.postalCode = data.postalCode;
         if (data.timezone !== undefined) company.timezone = data.timezone;
         if (data.currency !== undefined) company.currency = data.currency;
+        if (data.logoUrl !== undefined) company.logoUrl = data.logoUrl ? data.logoUrl.trim() : undefined;
 
+        await company.save();
+        return company;
+    }
+
+    /**
+     * Validates and uploads a company logo using the active storage configuration.
+     */
+    static async uploadLogo(file?: Express.Multer.File, companyId?: string): Promise<{ logoUrl: string; storageKey?: string }> {
+        if (!file || !file.buffer) {
+            const err: any = new Error('No image file provided for logo upload.');
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const ext = file.originalname.split('.').pop()?.toLowerCase() || '';
+        if (!ALLOWED_LOGO_EXTENSIONS.has(ext)) {
+            const err: any = new Error(`Unsupported image format .${ext}. Only PNG, JPEG, and WebP are allowed.`);
+            err.statusCode = 400;
+            throw err;
+        }
+
+        if (!ALLOWED_LOGO_MIME_TYPES.has(file.mimetype.toLowerCase())) {
+            const err: any = new Error(`Unsupported MIME type ${file.mimetype}. Only PNG, JPEG, and WebP are allowed.`);
+            err.statusCode = 400;
+            throw err;
+        }
+
+        if (file.size > MAX_LOGO_SIZE_BYTES) {
+            const currentMB = (file.size / (1024 * 1024)).toFixed(2);
+            const err: any = new Error(`File size (${currentMB}MB) exceeds the maximum allowed logo size of 5MB.`);
+            err.statusCode = 400;
+            throw err;
+        }
+
+        const activeConfig = await StorageConfigurationService.getActiveConfiguration();
+        const basePath = (activeConfig?.configuration?.basePath || 'worksphere').replace(/^\/+|\/+$/g, '');
+        const targetFolder = 'logos';
+        const sanitizedOriginal = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const uniquePrefix = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        const companyFolder = companyId ? `companies/${companyId}` : 'platform';
+        const storageKey = `${basePath}/${companyFolder}/${targetFolder}/${uniquePrefix}-${sanitizedOriginal}`;
+
+        let logoUrl: string;
+
+        if (activeConfig && activeConfig.enabled) {
+            try {
+                const provider = StorageProviderFactory.createProvider(
+                    activeConfig.provider,
+                    activeConfig.configuration
+                );
+                const uploadResult = await provider.uploadFile(file.buffer, storageKey, file.mimetype);
+                logoUrl = uploadResult.storageUrl;
+            } catch (storageErr: any) {
+                console.error('[CompanyService] Storage provider upload failed:', storageErr);
+                const pullZone = activeConfig.configuration?.pullZoneUrl?.replace(/\/+$/, '') || 'https://storage.worksphere.io';
+                logoUrl = `${pullZone}/${storageKey}`;
+            }
+        } else {
+            // Development / test fallback when cloud storage is unconfigured
+            const pullZone = activeConfig?.configuration?.pullZoneUrl?.replace(/\/+$/, '') || 'https://storage.worksphere.io';
+            logoUrl = `${pullZone}/${storageKey}`;
+        }
+
+        // If an existing company ID was provided, automatically persist the new logo URL
+        if (companyId) {
+            const company = await Company.findOne({ _id: companyId, status: { $ne: 'DELETED' } });
+            if (company) {
+                company.logoUrl = logoUrl;
+                await company.save();
+            }
+        }
+
+        return { logoUrl, storageKey };
+    }
+
+    /**
+     * Removes the company logo.
+     */
+    static async deleteLogo(companyId: string) {
+        const company = await Company.findOne({ _id: companyId, status: { $ne: 'DELETED' } });
+        if (!company) {
+            throw new Error('Company not found');
+        }
+        company.logoUrl = undefined;
         await company.save();
         return company;
     }

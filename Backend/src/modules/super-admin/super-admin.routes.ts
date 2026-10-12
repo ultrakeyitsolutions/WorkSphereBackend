@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authenticate } from '../../middleware/auth.middleware';
 import { authorizeRoles, authorizePermissions } from '../../middleware/authorization.middleware';
 import { CompanyController } from './companies/company.controller';
@@ -10,6 +11,14 @@ import auditLogRouter from '../audit-logs/audit-log.routes';
 import storageRouter from './storage/storage-config.routes';
 
 const router = Router();
+
+const logoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB
+    },
+});
+
 
 // ─── Super-Admin Guard Pipeline ───────────────────────────────────────────────
 // Every route under /api/super-admin/* MUST:
@@ -71,6 +80,26 @@ companiesRouter.post(
     '/:companyId/admin/reset-password',
     authorizePermissions('COMPANY_ADMIN_PASSWORD_RESET'),
     CompanyController.resetAdminPassword
+);
+
+companiesRouter.post(
+    '/upload-logo',
+    authorizePermissions('COMPANY_CREATE'),
+    logoUpload.single('file'),
+    CompanyController.uploadLogo
+);
+
+companiesRouter.post(
+    '/:companyId/logo',
+    authorizePermissions('COMPANY_UPDATE'),
+    logoUpload.single('file'),
+    CompanyController.uploadLogo
+);
+
+companiesRouter.delete(
+    '/:companyId/logo',
+    authorizePermissions('COMPANY_UPDATE'),
+    CompanyController.deleteLogo
 );
 
 companiesRouter.use('/:companyId/subscription', subscriptionRoutes);

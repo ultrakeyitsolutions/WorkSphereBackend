@@ -23,6 +23,9 @@ export function getMailTransporter(): Transporter {
                 // Allow self-signed certificates in development
                 rejectUnauthorized: env.NODE_ENV === 'production',
             },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 20000,
         });
     } else if (driver === 'sendmail') {
         _transporter = nodemailer.createTransport({ sendmail: true });

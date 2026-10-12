@@ -113,6 +113,17 @@ export const authenticate = async (
             const actualAdminRole = (actualAdmin.role as any)?.name || 'SUPER_ADMIN';
             const targetRoleName = (targetUser.role as any)?.name || decoded.role;
 
+            // Enforce tenant boundary for Company Admin impersonation sessions
+            if (actualAdminRole !== 'SUPER_ADMIN') {
+                if (
+                    !actualAdmin.companyId ||
+                    !targetUser.companyId ||
+                    String(actualAdmin.companyId) !== String(targetUser.companyId)
+                ) {
+                    return sendError(res, 'Cross-tenant impersonation session is invalid', 403);
+                }
+            }
+
             // Dual Identity Context Attachment
             req.authenticatedUser = {
                 userId: String(actualAdmin._id),

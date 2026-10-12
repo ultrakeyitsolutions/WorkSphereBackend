@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { TimesheetController } from './timesheet.controller';
+import { requireCompanyFeature } from '../../middleware/feature-toggle.middleware';
 
 const router = Router();
+
+// Guard all timesheet routes with company feature toggle & plan entitlement
+router.use(requireCompanyFeature('enableTimesheets'));
 
 // ─── Read endpoints ───────────────────────────────────────────────────────────
 

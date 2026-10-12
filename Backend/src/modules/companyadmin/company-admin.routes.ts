@@ -16,6 +16,10 @@ import taskBugRootRoutes from '../task-bugs/task-bug.root.routes';
 import taskAttachmentRootRoutes from '../task-attachments/task-attachment.root.routes';
 import permissionsRoutes from './permissions.routes';
 import companyProfileRoutes from './profile/company-profile.routes';
+import companySettingsRoutes from './settings/company-settings.routes';
+import impersonationRoutes from '../super-admin/impersonation/impersonation.routes';
+import moduleAccessRoutes from './module-access/module-access.routes';
+import leaveAdminRoutes from './leave/leave-admin.routes';
 import memberDashboardRoutes from './members/member-dashboard.routes';
 import performanceRoutes from '../performance/performance.routes';
 
@@ -34,6 +38,20 @@ const inviteLimiter = rateLimit({
 // Note: companyId is read from the JWT payload (set during token generation).
 // The frontend must NEVER supply companyId directly for these routes.
 router.use(authenticate);
+
+// ── /api/v1/company/impersonation ─────────────────────────────────────────────
+router.use('/impersonation', impersonationRoutes);
+
+// ── /api/v1/company/settings ─────────────────────────────────────────────────
+router.use('/settings', companySettingsRoutes);
+
+// ── /api/v1/company/leave & /api/v1/company/leaves ────────────────────────────
+router.use('/leave', leaveAdminRoutes);
+router.use('/leaves', leaveAdminRoutes);
+
+// ── /api/v1/company/module-access & /api/v1/company/sidebar-access ───────────
+router.use('/module-access', moduleAccessRoutes);
+router.use('/sidebar-access', moduleAccessRoutes);
 
 // ── /api/v1/company/profile ──────────────────────────────────────────────────
 router.use('/profile', companyProfileRoutes);
@@ -115,7 +133,18 @@ router.use('/shifts', shiftRoutes);
 // ── /api/v1/company/shift-assignments ─────────────────────────────────────────
 router.use('/shift-assignments', shiftAssignmentRoutes);
 
+import liveMonitoringRoutes from './live-monitoring/live-monitoring.routes';
+import detailedMonitoringRoutes from './detailed-monitoring/detailed-monitoring.routes';
+
+// ── /api/v1/company/live-monitoring ──────────────────────────────────────────
+router.use('/live-monitoring', liveMonitoringRoutes);
+
+// ── /api/v1/company/detailed-monitoring ──────────────────────────────────────
+router.use('/detailed-monitoring', detailedMonitoringRoutes);
+router.use('/live-monitoring/detailed', detailedMonitoringRoutes);
+
 // ── /api/v1/company/[modules|statuses|stages|task-templates] ─────────────────
 router.use('/', taskMetaRoutes);
 
 export default router;
+

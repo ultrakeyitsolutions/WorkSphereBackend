@@ -42,6 +42,7 @@ vi.mock('../src/modules/super-admin/plan-features/plan-features.model', () => ({
 describe('EntitlementService - Quick Meetings & Features', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        EntitlementService.clearAllCache();
     });
 
     describe('getQuickMeetingLimits', () => {

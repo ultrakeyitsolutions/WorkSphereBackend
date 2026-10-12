@@ -99,6 +99,7 @@ const invitationSchema = new Schema<IInvitationDocument>(
 // Index for looking up pending invitations by email/phone under a company
 invitationSchema.index({ companyId: 1, email: 1, status: 1 });
 invitationSchema.index({ companyId: 1, phoneNumber: 1, status: 1 });
+invitationSchema.index({ companyId: 1, status: 1, expiresAt: 1 });
 
 export const Invitation = model<IInvitationDocument>('Invitation', invitationSchema);
 export default Invitation;

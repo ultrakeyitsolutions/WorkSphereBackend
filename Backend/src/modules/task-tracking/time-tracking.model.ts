@@ -46,7 +46,7 @@ const trackingIntervalSchema = new Schema<ITrackingInterval>({
 const timeTrackingSchema = new Schema<ITimeTracking>(
     {
         companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true, index: true },
-        userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+        userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
         projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
         taskId: { type: Schema.Types.ObjectId, ref: 'Task', required: true, index: true },
         state: { type: String, enum: Object.values(TrackingState), default: TrackingState.NOT_STARTED, required: true },

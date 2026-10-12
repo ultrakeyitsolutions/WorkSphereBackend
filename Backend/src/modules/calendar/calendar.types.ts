@@ -1,6 +1,6 @@
 import { Types, Document } from 'mongoose';
 
-export type ParticipantStatus = 'organizer' | 'accepted' | 'pending' | 'declined' | 'tentative';
+export type ParticipantStatus = 'organizer' | 'accepted' | 'pending' | 'declined' | 'tentative' | 'invited';
 export type MeetingType = 'video' | 'in_person' | 'phone' | 'sync';
 export type MeetingProvider = 'none' | 'google_meet' | 'ms_teams';
 export type OAuthProvider = 'google' | 'microsoft';
@@ -159,9 +159,30 @@ export interface IQuickMeetingPayload {
     description?: string;
 }
 
+export interface ICompanyCalendarConfig {
+    companyId: Types.ObjectId;
+    provider: OAuthProvider;
+    clientId: string;
+    clientSecretEncrypted: string;
+    redirectUri?: string;
+    updatedBy?: Types.ObjectId;
+    createdAt?: Date;
+    updatedAt?: Date;
+}
+
+export interface ICompanyCalendarConfigDocument extends ICompanyCalendarConfig, Document {}
+
 export interface IConnectOAuthPayload {
     code: string;
     redirectUri: string;
+    clientId?: string;
+    clientSecret?: string;
+}
+
+export interface ISaveOAuthConfigPayload {
+    clientId: string;
+    clientSecret: string;
+    redirectUri?: string;
 }
 
 export interface ICalendarEventFilterQuery {

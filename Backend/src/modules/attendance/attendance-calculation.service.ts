@@ -16,13 +16,16 @@ import { TimezoneUtils } from './utils/timezone.utils';
 export interface ShiftScheduleResolution {
     shift: ResolvedEmployeeShift | null;
     shiftId: Types.ObjectId | null;
+    shiftName: string | null;
+    shiftCode: string | null;
     cycleDate: string; // "YYYY-MM-DD"
-    scheduledStartTime: Date;
-    scheduledEndTime: Date;
+    scheduledStartTime: Date | null;
+    scheduledEndTime: Date | null;
     scheduledWorkingMinutes: number;
     gracePeriodMinutes: number;
     earlyCheckoutGraceMinutes: number;
     isOvernight: boolean;
+    isAssigned: boolean;
 }
 
 export interface AttendanceStatusEvaluationInput {
@@ -35,12 +38,20 @@ export interface AttendanceStatusEvaluationInput {
     holiday: IHolidayDocument | null;
     isWeekOff: boolean;
     isShiftConcluded?: boolean;
+    hasAssignedShift?: boolean;
+}
+
+export interface WorkInterval {
+    start: Date;
+    end: Date | null;
+    isBreak?: boolean;
 }
 
 export class AttendanceCalculationService {
     /**
      * Resolves shift schedule & cycle date boundaries for an employee punch or calculation.
-     * Accurately supports overnight shifts (e.g. 22:00 -> 06:00).
+     * Accurately supports daytime and overnight shifts (e.g. 22:00 -> 06:00).
+     * If no shift is assigned or configured, returns an explicit isAssigned: false state.
      */
     static async resolveShiftSchedule(
         companyId: string,
@@ -55,12 +66,32 @@ export class AttendanceCalculationService {
             punchTime
         );
 
-        const startTimeStr = resolvedShift?.startTime || '09:00';
-        const endTimeStr = resolvedShift?.endTime || '17:30';
-        const crossesMidnight = resolvedShift?.crossesMidnight ?? false;
-        const gracePeriodMinutes = resolvedShift?.gracePeriodMinutes ?? 10;
-        const earlyCheckoutGraceMinutes = resolvedShift?.earlyCheckoutGracePeriodMinutes ?? 5;
-        const shiftId = resolvedShift?.shiftId ? new Types.ObjectId(resolvedShift.shiftId) : null;
+        if (!resolvedShift) {
+            return {
+                shift: null,
+                shiftId: null,
+                shiftName: null,
+                shiftCode: null,
+                cycleDate: timeParts.dateString,
+                scheduledStartTime: null,
+                scheduledEndTime: null,
+                scheduledWorkingMinutes: 0,
+                gracePeriodMinutes: 0,
+                earlyCheckoutGraceMinutes: 0,
+                isOvernight: false,
+                isAssigned: false,
+            };
+        }
+
+        const startTimeStr = resolvedShift.startTime || '09:00';
+        const endTimeStr = resolvedShift.endTime || '17:30';
+        const crossesMidnight = resolvedShift.crossesMidnight ?? false;
+        const gracePeriodMinutes = resolvedShift.gracePeriodMinutes ?? 0;
+        const earlyCheckoutGraceMinutes = resolvedShift.earlyCheckoutGracePeriodMinutes ?? 0;
+        const shiftId = resolvedShift.shiftId ? new Types.ObjectId(resolvedShift.shiftId) : null;
+        const shiftName = resolvedShift.name || null;
+        const shiftCode = resolvedShift.code || null;
+        const isAssigned = resolvedShift.isAssigned ?? true;
 
         let cycleDate = timeParts.dateString;
         let scheduledStartTime: Date;
@@ -116,13 +147,15 @@ export class AttendanceCalculationService {
         }
 
         const scheduledWorkingMinutes = Math.max(
-            60,
+            0,
             Math.round((scheduledEndTime.getTime() - scheduledStartTime.getTime()) / (60 * 1000))
         );
 
         return {
             shift: resolvedShift,
             shiftId,
+            shiftName,
+            shiftCode,
             cycleDate,
             scheduledStartTime,
             scheduledEndTime,
@@ -130,6 +163,7 @@ export class AttendanceCalculationService {
             gracePeriodMinutes,
             earlyCheckoutGraceMinutes,
             isOvernight: crossesMidnight,
+            isAssigned,
         };
     }
 
@@ -191,53 +225,106 @@ export class AttendanceCalculationService {
 
     /**
      * Calculates late arrival minutes against scheduled start time and grace minutes.
+     * Defined rule: lateMinutes = max(0, actualCheckIn - (scheduledShiftStart + gracePeriod))
+     * Applied only when the employee has an applicable shift and valid check-in.
+     * Grace period of 0 is fully supported.
      */
     static calculateLateMinutes(
-        checkInTime: Date,
-        scheduledStartTime: Date,
-        graceMinutes = 10
-    ): { lateMinutes: number; punchStatus: PunchStatus } {
-        const graceThresholdMs = scheduledStartTime.getTime() + graceMinutes * 60 * 1000;
-        if (checkInTime.getTime() > graceThresholdMs) {
+        checkInTime: Date | null,
+        scheduledStartTime: Date | null,
+        graceMinutes: number = 0
+    ): {
+        lateMinutes: number;
+        minutesPastScheduledStart: number;
+        punchStatus: PunchStatus;
+        gracePeriodMinutes: number;
+    } {
+        if (!checkInTime || !scheduledStartTime) {
+            return {
+                lateMinutes: 0,
+                minutesPastScheduledStart: 0,
+                punchStatus: 'ON_TIME',
+                gracePeriodMinutes: graceMinutes || 0,
+            };
+        }
+
+        const checkInMs = checkInTime.getTime();
+        const startMs = scheduledStartTime.getTime();
+        const gracePeriod = Math.max(0, graceMinutes || 0);
+        const graceMs = gracePeriod * 60 * 1000;
+        const graceThresholdMs = startMs + graceMs;
+
+        const minutesPastScheduledStart = Math.max(
+            0,
+            Math.round((checkInMs - startMs) / (60 * 1000))
+        );
+
+        if (checkInMs > graceThresholdMs) {
             const lateMinutes = Math.max(
                 0,
-                Math.round((checkInTime.getTime() - scheduledStartTime.getTime()) / (60 * 1000))
+                Math.round((checkInMs - graceThresholdMs) / (60 * 1000))
             );
             return {
                 lateMinutes,
+                minutesPastScheduledStart,
                 punchStatus: 'LATE',
+                gracePeriodMinutes: gracePeriod,
             };
         }
+
         return {
             lateMinutes: 0,
+            minutesPastScheduledStart,
             punchStatus: 'ON_TIME',
+            gracePeriodMinutes: gracePeriod,
         };
     }
 
     /**
      * Calculates early departure and overtime minutes on check-out.
+     * Defined rule: earlyDepartureMinutes = max(0, scheduledShiftEnd - actualCheckOut)
+     * Calculated only when there is a valid completed checkout and scheduled shift end.
+     * If checked out after scheduled end, earlyDepartureMinutes is 0.
      */
     static calculateEarlyLeaveAndOvertime(
-        checkOutTime: Date,
-        scheduledEndTime: Date,
-        earlyCheckoutGraceMinutes = 5
-    ): { earlyLeaveMinutes: number; overtimeMinutes: number; checkoutStatus: CheckoutStatus } {
-        const earlyThresholdMs = scheduledEndTime.getTime() - earlyCheckoutGraceMinutes * 60 * 1000;
+        checkOutTime: Date | null,
+        scheduledEndTime: Date | null,
+        earlyCheckoutGraceMinutes: number = 0
+    ): {
+        earlyLeaveMinutes: number;
+        overtimeMinutes: number;
+        checkoutStatus: CheckoutStatus;
+        earlyCheckoutGraceMinutes: number;
+    } {
+        if (!checkOutTime || !scheduledEndTime) {
+            return {
+                earlyLeaveMinutes: 0,
+                overtimeMinutes: 0,
+                checkoutStatus: 'ON_TIME',
+                earlyCheckoutGraceMinutes: earlyCheckoutGraceMinutes || 0,
+            };
+        }
+
+        const checkOutMs = checkOutTime.getTime();
+        const endMs = scheduledEndTime.getTime();
+        const earlyGrace = Math.max(0, earlyCheckoutGraceMinutes || 0);
+        const earlyThresholdMs = endMs - earlyGrace * 60 * 1000;
+
         let earlyLeaveMinutes = 0;
         let overtimeMinutes = 0;
         let checkoutStatus: CheckoutStatus = 'ON_TIME';
 
-        if (checkOutTime.getTime() < earlyThresholdMs) {
+        if (checkOutMs < earlyThresholdMs) {
             checkoutStatus = 'EARLY_OUT';
             earlyLeaveMinutes = Math.max(
                 0,
-                Math.round((scheduledEndTime.getTime() - checkOutTime.getTime()) / (60 * 1000))
+                Math.round((endMs - checkOutMs) / (60 * 1000))
             );
-        } else if (checkOutTime.getTime() > scheduledEndTime.getTime()) {
+        } else if (checkOutMs > endMs) {
             checkoutStatus = 'OVERTIME';
             overtimeMinutes = Math.max(
                 0,
-                Math.round((checkOutTime.getTime() - scheduledEndTime.getTime()) / (60 * 1000))
+                Math.round((checkOutMs - endMs) / (60 * 1000))
             );
         }
 
@@ -245,27 +332,94 @@ export class AttendanceCalculationService {
             earlyLeaveMinutes,
             overtimeMinutes,
             checkoutStatus,
+            earlyCheckoutGraceMinutes: earlyGrace,
         };
     }
 
     /**
-     * Calculates net worked minutes between firstCheckIn and lastCheckOut.
+     * Calculates net worked minutes between firstCheckIn and lastCheckOut minus break duration.
+     * Rejects reversed or invalid timestamps.
      */
     static calculateWorkedMinutes(
         firstCheckIn: Date | null,
         lastCheckOut: Date | null,
-        breakMinutes = 0
+        breakMinutes: number = 0
     ): number {
         if (!firstCheckIn || !lastCheckOut) return 0;
-        const diffMinutes = Math.round(
-            (lastCheckOut.getTime() - firstCheckIn.getTime()) / (60 * 1000)
-        );
+        const diffMs = lastCheckOut.getTime() - firstCheckIn.getTime();
+        if (diffMs < 0) return 0; // Reversed timestamps rejected
+
+        const diffMinutes = Math.round(diffMs / (60 * 1000));
         return Math.max(0, diffMinutes - (breakMinutes || 0));
     }
 
     /**
+     * Non-overlapping interval accumulator to calculate net working time without double-counting.
+     */
+    static calculateIntervalsWorkedMinutes(
+        intervals: WorkInterval[]
+    ): { elapsedMinutes: number; breakMinutes: number; netWorkedMinutes: number } {
+        if (!intervals || intervals.length === 0) {
+            return { elapsedMinutes: 0, breakMinutes: 0, netWorkedMinutes: 0 };
+        }
+
+        const validIntervals = intervals
+            .filter((i) => i.start && i.end && i.end.getTime() >= i.start.getTime())
+            .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+        if (validIntervals.length === 0) {
+            return { elapsedMinutes: 0, breakMinutes: 0, netWorkedMinutes: 0 };
+        }
+
+        const minStart = validIntervals[0].start.getTime();
+        const maxEnd = Math.max(...validIntervals.map((i) => i.end!.getTime()));
+        const elapsedMinutes = Math.round((maxEnd - minStart) / (60 * 1000));
+
+        let breakMinutes = 0;
+        const workSegments: Array<{ start: number; end: number }> = [];
+
+        for (const item of validIntervals) {
+            const s = item.start.getTime();
+            const e = item.end!.getTime();
+            if (item.isBreak) {
+                breakMinutes += Math.round((e - s) / (60 * 1000));
+            } else {
+                workSegments.push({ start: s, end: e });
+            }
+        }
+
+        // Merge overlapping work segments
+        let mergedWorkMs = 0;
+        if (workSegments.length > 0) {
+            let currentStart = workSegments[0].start;
+            let currentEnd = workSegments[0].end;
+
+            for (let i = 1; i < workSegments.length; i++) {
+                const seg = workSegments[i];
+                if (seg.start <= currentEnd) {
+                    currentEnd = Math.max(currentEnd, seg.end);
+                } else {
+                    mergedWorkMs += currentEnd - currentStart;
+                    currentStart = seg.start;
+                    currentEnd = seg.end;
+                }
+            }
+            mergedWorkMs += currentEnd - currentStart;
+        }
+
+        const netWorkedMinutes = Math.max(0, Math.round(mergedWorkMs / (60 * 1000)));
+
+        return {
+            elapsedMinutes,
+            breakMinutes,
+            netWorkedMinutes,
+        };
+    }
+
+    /**
      * Pure calculation engine to derive the canonical AttendanceStatus based on all business criteria.
-     * Core Principle: Approved leave/holiday/week-off ALWAYS take precedence over absence.
+     * Precedence: Holiday -> Approved Leave -> Week Off -> Present / Half Day -> Absent / Pending.
+     * If employee has no assigned shift, absence is NOT assigned before confirmation.
      */
     static calculateAttendanceStatus(input: AttendanceStatusEvaluationInput): AttendanceStatus {
         const {
@@ -276,6 +430,7 @@ export class AttendanceCalculationService {
             holiday,
             isWeekOff,
             isShiftConcluded,
+            hasAssignedShift = true,
         } = input;
 
         // 1. Company Holiday precedence
@@ -290,9 +445,6 @@ export class AttendanceCalculationService {
 
         // 3. Approved Half-day Leave precedence
         if (leave && leave.durationType === 'HALF_DAY') {
-            if (hasCheckIn) {
-                return AttendanceStatus.HALF_DAY;
-            }
             return AttendanceStatus.HALF_DAY;
         }
 
@@ -311,7 +463,11 @@ export class AttendanceCalculationService {
 
         // 6. No check-in event
         if (isShiftConcluded) {
-            return AttendanceStatus.ABSENT;
+            // Only mark absent if the employee has a designated working shift on this day
+            if (hasAssignedShift) {
+                return AttendanceStatus.ABSENT;
+            }
+            return AttendanceStatus.PENDING;
         }
 
         return AttendanceStatus.PENDING;

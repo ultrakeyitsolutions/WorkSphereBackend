@@ -28,7 +28,14 @@ export function getRedisClient(): Redis {
         return redisClient;
     }
 
-    const redisUrl = process.env.REDIS_URL;
+    let rawRedisUrl = (process.env.REDIS_URL || (process.env as any)[' REDIS_URL'])?.trim();
+    let redisUrl: string | undefined = undefined;
+
+    if (rawRedisUrl) {
+        const match = rawRedisUrl.match(/(rediss?:\/\/[^\s"']+)/);
+        redisUrl = match ? match[1] : rawRedisUrl;
+    }
+
     const password = process.env.REDIS_PASSWORD || process.env.REDIS_API_KEY || undefined;
     const username = process.env.REDIS_USERNAME || undefined;
     const isTls = process.env.REDIS_TLS === 'true' || Boolean(redisUrl?.startsWith('rediss://'));

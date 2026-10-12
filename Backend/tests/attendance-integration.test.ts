@@ -12,6 +12,9 @@ import { User } from '../src/modules/users/user.model';
 import { Company } from '../src/modules/super-admin/companies/company.model';
 import { generateAccessToken } from '../src/utils/tokens';
 import { Types } from 'mongoose';
+import { CompanyLeavePolicy } from '../src/modules/companyadmin/leave/leave-policy.model';
+import { EmployeeMonthlyLeaveBalance } from '../src/modules/companyadmin/leave/leave-balance.model';
+import { CompanyLopPolicy } from '../src/modules/companyadmin/leave/lop-policy.model';
 
 vi.mock('../src/modules/audit-logs/audit-log.model', () => ({
     AuditLog: {
@@ -29,6 +32,39 @@ describe('Attendance Management System - Integration Tests', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+
+        // Mock leave policies & balances
+        vi.spyOn(CompanyLeavePolicy, 'findOne').mockReturnValue({
+            sort: vi.fn().mockResolvedValue(null),
+        } as any);
+        vi.spyOn(CompanyLopPolicy, 'findOne').mockReturnValue({
+            sort: vi.fn().mockResolvedValue(null),
+        } as any);
+        vi.spyOn(Holiday, 'find').mockReturnValue({
+            select: vi.fn().mockReturnValue({
+                lean: vi.fn().mockResolvedValue([]),
+            }),
+        } as any);
+        vi.spyOn(EmployeeMonthlyLeaveBalance, 'findOne').mockResolvedValue({
+            allocatedPaidDays: 2,
+            totalEligiblePaidDays: 2,
+            approvedPaidDays: 0,
+            pendingPaidDays: 0,
+            remainingPaidBalance: 2,
+            availablePaidBalance: 2,
+            requestedDays: 0,
+            save: vi.fn().mockResolvedValue(true),
+        } as any);
+        vi.spyOn(EmployeeMonthlyLeaveBalance, 'create').mockResolvedValue({
+            allocatedPaidDays: 2,
+            totalEligiblePaidDays: 2,
+            approvedPaidDays: 0,
+            pendingPaidDays: 0,
+            remainingPaidBalance: 2,
+            availablePaidBalance: 2,
+            requestedDays: 0,
+            save: vi.fn().mockResolvedValue(true),
+        } as any);
 
         employeeToken = generateAccessToken({
             userId: mockEmployeeId,
@@ -183,6 +219,7 @@ describe('Attendance Management System - Integration Tests', () => {
                 totalDays: 2,
                 status: 'PENDING',
                 reason: 'Family event',
+                save: vi.fn().mockResolvedValue(true),
             } as any);
 
             const applyRes = await request(app)

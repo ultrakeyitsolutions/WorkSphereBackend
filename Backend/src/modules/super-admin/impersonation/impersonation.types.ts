@@ -49,6 +49,12 @@ export interface ImpersonationStartResponse {
         role: string;
         companyId: string | null;
     };
+    company?: {
+        id: string;
+        name: string;
+        slug: string;
+        logoUrl?: string | null;
+    } | null;
 }
 
 export interface ImpersonationStopResponse {

@@ -1,5 +1,5 @@
-import { getMailTransporter, mailDefaults } from '../../../config/mail';
 import { env } from '../../../config/env';
+import { CompanyEmailService } from '../settings/company-email.service';
 
 export interface SendInvitationEmailOptions {
   to: string;
@@ -7,18 +7,30 @@ export interface SendInvitationEmailOptions {
   companyName: string;
   roleName: string;
   designationName: string;
+  companyId?: string;
+}
+
+export interface SendInvitationEmailResult {
+  messageId?: string;
+  senderEmail: string;
+  senderMode: 'PLATFORM' | 'COMPANY';
 }
 
 export class EmailService {
 
   /**
-   * Send the invitation email.
-   * The raw token is embedded in the URL — it is NEVER returned from the API.
+   * Send the invitation email with centralized backend sender resolution.
+   * If the company has an eligible subscription with custom email entitlement
+   * and a verified company sender, uses the company sender configuration.
+   * Otherwise safely falls back to the global platform sender.
    */
-  static async sendInvitationEmail(opts: SendInvitationEmailOptions): Promise<string | undefined> {
-    const { to, rawToken, companyName, roleName, designationName } = opts;
+  static async sendInvitationEmail(opts: SendInvitationEmailOptions): Promise<SendInvitationEmailResult> {
+    const { to, rawToken, companyName, roleName, designationName, companyId } = opts;
 
     const acceptUrl = `${env.APP_URL}/invite?token=${encodeURIComponent(rawToken)}`;
+
+    // Centralized sender resolution
+    const resolvedSender = await CompanyEmailService.resolveSender(companyId);
 
     const htmlBody = `
 <!DOCTYPE html>
@@ -64,22 +76,30 @@ export class EmailService {
       </p>
     </div>
     <div class="footer">
-      &copy; ${new Date().getFullYear()} WorkSphere. If you did not expect this invitation, you can safely ignore this email.
+      &copy; ${new Date().getFullYear()} ${companyName} via WorkSphere. If you did not expect this invitation, you can safely ignore this email.
     </div>
   </div>
 </body>
 </html>`;
 
-    const transporter = getMailTransporter();
+    const transporter = resolvedSender.transporter;
     const info = await transporter.sendMail({
-      from: mailDefaults.from,
+      from: resolvedSender.from,
       to,
+      replyTo: resolvedSender.replyTo || undefined,
       subject: `You're invited to join ${companyName} on WorkSphere`,
       html: htmlBody,
       text: `You have been invited to join ${companyName}.\nRole: ${roleName}\nDesignation: ${designationName}\n\nAccept your invitation: ${acceptUrl}`,
     });
 
     // nodemailer returns messageId for smtp, envelope for jsonTransport
-    return (info as any).messageId ?? (info as any).envelope?.to?.[0];
+    const messageId = (info as any).messageId ?? (info as any).envelope?.to?.[0];
+    const senderMode: 'PLATFORM' | 'COMPANY' = resolvedSender.mode === 'COMPANY' ? 'COMPANY' : 'PLATFORM';
+
+    return {
+      messageId,
+      senderEmail: resolvedSender.senderEmail,
+      senderMode,
+    };
   }
 }

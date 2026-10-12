@@ -53,7 +53,6 @@ const messageSchema = new Schema<IMessageDocument>(
 // Indexes
 messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ conversationId: 1, deletedAt: 1 });
-messageSchema.index({ senderId: 1 });
 
 export const Message = model<IMessageDocument>('Message', messageSchema);
 export default Message;

@@ -2,6 +2,39 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { Types } from 'mongoose';
 import { app } from '../src/app';
+import { encrypt } from '../src/utils/encryption';
+
+const mockEventsInsert = vi.fn();
+const mockEventsGet = vi.fn();
+const mockOAuth2GetToken = vi.fn();
+const mockUserInfoGet = vi.fn();
+
+vi.mock('googleapis', () => {
+    class MockOAuth2 {
+        setCredentials = vi.fn();
+        on = vi.fn();
+        getToken = mockOAuth2GetToken;
+    }
+    return {
+        google: {
+            auth: {
+                OAuth2: MockOAuth2,
+            },
+            calendar: vi.fn().mockImplementation(() => ({
+                events: {
+                    insert: mockEventsInsert,
+                    get: mockEventsGet,
+                },
+            })),
+            oauth2: vi.fn().mockImplementation(() => ({
+                userinfo: {
+                    get: mockUserInfoGet,
+                },
+            })),
+        },
+    };
+});
+
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const COMPANY_ID = '64e0a1b2c3d4e5f6a7b8c9d0';
@@ -20,6 +53,8 @@ const mocks = vi.hoisted(() => ({
     calendarOAuthFind: vi.fn(),
     calendarOAuthFindOne: vi.fn(),
     calendarOAuthFindOneAndUpdate: vi.fn(),
+    companyCalendarConfigFindOne: vi.fn(),
+    companyCalendarConfigFindOneAndUpdate: vi.fn(),
     userFindById: vi.fn(),
     userFind: vi.fn(),
     companyMemberFind: vi.fn(),
@@ -69,6 +104,17 @@ vi.mock('../src/modules/calendar/calendar-oauth.model', () => ({
         find: mocks.calendarOAuthFind,
         findOne: mocks.calendarOAuthFindOne,
         findOneAndUpdate: mocks.calendarOAuthFindOneAndUpdate,
+    },
+}));
+
+vi.mock('../src/modules/calendar/company-calendar-config.model', () => ({
+    CompanyCalendarConfig: {
+        findOne: mocks.companyCalendarConfigFindOne,
+        findOneAndUpdate: mocks.companyCalendarConfigFindOneAndUpdate,
+    },
+    default: {
+        findOne: mocks.companyCalendarConfigFindOne,
+        findOneAndUpdate: mocks.companyCalendarConfigFindOneAndUpdate,
     },
 }));
 
@@ -200,8 +246,51 @@ describe('Calendar & Meeting Invitation API', () => {
             }),
         });
 
-        mocks.calendarOAuthFind.mockResolvedValue([]);
-        mocks.calendarOAuthFindOne.mockResolvedValue(null);
+        const mockEncryptedToken = encrypt('mock_access_token_123');
+        mocks.companyCalendarConfigFindOne.mockReturnValue({
+            lean: vi.fn().mockResolvedValue(null),
+        });
+        mocks.companyCalendarConfigFindOneAndUpdate.mockResolvedValue({});
+        mocks.calendarOAuthFindOne.mockResolvedValue({
+            companyId: new Types.ObjectId(COMPANY_ID),
+            userId: new Types.ObjectId(USER_ID),
+            provider: 'google',
+            isConnected: true,
+            accessTokenEncrypted: mockEncryptedToken,
+            refreshTokenEncrypted: mockEncryptedToken,
+            accountEmail: 'organizer@worksphere.com',
+        });
+
+        mockEventsGet.mockResolvedValue({
+            data: {
+                id: 'google_cal_event_123',
+                conferenceData: {
+                    conferenceId: 'genuine-meet-conference-id',
+                    createRequest: { status: { statusCode: 'success' } },
+                    entryPoints: [
+                        {
+                            entryPointType: 'video',
+                            uri: 'https://meet.google.com/qpa-nxkm-rvw',
+                        },
+                    ],
+                },
+            },
+        });
+
+        mockEventsInsert.mockResolvedValue({
+            data: {
+                id: 'google_cal_event_123',
+                conferenceData: {
+                    conferenceId: 'genuine-meet-conference-id',
+                    entryPoints: [
+                        {
+                            entryPointType: 'video',
+                            uri: 'https://meet.google.com/qpa-nxkm-rvw',
+                        },
+                    ],
+                },
+            },
+        });
         mocks.calendarEventCountDocuments.mockResolvedValue(0);
         mocks.entitlementHasFeature.mockResolvedValue(true);
         mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
@@ -491,11 +580,11 @@ describe('Calendar & Meeting Invitation API', () => {
 
     // ── 2.7 POST /api/v1/company/calendar/quick-meeting ─────────────────────
     describe('POST /api/v1/company/calendar/quick-meeting', () => {
-        it('should generate quick meeting room instantly', async () => {
+        it('should generate quick meeting room instantly with genuine provider URL', async () => {
             mocks.calendarEventCreate.mockResolvedValue({
                 ...mockEventDoc,
                 title: 'Instant Sync with Manohar',
-                meetingUrl: 'https://meet.google.com/xyz-uvwx-rst',
+                meetingUrl: 'https://meet.google.com/qpa-nxkm-rvw',
             });
 
             const res = await request(app)
@@ -509,8 +598,170 @@ describe('Calendar & Meeting Invitation API', () => {
             expect(res.status).toBe(201);
             expect(res.body.success).toBe(true);
             expect(res.body.message).toBe('Quick meeting room created');
-            expect(res.body.data.meetingUrl).toBeDefined();
+            expect(res.body.data.meetingUrl).toBe('https://meet.google.com/qpa-nxkm-rvw');
             expect(res.body.data.provider).toBe('google_meet');
+            expect(mockEventsInsert).toHaveBeenCalled();
+        });
+
+        it('should reject quick meeting when Google OAuth is not connected without returning dummy URL', async () => {
+            mocks.calendarOAuthFindOne.mockResolvedValue(null);
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: 'Instant Sync Disconnected',
+                    provider: 'google_meet',
+                    durationMinutes: 30,
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Google Calendar & Meet is not connected');
+        });
+
+        it('should reject quick meeting when Google Calendar API fails to create conference', async () => {
+            mockEventsInsert.mockRejectedValueOnce(new Error('Rate limit exceeded or conference permission denied'));
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: 'Instant Sync Failing API',
+                    provider: 'google_meet',
+                    durationMinutes: 30,
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Failed to create Google Meet conference');
+        });
+
+        it('should poll and resolve pending conference status to genuine URL', async () => {
+            // First call (insert) returns pending
+            mockEventsInsert.mockResolvedValueOnce({
+                data: {
+                    id: 'pending_event_99',
+                    conferenceData: {
+                        createRequest: {
+                            status: { statusCode: 'pending' },
+                        },
+                    },
+                },
+            });
+
+            // Polling call (get) returns success with genuine URL
+            mockEventsGet.mockResolvedValueOnce({
+                data: {
+                    id: 'pending_event_99',
+                    conferenceData: {
+                        createRequest: {
+                            status: { statusCode: 'success' },
+                        },
+                        conferenceId: 'pol-ledr-oom',
+                        entryPoints: [
+                            {
+                                entryPointType: 'video',
+                                uri: 'https://meet.google.com/pol-ledr-oom',
+                            },
+                        ],
+                    },
+                },
+            });
+
+            mocks.calendarEventCreate.mockResolvedValue({
+                ...mockEventDoc,
+                title: 'Pending Sync',
+                meetingUrl: 'https://meet.google.com/pol-ledr-oom',
+            });
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: 'Pending Sync',
+                    provider: 'google_meet',
+                    durationMinutes: 30,
+                });
+
+            expect(res.status).toBe(201);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.meetingUrl).toBe('https://meet.google.com/pol-ledr-oom');
+            expect(mockEventsGet).toHaveBeenCalled();
+        });
+
+        it('should reject quick meeting when Google conference creation status is failure', async () => {
+            mockEventsInsert.mockResolvedValueOnce({
+                data: {
+                    id: 'failed_event_99',
+                    conferenceData: {
+                        createRequest: {
+                            status: {
+                                statusCode: 'failure',
+                                error: { code: 'PERMISSION_DENIED' },
+                            },
+                        },
+                    },
+                },
+            });
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: 'Failing Conference',
+                    provider: 'google_meet',
+                    durationMinutes: 30,
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Google Meet conference creation failed');
+        });
+
+        it('should repair legacy invalid meeting record on POST /events/:id/conference', async () => {
+            const legacyEventDoc = {
+                ...mockEventDoc,
+                meetingUrl: 'https://meet.google.com/dmi-raco-qhj', // Legacy fake URL
+                externalEventId: 'dmi-raco-qhj', // Fake ID matching meet code
+                save: vi.fn().mockResolvedValue(true),
+            };
+
+            mocks.calendarEventFindOne.mockResolvedValue(legacyEventDoc);
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/events/' + EVENT_ID + '/conference');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.meetingUrl).toBe('https://meet.google.com/qpa-nxkm-rvw');
+            expect(legacyEventDoc.save).toHaveBeenCalled();
+        });
+
+        it('should handle concurrent quick meeting creation requests safely', async () => {
+            mocks.calendarEventCreate.mockImplementation(async (doc: any) => ({
+                ...mockEventDoc,
+                ...doc,
+                _id: new Types.ObjectId(),
+            }));
+
+            const [res1, res2] = await Promise.all([
+                request(app)
+                    .post('/api/v1/company/calendar/quick-meeting')
+                    .send({
+                        title: 'Concurrent Meeting 1',
+                        provider: 'google_meet',
+                        durationMinutes: 15,
+                    }),
+                request(app)
+                    .post('/api/v1/company/calendar/quick-meeting')
+                    .send({
+                        title: 'Concurrent Meeting 2',
+                        provider: 'google_meet',
+                        durationMinutes: 30,
+                    }),
+            ]);
+
+            expect(res1.status).toBe(201);
+            expect(res2.status).toBe(201);
+            expect(res1.body.data.meetingUrl).toBeDefined();
+            expect(res2.body.data.meetingUrl).toBeDefined();
         });
     });
 
@@ -547,10 +798,11 @@ describe('Calendar & Meeting Invitation API', () => {
                 accountEmail: 'admin@worksphere.com',
             });
 
+            const uniqueCode = 'fresh_auth_code_' + Date.now();
             const res = await request(app)
                 .post('/api/v1/company/calendar/oauth/google/connect')
                 .send({
-                    code: '4/0AeanS0...',
+                    code: uniqueCode,
                     redirectUri: 'https://app.worksphere.com/oauth/callback',
                 });
 
@@ -558,6 +810,47 @@ describe('Calendar & Meeting Invitation API', () => {
             expect(res.body.success).toBe(true);
             expect(res.body.message).toBe('Integration connected successfully');
             expect(res.body.data.isConnected).toBe(true);
+        });
+
+        it('should reject duplicate code exchange on POST /oauth/:provider/connect', async () => {
+            const reusableCode = 'reused_code_' + Date.now();
+            mocks.calendarOAuthFindOneAndUpdate.mockResolvedValue({
+                provider: 'google',
+                isConnected: true,
+                accountEmail: 'admin@worksphere.com',
+            });
+
+            // First submission succeeds
+            const firstRes = await request(app)
+                .post('/api/v1/company/calendar/oauth/google/connect')
+                .send({
+                    code: reusableCode,
+                    redirectUri: 'https://app.worksphere.com/oauth/callback',
+                });
+            expect(firstRes.status).toBe(200);
+
+            // Second submission of the same code must be rejected
+            const secondRes = await request(app)
+                .post('/api/v1/company/calendar/oauth/google/connect')
+                .send({
+                    code: reusableCode,
+                    redirectUri: 'https://app.worksphere.com/oauth/callback',
+                });
+            expect(secondRes.status).toBe(400);
+            expect(secondRes.body.success).toBe(false);
+            expect(secondRes.body.message).toContain('OAuth authorization code has already been exchanged');
+        });
+
+        it('should reject OAuth connect when code or redirectUri is missing', async () => {
+            const res = await request(app)
+                .post('/api/v1/company/calendar/oauth/google/connect')
+                .send({
+                    // Missing code and redirectUri
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toBe('Validation Error');
         });
 
         it('should disconnect oauth provider via DELETE /oauth/:provider/disconnect', async () => {
@@ -572,6 +865,61 @@ describe('Calendar & Meeting Invitation API', () => {
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
             expect(res.body.message).toBe('Integration disconnected successfully');
+        });
+
+        it('should get company oauth configuration via GET /oauth/:provider/config', async () => {
+            mocks.companyCalendarConfigFindOne.mockReturnValue({
+                lean: vi.fn().mockResolvedValue({
+                    clientId: 'company-specific-client-id.apps.googleusercontent.com',
+                    clientSecretEncrypted: encrypt('company-specific-secret'),
+                    redirectUri: 'https://company.worksphere.com/oauth/callback',
+                }),
+            });
+
+            const res = await request(app).get('/api/v1/company/calendar/oauth/google/config');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.clientId).toBe('company-specific-client-id.apps.googleusercontent.com');
+            expect(res.body.data.isConfigured).toBe(true);
+            expect(res.body.data.hasClientSecret).toBe(true);
+            expect(res.body.data.clientSecret).toBeUndefined();
+        });
+
+        it('should save company oauth credentials via POST /oauth/:provider/config', async () => {
+            const res = await request(app)
+                .post('/api/v1/company/calendar/oauth/google/config')
+                .send({
+                    clientId: 'new-client-id.apps.googleusercontent.com',
+                    clientSecret: 'new-client-secret-xyz',
+                    redirectUri: 'https://company.worksphere.com/oauth/callback',
+                });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.clientId).toBe('new-client-id.apps.googleusercontent.com');
+            expect(mocks.companyCalendarConfigFindOneAndUpdate).toHaveBeenCalled();
+        });
+
+        it('should accept clientId and clientSecret when connecting oauth', async () => {
+            mocks.calendarOAuthFindOneAndUpdate.mockResolvedValue({
+                provider: 'google',
+                isConnected: true,
+                accountEmail: 'admin@worksphere.com',
+            });
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/oauth/google/connect')
+                .send({
+                    code: 'auth_code_with_creds_' + Date.now(),
+                    redirectUri: 'https://company.worksphere.com/oauth/callback',
+                    clientId: 'inline-client-id.apps.googleusercontent.com',
+                    clientSecret: 'inline-client-secret-abc',
+                });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(mocks.companyCalendarConfigFindOneAndUpdate).toHaveBeenCalled();
         });
     });
 
@@ -747,6 +1095,88 @@ describe('Calendar & Meeting Invitation API', () => {
             expect(res.status).toBe(201);
             expect(res.body.success).toBe(true);
             expect(res.body.message).toBe('Quick meeting room created');
+        });
+
+        it('should create quick meeting with multiple invited participants initializing statuses to pending', async () => {
+            mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+                enabled: true,
+                monthlyLimit: 100,
+                isUnlimited: true,
+                billingCycle: 'YEARLY',
+                planName: 'Enterprise Annual',
+            });
+
+            mocks.userFind.mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                    lean: vi.fn().mockResolvedValue([
+                        { _id: new Types.ObjectId(PARTICIPANT_ID_1), name: 'Raju Sharma', email: 'raju@worksphere.com' },
+                        { _id: new Types.ObjectId('64d0a1b2c3d4e5f6a7b8c9d3'), name: 'Jane Smith', email: 'jane@worksphere.com' },
+                        { _id: new Types.ObjectId('64d0a1b2c3d4e5f6a7b8c9d4'), name: 'Bob Wilson', email: 'bob@worksphere.com' },
+                    ]),
+                }),
+            });
+
+            let createdPayload: any;
+            mocks.calendarEventCreate.mockImplementation(async (payload) => {
+                createdPayload = payload;
+                return {
+                    ...mockEventDoc,
+                    ...payload,
+                    _id: new Types.ObjectId(),
+                };
+            });
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: 'Multi-Participant Quick Sync',
+                    provider: 'google_meet',
+                    participantIds: [
+                        PARTICIPANT_ID_1,
+                        '64d0a1b2c3d4e5f6a7b8c9d3',
+                        '64d0a1b2c3d4e5f6a7b8c9d4',
+                    ],
+                });
+
+            expect(res.status).toBe(201);
+            expect(res.body.success).toBe(true);
+            expect(createdPayload).toBeDefined();
+
+            // Verify organizer has 'organizer' status
+            expect(createdPayload.participants[0].status).toBe('organizer');
+
+            // Verify all invitees have 'pending' status (not 'invited')
+            expect(createdPayload.participants[1].status).toBe('pending');
+            expect(createdPayload.participants[2].status).toBe('pending');
+            expect(createdPayload.participants[3].status).toBe('pending');
+        });
+
+        it('should handle Mongoose validation error on quick meeting persistence with HTTP 400', async () => {
+            mocks.entitlementGetQuickMeetingLimits.mockResolvedValue({
+                enabled: true,
+                monthlyLimit: 100,
+                isUnlimited: true,
+                billingCycle: 'YEARLY',
+                planName: 'Enterprise Annual',
+            });
+
+            const validationErr: any = new Error("Validation Error: participants.1.status: 'invalid' is not a valid enum value for path 'status'");
+            validationErr.name = 'ValidationError';
+            validationErr.errors = {
+                'participants.1.status': { message: "'invalid' is not a valid enum value for path 'status'" },
+            };
+            mocks.calendarEventCreate.mockRejectedValue(validationErr);
+
+            const res = await request(app)
+                .post('/api/v1/company/calendar/quick-meeting')
+                .send({
+                    title: 'Failing Meeting',
+                    provider: 'google_meet',
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Calendar event validation failed');
         });
     });
 });

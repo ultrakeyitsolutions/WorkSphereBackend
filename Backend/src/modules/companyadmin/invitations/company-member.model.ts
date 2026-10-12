@@ -69,6 +69,7 @@ const companyMemberSchema = new Schema<ICompanyMemberDocument>(
 
 // Unique: a user can only be a member of a company once
 companyMemberSchema.index({ companyId: 1, userId: 1 }, { unique: true });
+companyMemberSchema.index({ companyId: 1, status: 1 });
 
 // Biometric ID must be unique within a company if provided
 companyMemberSchema.index(

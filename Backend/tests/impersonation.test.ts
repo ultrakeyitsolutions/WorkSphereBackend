@@ -109,6 +109,7 @@ app.use(express.json());
 
 // Mount impersonation endpoints
 app.use('/api/superadmin/impersonation', impersonationRoutes);
+app.use('/api/v1/company/impersonation', impersonationRoutes);
 
 // Protected test endpoints
 app.get('/api/test/super-admin-only', authenticate, authorizeRoles('SUPER_ADMIN'), (req, res) => {
@@ -127,17 +128,23 @@ app.post('/api/test/sensitive-mfa', authenticate, blockImpersonatedOperations(),
     res.status(200).json({ success: true, message: 'MFA Updated' });
 });
 
-describe('Super Admin Impersonation System', () => {
+describe('Super Admin & Company Admin Impersonation System', () => {
     const superAdminId = new Types.ObjectId().toString();
     const companyAdminId = new Types.ObjectId().toString();
+    const otherCompanyAdminId = new Types.ObjectId().toString();
     const employeeId = new Types.ObjectId().toString();
+    const memberId = new Types.ObjectId().toString();
+    const otherCompanyEmployeeId = new Types.ObjectId().toString();
     const targetCompanyId = new Types.ObjectId().toString();
+    const otherCompanyId = new Types.ObjectId().toString();
     const mockSessionId = 'sess-12345-uuid';
+    const mockCompanyAdminSessionId = 'sess-company-admin-uuid';
 
     let superAdminToken: string;
     let companyAdminToken: string;
     let employeeToken: string;
     let impersonatedEmployeeToken: string;
+    let companyAdminImpersonatedToken: string;
 
     const mockSuperAdminUser = {
         _id: new Types.ObjectId(superAdminId),
@@ -158,6 +165,16 @@ describe('Super Admin Impersonation System', () => {
         role: { name: 'COMPANY_ADMIN', permissions: [] },
     };
 
+    const mockOtherCompanyAdminUser = {
+        _id: new Types.ObjectId(otherCompanyAdminId),
+        name: 'Other Acme Admin',
+        email: 'admin2@acme.com',
+        isActive: true,
+        status: 'ACTIVE',
+        companyId: new Types.ObjectId(targetCompanyId),
+        role: { name: 'COMPANY_ADMIN', permissions: [] },
+    };
+
     const mockEmployeeUser = {
         _id: new Types.ObjectId(employeeId),
         name: 'John Employee',
@@ -171,9 +188,42 @@ describe('Super Admin Impersonation System', () => {
         },
     };
 
+    const mockMemberUser = {
+        _id: new Types.ObjectId(memberId),
+        name: 'Jane Member',
+        email: 'jane@acme.com',
+        isActive: true,
+        status: 'ACTIVE',
+        companyId: new Types.ObjectId(targetCompanyId),
+        role: {
+            name: 'MEMBER',
+            permissions: [],
+        },
+    };
+
+    const mockOtherCompanyEmployeeUser = {
+        _id: new Types.ObjectId(otherCompanyEmployeeId),
+        name: 'Other Company Employee',
+        email: 'foreign@other.com',
+        isActive: true,
+        status: 'ACTIVE',
+        companyId: new Types.ObjectId(otherCompanyId),
+        role: {
+            name: 'EMPLOYEE',
+            permissions: [],
+        },
+    };
+
     const mockCompany = {
         _id: new Types.ObjectId(targetCompanyId),
         name: 'Acme Corp',
+        isActive: true,
+        status: 'ACTIVE',
+    };
+
+    const mockOtherCompany = {
+        _id: new Types.ObjectId(otherCompanyId),
+        name: 'Other Corp',
         isActive: true,
         status: 'ACTIVE',
     };
@@ -219,11 +269,29 @@ describe('Super Admin Impersonation System', () => {
             impersonatedBy: superAdminId,
         });
 
+        companyAdminImpersonatedToken = generateAccessToken({
+            userId: employeeId,
+            email: 'john@acme.com',
+            role: 'EMPLOYEE',
+            companyId: targetCompanyId,
+            sub: employeeId,
+            authUserId: companyAdminId,
+            effectiveUserId: employeeId,
+            sessionUserId: companyAdminId,
+            isImpersonating: true,
+            impersonationSessionId: mockCompanyAdminSessionId,
+            sessionType: 'IMPERSONATION',
+            impersonatedBy: companyAdminId,
+        });
+
         // Default User lookup mocks
         (UserService.findById as any).mockImplementation((id: string) => {
             if (id === superAdminId) return Promise.resolve(mockSuperAdminUser);
             if (id === companyAdminId) return Promise.resolve(mockCompanyAdminUser);
+            if (id === otherCompanyAdminId) return Promise.resolve(mockOtherCompanyAdminUser);
             if (id === employeeId) return Promise.resolve(mockEmployeeUser);
+            if (id === memberId) return Promise.resolve(mockMemberUser);
+            if (id === otherCompanyEmployeeId) return Promise.resolve(mockOtherCompanyEmployeeUser);
             return Promise.resolve(null);
         });
 
@@ -232,7 +300,10 @@ describe('Super Admin Impersonation System', () => {
             let foundUser: any = null;
             if (idStr === superAdminId) foundUser = mockSuperAdminUser;
             else if (idStr === companyAdminId) foundUser = mockCompanyAdminUser;
+            else if (idStr === otherCompanyAdminId) foundUser = mockOtherCompanyAdminUser;
             else if (idStr === employeeId) foundUser = mockEmployeeUser;
+            else if (idStr === memberId) foundUser = mockMemberUser;
+            else if (idStr === otherCompanyEmployeeId) foundUser = mockOtherCompanyEmployeeUser;
 
             return {
                 populate: vi.fn().mockResolvedValue(foundUser),
@@ -240,13 +311,30 @@ describe('Super Admin Impersonation System', () => {
             };
         });
 
-        (Company.findById as any).mockResolvedValue(mockCompany);
+        (Company.findById as any).mockImplementation((id: any) => {
+            const idStr = String(id);
+            if (idStr === targetCompanyId) return Promise.resolve(mockCompany);
+            if (idStr === otherCompanyId) return Promise.resolve(mockOtherCompany);
+            return Promise.resolve(null);
+        });
 
         (ImpersonationSession.findOne as any).mockImplementation((query: any) => {
-            if (query.sessionId === mockSessionId || query.status === ImpersonationStatus.ACTIVE) {
+            if (query.sessionId === mockSessionId || (query.status === ImpersonationStatus.ACTIVE && String(query.originalUserId) === superAdminId)) {
                 return Promise.resolve({
                     sessionId: mockSessionId,
                     originalUserId: new Types.ObjectId(superAdminId),
+                    targetUserId: new Types.ObjectId(employeeId),
+                    targetCompanyId: new Types.ObjectId(targetCompanyId),
+                    status: ImpersonationStatus.ACTIVE,
+                    startedAt: new Date(),
+                    expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+                    save: vi.fn().mockResolvedValue(true),
+                });
+            }
+            if (query.sessionId === mockCompanyAdminSessionId || (query.status === ImpersonationStatus.ACTIVE && String(query.originalUserId) === companyAdminId)) {
+                return Promise.resolve({
+                    sessionId: mockCompanyAdminSessionId,
+                    originalUserId: new Types.ObjectId(companyAdminId),
                     targetUserId: new Types.ObjectId(employeeId),
                     targetCompanyId: new Types.ObjectId(targetCompanyId),
                     status: ImpersonationStatus.ACTIVE,
@@ -276,15 +364,79 @@ describe('Super Admin Impersonation System', () => {
             expect(res.body.data.accessToken).toBeDefined();
         });
 
-        it('denies Company Admin from starting impersonation (403)', async () => {
+        it('allows Company Admin to impersonate an employee in their own company (200)', async () => {
             const res = await request(app)
                 .post('/api/superadmin/impersonation/start')
                 .set('Authorization', `Bearer ${companyAdminToken}`)
                 .send({ targetUserId: employeeId });
 
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.isImpersonating).toBe(true);
+            expect(res.body.data.authenticatedUserId).toBe(companyAdminId);
+            expect(res.body.data.impersonatedUserId).toBe(employeeId);
+            expect(res.body.data.role).toBe('EMPLOYEE');
+            expect(res.body.data.companyId).toBe(targetCompanyId);
+            expect(res.body.data.accessToken).toBeDefined();
+        });
+
+        it('allows Company Admin to impersonate a member in their own company via company endpoint (200)', async () => {
+            const res = await request(app)
+                .post('/api/v1/company/impersonation/start')
+                .set('Authorization', `Bearer ${companyAdminToken}`)
+                .send({ targetUserId: memberId });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.isImpersonating).toBe(true);
+            expect(res.body.data.role).toBe('MEMBER');
+        });
+
+        it('denies Company Admin from impersonating a user from another company (403)', async () => {
+            const res = await request(app)
+                .post('/api/superadmin/impersonation/start')
+                .set('Authorization', `Bearer ${companyAdminToken}`)
+                .send({ targetUserId: otherCompanyEmployeeId });
+
             expect(res.status).toBe(403);
             expect(res.body.success).toBe(false);
-            expect(res.body.message).toContain('Only Super Admin can impersonate users');
+            expect(res.body.message).toContain('You can only impersonate users within your own organization');
+        });
+
+        it('denies Company Admin from impersonating another Company Admin (403)', async () => {
+            const res = await request(app)
+                .post('/api/superadmin/impersonation/start')
+                .set('Authorization', `Bearer ${companyAdminToken}`)
+                .send({ targetUserId: otherCompanyAdminId });
+
+            expect(res.status).toBe(403);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Company Admins cannot impersonate other administrators');
+        });
+
+        it('denies Company Admin from impersonating a Super Admin (403)', async () => {
+            const res = await request(app)
+                .post('/api/superadmin/impersonation/start')
+                .set('Authorization', `Bearer ${companyAdminToken}`)
+                .send({ targetUserId: superAdminId });
+
+            expect(res.status).toBe(403);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Company Admins cannot impersonate Super Admins');
+        });
+
+        it('rejects forged company ID in request (isolates based on database target membership)', async () => {
+            const res = await request(app)
+                .post('/api/superadmin/impersonation/start')
+                .set('Authorization', `Bearer ${companyAdminToken}`)
+                .send({
+                    targetUserId: otherCompanyEmployeeId,
+                    companyId: targetCompanyId, // Attempt to forge company scope
+                });
+
+            expect(res.status).toBe(403);
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('You can only impersonate users within your own organization');
         });
 
         it('denies Employee from starting impersonation (403)', async () => {
@@ -389,6 +541,19 @@ describe('Super Admin Impersonation System', () => {
             expect(res.body.success).toBe(true);
             expect(res.body.data.isImpersonating).toBe(false);
             expect(res.body.data.user.role).toBe('SUPER_ADMIN');
+            expect(res.body.data.accessToken).toBeDefined();
+        });
+
+        it('stops impersonation and restores Company Admin tokens on POST /stop', async () => {
+            const res = await request(app)
+                .post('/api/superadmin/impersonation/stop')
+                .set('Authorization', `Bearer ${companyAdminImpersonatedToken}`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.data.isImpersonating).toBe(false);
+            expect(res.body.data.user.role).toBe('COMPANY_ADMIN');
+            expect(res.body.data.user.companyId).toBe(targetCompanyId);
             expect(res.body.data.accessToken).toBeDefined();
         });
 

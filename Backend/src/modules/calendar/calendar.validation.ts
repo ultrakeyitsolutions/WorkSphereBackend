@@ -87,4 +87,13 @@ export const quickMeetingSchema = z.object({
 export const connectOAuthSchema = z.object({
     code: z.string().min(1, 'OAuth authorization code is required'),
     redirectUri: z.string().min(1, 'redirectUri is required'),
+    clientId: z.string().trim().optional(),
+    clientSecret: z.string().trim().optional(),
 });
+
+export const oauthConfigSchema = z.object({
+    clientId: z.string().trim().min(1, 'Client ID is required'),
+    clientSecret: z.string().trim().min(1, 'Client Secret is required'),
+    redirectUri: z.string().trim().optional(),
+});
+

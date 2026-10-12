@@ -197,5 +197,9 @@ taskSchema.index({ projectId: 1, sprintId: 1, stageId: 1 });
 taskSchema.index({ projectId: 1, releaseId: 1, stageId: 1 });
 taskSchema.index({ companyId: 1, projectId: 1, sprintId: 1, isArchived: 1 });
 taskSchema.index({ companyId: 1, projectId: 1, releaseId: 1, isArchived: 1 });
+taskSchema.index({ companyId: 1, dueDate: 1 });
+taskSchema.index({ companyId: 1, completedDate: 1 });
+taskSchema.index({ companyId: 1, assignedToId: 1, dueDate: 1 });
+taskSchema.index({ companyId: 1, assignedToId: 1, completedDate: 1 });
 
 export const Task = model<ITask>('Task', taskSchema);

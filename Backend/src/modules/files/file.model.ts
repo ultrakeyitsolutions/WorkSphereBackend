@@ -6,7 +6,7 @@ const fileSchema = new Schema<IFileDocument>(
         companyId: {
             type: Schema.Types.ObjectId,
             ref: 'Company',
-            required: true,
+            required: false,
             index: true,
         },
         uploadedBy: {

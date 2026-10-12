@@ -92,6 +92,7 @@ const projectSchema = new Schema<IProjectDocument>(
 );
 
 // Compound indexes for common queries
+projectSchema.index({ companyId: 1, deletedAt: 1 });
 projectSchema.index({ companyId: 1, status: 1 });
 projectSchema.index({ companyId: 1, priority: 1 });
 projectSchema.index({ companyId: 1, createdById: 1 });

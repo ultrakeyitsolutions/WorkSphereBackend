@@ -33,9 +33,10 @@ const participantSchema = new Schema(
         },
         status: {
             type: String,
-            enum: ['organizer', 'accepted', 'pending', 'declined', 'tentative'],
+            enum: ['organizer', 'accepted', 'pending', 'declined', 'tentative', 'invited'],
             default: 'pending',
             required: true,
+            set: (val: string) => (val === 'invited' ? 'pending' : val),
         },
         isCoOrganizer: {
             type: Boolean,
@@ -235,6 +236,16 @@ const calendarEventSchema = new Schema<ICalendarEventDocument>(
         },
     }
 );
+
+calendarEventSchema.pre('validate', function () {
+    if (this.participants && Array.isArray(this.participants)) {
+        for (const p of this.participants) {
+            if ((p as any).status === 'invited') {
+                (p as any).status = 'pending';
+            }
+        }
+    }
+});
 
 // Compound indexes for queries & multi-tenant isolation
 calendarEventSchema.index({ companyId: 1, startTime: 1, endTime: 1 });

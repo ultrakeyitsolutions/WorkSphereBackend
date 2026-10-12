@@ -105,7 +105,7 @@ export class TimesheetCalculatorService {
             };
         }
 
-        if (!attendance) {
+        if (!attendance || !attendance.checkInTime) {
             return TimesheetCalculatorService.zeroMetrics();
         }
 
@@ -209,7 +209,9 @@ export class TimesheetCalculatorService {
     ): AnomalyRecord[] {
         const anomalies: AnomalyRecord[] = [];
 
-        if (!attendance && !isProjectFiltered) return anomalies;
+        if (!attendance || !attendance.checkInTime) {
+            if (!isProjectFiltered) return anomalies;
+        }
 
         const checkIn    = attendance?.checkInTime ?? (sessions[0]?.startedAt ?? new Date());
         const checkOut   = attendance?.checkOutTime;
@@ -218,7 +220,7 @@ export class TimesheetCalculatorService {
         // ── MISSING_CHECKOUT ─────────────────────────────────────────────────
         // Checked in but no checkout and it is past end of that calendar day (only for whole-day attendance)
         const endOfDay = new Date(`${calendarDate}T23:59:59.999Z`);
-        if (!isProjectFiltered && !checkOut && now > endOfDay) {
+        if (!isProjectFiltered && checkIn && !checkOut && now > endOfDay) {
             anomalies.push({
                 type: AnomalyType.MISSING_CHECKOUT,
                 severity: AnomalySeverity.MEDIUM,

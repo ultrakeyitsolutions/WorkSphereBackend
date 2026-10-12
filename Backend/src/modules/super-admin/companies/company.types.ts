@@ -53,7 +53,9 @@ export interface CreateCompanyInput {
     companyDomain?: string;
     companyIndustry?: string;
     companySize?: ICompany['size'];
+    logoUrl?: string;
     adminName: string;
     adminEmail: string;
     adminPassword: string;
 }
+

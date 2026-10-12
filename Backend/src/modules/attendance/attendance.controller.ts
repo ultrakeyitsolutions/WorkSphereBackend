@@ -181,12 +181,47 @@ export class AttendanceController {
         sendSuccess(res, 'Leaves retrieved.', result, 200);
     });
 
+    static previewLeave = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const preview = await LeaveService.previewLeave(companyId, userId, {
+            leaveType: req.query.leaveType as any,
+            durationType: req.query.durationType as any,
+            halfDayPeriod: req.query.halfDayPeriod as any,
+            startDate: String(req.query.startDate),
+            endDate: String(req.query.endDate),
+            employeeId: req.query.employeeId ? String(req.query.employeeId) : undefined,
+        });
+
+        sendSuccess(res, 'Leave calculation preview generated.', preview, 200);
+    });
+
+    static cancelLeave = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const leave = await LeaveService.cancelLeave(companyId, String(req.params.id), userId, req.body.reason);
+        sendSuccess(res, 'Leave request cancelled successfully.', { leave }, 200);
+    });
+
+    static requestRevision = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const leave = await LeaveService.requestRevision(companyId, String(req.params.id), userId, req.body);
+        sendSuccess(res, 'Revision requested from employee successfully.', { leave }, 200);
+    });
+
     static approveLeave = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
         const companyId = req.user?.companyId;
         const userId = req.user?.userId;
         if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
 
-        const leave = await LeaveService.approveLeave(companyId, String(req.params.id), userId);
+        const leave = await LeaveService.approveLeave(companyId, String(req.params.id), userId, req.body);
         sendSuccess(res, 'Leave request approved and attendance synchronized.', { leave }, 200);
     });
 
@@ -197,6 +232,15 @@ export class AttendanceController {
 
         const leave = await LeaveService.rejectLeave(companyId, String(req.params.id), userId, req.body.reason);
         sendSuccess(res, 'Leave request rejected.', { leave }, 200);
+    });
+
+    static approveLeaveWithBreakdown = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const leave = await LeaveService.approveLeave(companyId, String(req.params.id), userId, req.body);
+        sendSuccess(res, 'Leave request approved and attendance synchronized.', { leave }, 200);
     });
 
     // ── Company Admin Dashboard & Calendar ────────────────────────────────────
@@ -308,5 +352,70 @@ export class AttendanceController {
 
         const report = await AttendanceReportService.getEmployeeReport(companyId, employeeId, startDate, endDate);
         sendSuccess(res, 'Employee attendance report generated.', report, 200);
+    });
+
+    // ── Phase 5: Company Admin Attendance Analytics ──────────────────────────
+
+    static getCompanyAttendanceSummary = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        if (!companyId) throw AppError.unauthorized('Unauthorized: Company context required.');
+
+        const result = await AttendanceService.getCompanyAttendanceSummary(companyId, req.query);
+        sendSuccess(res, 'Company attendance summary retrieved successfully.', result, 200);
+    });
+
+    static getCompanyLateArrivals = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        if (!companyId) throw AppError.unauthorized('Unauthorized: Company context required.');
+
+        const result = await AttendanceService.getCompanyLateArrivals(companyId, req.query);
+        sendSuccess(res, 'Late arrivals ranking retrieved successfully.', result, 200);
+    });
+
+    static getCompanyAttendanceRecordById = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        if (!companyId) throw AppError.unauthorized('Unauthorized: Company context required.');
+
+        const attendanceId = String(req.params.attendanceId);
+        const result = await AttendanceService.getCompanyAttendanceRecordById(companyId, attendanceId);
+        sendSuccess(res, 'Attendance record retrieved successfully.', result, 200);
+    });
+
+    static getCompanyAttendanceRecords = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        if (!companyId) throw AppError.unauthorized('Unauthorized: Company context required.');
+
+        const result = await AttendanceService.getCompanyAttendanceRecords(companyId, req.query);
+        sendSuccess(res, 'Company attendance records retrieved successfully.', result, 200);
+    });
+
+    // ── Phase 6: Member Attendance ───────────────────────────────────────────
+
+    static getMemberTodayAttendance = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const result = await AttendanceService.getMemberTodayAttendance(companyId, userId);
+        sendSuccess(res, 'Today attendance state retrieved successfully.', result, 200);
+    });
+
+    static getMemberAttendanceHistory = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const result = await AttendanceService.getMemberAttendanceHistory(companyId, userId, req.query);
+        sendSuccess(res, 'Member attendance history retrieved successfully.', result, 200);
+    });
+
+    static getMemberAttendanceRecordById = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const attendanceId = String(req.params.attendanceId);
+        const result = await AttendanceService.getMemberAttendanceRecordById(companyId, userId, attendanceId);
+        sendSuccess(res, 'Attendance details retrieved successfully.', result, 200);
     });
 }

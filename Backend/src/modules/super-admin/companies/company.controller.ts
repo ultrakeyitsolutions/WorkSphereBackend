@@ -188,4 +188,40 @@ export class CompanyController {
             return sendError(res, error.message || 'Failed to reset password', 500);
         }
     }
+
+    /**
+     * POST /api/super-admin/companies/upload-logo
+     * or POST /api/super-admin/companies/:companyId/logo
+     * Validates and uploads a company logo image (PNG, JPEG, WebP, max 5MB).
+     */
+    static async uploadLogo(req: AuthenticatedRequest, res: Response) {
+        try {
+            const file = req.file;
+            const companyId = req.params?.companyId || req.body?.companyId;
+
+            const result = await CompanyService.uploadLogo(file, companyId);
+            return sendSuccess(res, 'Company logo uploaded successfully', result, 200);
+        } catch (error: any) {
+            const status = error.statusCode || 400;
+            return sendError(res, error.message || 'Failed to upload company logo', status);
+        }
+    }
+
+    /**
+     * DELETE /api/super-admin/companies/:companyId/logo
+     * Removes a company's logo.
+     */
+    static async deleteLogo(req: AuthenticatedRequest, res: Response) {
+        const { companyId } = req.params as { companyId: string };
+        try {
+            const company = await CompanyService.deleteLogo(companyId);
+            return sendSuccess(res, 'Company logo removed successfully', { company });
+        } catch (error: any) {
+            if (error.message === 'Company not found') {
+                return sendError(res, 'Company not found', 404);
+            }
+            return sendError(res, error.message || 'Failed to remove company logo', 500);
+        }
+    }
 }
+

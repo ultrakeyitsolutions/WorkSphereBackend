@@ -17,6 +17,7 @@ import { NotificationEventBus } from '../notifications/notification.event-bus';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
 import { AppError } from '../../utils/AppError';
+import { SubscriptionQuotaService } from '../../services/subscription-quota.service';
 
 export class TaskService {
 
@@ -185,15 +186,19 @@ export class TaskService {
         const project = await Project.findOne({ _id: projectId, companyId, isArchived: false }).lean();
         if (!project) throw new Error('PROJECT_NOT_FOUND');
 
-        // 2. Check create permission: Must have Project Access AND TASK_CREATE permission
-        const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
-        if (!canAccess) throw new Error('PERMISSION_DENIED'); // Uses PERMISSION_DENIED to map to 403 Forbidden in controller
+        // 1b. Enforce Task Quota
+        const quotaReservation = await SubscriptionQuotaService.reserveQuota(companyId, 'tasks', 1, { projectId });
 
-        const hasTaskCreate = await UserService.hasPermission(userId, 'TASK_CREATE');
-        if (!hasTaskCreate) {
-            // Reusing PERMISSION_DENIED to map to existing controller error handling
-            throw new Error('PERMISSION_DENIED');
-        }
+        try {
+            // 2. Check create permission: Must have Project Access AND TASK_CREATE permission
+            const canAccess = await ProjectService.canAccessProject(companyId, userId, projectId);
+            if (!canAccess) throw new Error('PERMISSION_DENIED'); // Uses PERMISSION_DENIED to map to 403 Forbidden in controller
+
+            const hasTaskCreate = await UserService.hasPermission(userId, 'TASK_CREATE');
+            if (!hasTaskCreate) {
+                // Reusing PERMISSION_DENIED to map to existing controller error handling
+                throw new Error('PERMISSION_DENIED');
+            }
 
         // 3. Validate assignedToId is a project member
         if (assignedToId) {
@@ -222,6 +227,11 @@ export class TaskService {
         // 5. Generate item number
         const itemNumber = await this.getNextItemNumber(projectId);
         const taskNumber = String(itemNumber).padStart(3, '0');
+
+        if (taskData.templateId || recurrence?.templateId || taskData.isUseTemplate) {
+            const hasTemplates = await EntitlementService.hasFeature(companyId, 'TASK_TEMPLATES');
+            if (!hasTemplates) throw new Error('FEATURE_NOT_AVAILABLE');
+        }
 
         if (isRecurring) {
             // 6a. Recurring task — check entitlement first
@@ -307,6 +317,7 @@ export class TaskService {
                     .populate('templateId', 'name')
                     .lean();
 
+                await quotaReservation.commit();
                 return { task: this.mapTaskResponse(loadedTask, project.name), rule };
             } catch (error) {
                 await session.abortTransaction();
@@ -368,7 +379,12 @@ export class TaskService {
                 },
             });
 
+            await quotaReservation.commit();
             return { task: this.mapTaskResponse(loadedTask, project.name) };
+        }
+        } catch (error) {
+            await quotaReservation.release();
+            throw error;
         }
     }
 
@@ -542,6 +558,11 @@ export class TaskService {
             const isInCharge = await ProjectInCharge.exists({ projectId: task.projectId, userId: data.assignedToId });
             const isMember = await ProjectTeamMember.exists({ projectId: task.projectId, userId: data.assignedToId });
             if (!isOwner && !isInCharge && !isMember) throw new Error('ASSIGNEE_NOT_IN_PROJECT');
+        }
+
+        if (taskData.templateId || recurrence?.templateId || taskData.isUseTemplate) {
+            const hasTemplates = await EntitlementService.hasFeature(companyId, 'TASK_TEMPLATES');
+            if (!hasTemplates) throw new Error('FEATURE_NOT_AVAILABLE');
         }
 
         let newRule: any = null;
@@ -731,6 +752,9 @@ export class TaskService {
 
         const canAccess = await ProjectService.canAccessProject(companyId, userId, task.projectId.toString());
         if (!canAccess) throw new Error('PERMISSION_DENIED');
+
+        // Enforce task quota before unarchiving
+        await SubscriptionQuotaService.assertQuota(companyId, 'tasks', 1, { projectId: String(task.projectId) });
 
         task.isArchived = false;
         task.isActive = true;
@@ -931,84 +955,94 @@ export class TaskService {
             if (!isOwner && !isInCharge && !isMember) throw new Error('ASSIGNEE_NOT_IN_PROJECT');
         }
 
-        // 5. Generate a new task number
-        const itemNumber = await this.getNextItemNumber(String(originalTask.projectId));
-        const taskNumber = String(itemNumber).padStart(3, '0');
+        // 4b. Enforce Task Quota
+        const quotaReservation = await SubscriptionQuotaService.reserveQuota(companyId, 'tasks', 1, { projectId: String(originalTask.projectId) });
 
-        // 6. Resolve the default "New" / initial stage for the project
-        const defaultStage = await Stage.findOne({ projectId: originalTask.projectId, isDefault: true }).lean();
+        try {
+            // 5. Generate a new task number
+            const itemNumber = await this.getNextItemNumber(String(originalTask.projectId));
+            const taskNumber = String(itemNumber).padStart(3, '0');
 
-        // 7. Resolve the initial status
-        const defaultStatus = await Status.findOne({ companyId, isMaster: true, orderIndex: 1 }).lean();
+            // 6. Resolve the default "New" / initial stage for the project
+            const defaultStage = await Stage.findOne({ projectId: originalTask.projectId, isDefault: true }).lean();
 
-        // 8. Create the reopened task
-        const reopenedTask = await Task.create({
-            companyId,
-            projectId: originalTask.projectId,
-            moduleId: originalTask.moduleId,
-            title: originalTask.title,
-            ticketId: originalTask.ticketId,
-            taskType: originalTask.taskType,
-            criticality: originalTask.criticality,
-            priority: originalTask.priority,
-            tags: originalTask.tags,
-            estimatedTime: originalTask.estimatedTime,
-            // Stage: go back to the default ("New") stage
-            stageId: defaultStage?._id,
-            // Status: back to the first status (orderIndex 1 = "New")
-            statusId: defaultStatus?._id,
-            createdBy: userId,
-            assignedToId: assignedToId || originalTask.assignedToId,
-            itemNumber,
-            taskNumber,
-            // Reopen tracking
-            isReopen: true,
-            reopenedFromTaskId: originalTask._id,
-            reopenedFromTaskNumber: originalTask.taskNumber,
-            reopenReason: data.reopenReason,
-            isRecurring: false,
-            isUseTemplate: false
-        });
+            // 7. Resolve the initial status
+            const defaultStatus = await Status.findOne({ companyId, isMaster: true, orderIndex: 1 }).lean();
 
-        // 9. Track assignment history
-        const effectiveAssigneeId = assignedToId || (originalTask.assignedToId ? String(originalTask.assignedToId) : null);
-        if (effectiveAssigneeId) {
-            const assignedUser = await User.findById(effectiveAssigneeId).lean();
-            if (assignedUser) {
-                await TaskAssignment.create({
-                    companyId,
-                    projectId: originalTask.projectId,
-                    taskId: reopenedTask._id,
-                    assignedToId: effectiveAssigneeId,
-                    assignedToName: assignedUser.name || '',
-                    assignedById: userId
-                });
+            // 8. Create the reopened task
+            const reopenedTask = await Task.create({
+                companyId,
+                projectId: originalTask.projectId,
+                moduleId: originalTask.moduleId,
+                title: originalTask.title,
+                ticketId: originalTask.ticketId,
+                taskType: originalTask.taskType,
+                criticality: originalTask.criticality,
+                priority: originalTask.priority,
+                tags: originalTask.tags,
+                estimatedTime: originalTask.estimatedTime,
+                // Stage: go back to the default ("New") stage
+                stageId: defaultStage?._id,
+                // Status: back to the first status (orderIndex 1 = "New")
+                statusId: defaultStatus?._id,
+                createdBy: userId,
+                assignedToId: assignedToId || originalTask.assignedToId,
+                itemNumber,
+                taskNumber,
+                // Reopen tracking
+                isReopen: true,
+                reopenedFromTaskId: originalTask._id,
+                reopenedFromTaskNumber: originalTask.taskNumber,
+                reopenReason: data.reopenReason,
+                isRecurring: false,
+                isUseTemplate: false
+            });
+
+            // 9. Track assignment history
+            const effectiveAssigneeId = assignedToId || (originalTask.assignedToId ? String(originalTask.assignedToId) : null);
+            if (effectiveAssigneeId) {
+                const assignedUser = await User.findById(effectiveAssigneeId).lean();
+                if (assignedUser) {
+                    await TaskAssignment.create({
+                        companyId,
+                        projectId: originalTask.projectId,
+                        taskId: reopenedTask._id,
+                        assignedToId: effectiveAssigneeId,
+                        assignedToName: assignedUser.name || '',
+                        assignedById: userId
+                    });
+                }
             }
+
+            // 10. Load and return the full task
+            const loadedTask = await Task.findById(reopenedTask._id)
+                .populate('assignedToId', 'name email avatar')
+                .populate('createdBy', 'name email avatar')
+                .populate('stageId', 'name orderIndex')
+                .populate('statusId', 'name')
+                .populate('moduleId', 'name')
+                .lean();
+
+            await quotaReservation.commit();
+
+            return {
+                id: loadedTask!._id,
+                taskNumber: loadedTask!.taskNumber,
+                reopenedFromTaskId: originalTask._id,
+                reopenedFromTaskNumber: originalTask.taskNumber,
+                isReopen: true,
+                status: 1,
+                statusName: 'Reopened',
+                stageId: (loadedTask!.stageId as any)?._id || null,
+                reopenReason: data.reopenReason,
+                removedFromDelivery: false,
+                message: 'Task reopened successfully',
+                task: this.mapTaskResponse(loadedTask, project.name)
+            };
+        } catch (err) {
+            await quotaReservation.release();
+            throw err;
         }
-
-        // 10. Load and return the full task
-        const loadedTask = await Task.findById(reopenedTask._id)
-            .populate('assignedToId', 'name email avatar')
-            .populate('createdBy', 'name email avatar')
-            .populate('stageId', 'name orderIndex')
-            .populate('statusId', 'name')
-            .populate('moduleId', 'name')
-            .lean();
-
-        return {
-            id: loadedTask!._id,
-            taskNumber: loadedTask!.taskNumber,
-            reopenedFromTaskId: originalTask._id,
-            reopenedFromTaskNumber: originalTask.taskNumber,
-            isReopen: true,
-            status: 1,
-            statusName: 'Reopened',
-            stageId: (loadedTask!.stageId as any)?._id || null,
-            reopenReason: data.reopenReason,
-            removedFromDelivery: false,
-            message: 'Task reopened successfully',
-            task: this.mapTaskResponse(loadedTask, project.name)
-        };
     }
 
     // ─── Get Project Members (for reopen assignment) ───────────────────────────

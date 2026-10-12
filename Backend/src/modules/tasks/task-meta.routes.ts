@@ -27,6 +27,8 @@ import {
     updateTaskTemplateSchema
 } from './task-meta.validator';
 
+import { requireFeature } from '../../middleware/entitlement.middleware';
+
 const router = Router();
 
 // ══════════════════════════════════════════════
@@ -43,28 +45,28 @@ router.delete('/projects/:projectId/modules/:moduleId', validateRequest(paramMod
 // ══════════════════════════════════════════════
 
 router.get('/projects/:projectId/stages', validateRequest(paramProjectIdSchema), listStages);
-router.post('/projects/:projectId/stages', validateRequest(createStageSchema), createStage);
-router.put('/projects/:projectId/stages/:stageId', validateRequest(updateStageSchema), updateStage);
-router.delete('/projects/:projectId/stages/:stageId', validateRequest(paramStageIdSchema), deleteStage);
+router.post('/projects/:projectId/stages', requireFeature('TASK_WORKFLOWS'), validateRequest(createStageSchema), createStage);
+router.put('/projects/:projectId/stages/:stageId', requireFeature('TASK_WORKFLOWS'), validateRequest(updateStageSchema), updateStage);
+router.delete('/projects/:projectId/stages/:stageId', requireFeature('TASK_WORKFLOWS'), validateRequest(paramStageIdSchema), deleteStage);
 
 // ══════════════════════════════════════════════
 //  STATUSES  — /api/v1/company/statuses
 // ══════════════════════════════════════════════
 
 router.get('/statuses', listStatuses);
-router.post('/statuses', validateRequest(createStatusSchema), createStatus);
-router.put('/statuses/:statusId', validateRequest(updateStatusSchema), updateStatus);
-router.delete('/statuses/:statusId', validateRequest(paramStatusIdSchema), deleteStatus);
+router.post('/statuses', requireFeature('TASK_WORKFLOWS'), validateRequest(createStatusSchema), createStatus);
+router.put('/statuses/:statusId', requireFeature('TASK_WORKFLOWS'), validateRequest(updateStatusSchema), updateStatus);
+router.delete('/statuses/:statusId', requireFeature('TASK_WORKFLOWS'), validateRequest(paramStatusIdSchema), deleteStatus);
 
 // ══════════════════════════════════════════════
 //  TASK TEMPLATES  — /api/v1/company/task-templates
 // ══════════════════════════════════════════════
 
-router.get('/task-templates', listTemplates);
-router.get('/task-templates/:templateId', validateRequest(paramTemplateIdSchema), getTemplateById);
-router.post('/task-templates', validateRequest(createTaskTemplateSchema), createTemplate);
-router.put('/task-templates/:templateId', validateRequest(updateTaskTemplateSchema), updateTemplate);
-router.delete('/task-templates/:templateId', validateRequest(paramTemplateIdSchema), deleteTemplate);
+router.get('/task-templates', requireFeature('TASK_TEMPLATES'), listTemplates);
+router.get('/task-templates/:templateId', requireFeature('TASK_TEMPLATES'), validateRequest(paramTemplateIdSchema), getTemplateById);
+router.post('/task-templates', requireFeature('TASK_TEMPLATES'), validateRequest(createTaskTemplateSchema), createTemplate);
+router.put('/task-templates/:templateId', requireFeature('TASK_TEMPLATES'), validateRequest(updateTaskTemplateSchema), updateTemplate);
+router.delete('/task-templates/:templateId', requireFeature('TASK_TEMPLATES'), validateRequest(paramTemplateIdSchema), deleteTemplate);
 
 // ══════════════════════════════════════════════
 //  PROJECT MEMBERS  — /api/v1/company/projects/:projectId/members

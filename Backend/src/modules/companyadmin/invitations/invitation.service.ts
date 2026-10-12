@@ -12,6 +12,7 @@ import { Role } from '../../roles/role.model';
 import { EmailService } from './email.service';
 import { hashPassword, comparePassword } from '../../../utils/password';
 import { generateAccessToken, generateRefreshToken } from '../../../utils/tokens';
+import { SubscriptionQuotaService } from '../../../services/subscription-quota.service';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,11 +68,15 @@ export class InvitationService {
             throw new Error('Company is not active');
         }
 
+        // ── Enforce Subscription User Limit ──
+        const quotaReservation = await SubscriptionQuotaService.reserveQuota(companyId, 'users', members.length);
+
         const results: Array<{ emailOrPhone: string; status: string; reason?: string; invitationId?: string }> = [];
         let created = 0;
         let failed = 0;
 
-        for (const member of members) {
+        try {
+            for (const member of members) {
             const { emailOrPhone, roleId, designationId, memberType } = member;
 
             try {
@@ -168,17 +173,20 @@ export class InvitationService {
                             $inc: { attemptCount: 1 },
                         });
 
-                        const messageId = await EmailService.sendInvitationEmail({
+                        const deliveryResult = await EmailService.sendInvitationEmail({
                             to: email,
                             rawToken,
                             companyName: company.name,
                             roleName: role.name,
                             designationName: designation.name,
+                            companyId: String(company._id),
                         });
 
                         await InvitationDelivery.findByIdAndUpdate(delivery._id, {
                             status: 'SENT',
-                            providerMessageId: messageId,
+                            providerMessageId: deliveryResult.messageId,
+                            senderEmail: deliveryResult.senderEmail,
+                            senderMode: deliveryResult.senderMode,
                             sentAt: new Date(),
                         });
                     } catch (emailErr: any) {
@@ -208,12 +216,18 @@ export class InvitationService {
             }
         }
 
+        await quotaReservation.commit();
+
         return {
             total: members.length,
             created,
             failed,
             results,
         };
+        } catch (err) {
+            await quotaReservation.release();
+            throw err;
+        }
     }
 
     // ── ② Validate invitation token (public) ──────────────────────────────────
@@ -507,17 +521,20 @@ export class InvitationService {
                         $inc: { attemptCount: 1 },
                     });
 
-                    const messageId = await EmailService.sendInvitationEmail({
+                    const deliveryResult = await EmailService.sendInvitationEmail({
                         to: invitation.email,
                         rawToken,
                         companyName: company.name,
                         roleName: role.name,
                         designationName: designation.name,
+                        companyId: String(company._id),
                     });
 
                     await InvitationDelivery.findByIdAndUpdate(delivery._id, {
                         status: 'SENT',
-                        providerMessageId: messageId,
+                        providerMessageId: deliveryResult.messageId,
+                        senderEmail: deliveryResult.senderEmail,
+                        senderMode: deliveryResult.senderMode,
                         sentAt: new Date(),
                     });
                 } catch (emailErr: any) {

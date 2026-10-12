@@ -6,7 +6,7 @@
 //   - Admin Preferences UI (rendered dynamically)
 
 export type NotificationStyle = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'SYSTEM';
-export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST' | 'SHIFT';
+export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST' | 'SHIFT' | 'LEAVE';
 export type NotificationChannel = 'inApp' | 'push' | 'email';
 
 export interface NotificationTypeDefinition {
@@ -608,6 +608,24 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         defaultStyle: 'WARNING',
         icon: 'x-circle',
         allowedVariables: ['actorName', 'recipientName', 'startDate', 'endDate', 'reason'],
+        defaultEnabled: true,
+    },
+    LEAVE_REVISION_REQUESTED: {
+        category: 'ATTENDANCE',
+        defaultTitle: 'Leave Revision Requested',
+        defaultMessage: '{{actorName}} requested changes on your leave request ({{startDate}} - {{endDate}}): {{notes}}',
+        defaultStyle: 'WARNING',
+        icon: 'edit-3',
+        allowedVariables: ['actorName', 'recipientName', 'startDate', 'endDate', 'notes'],
+        defaultEnabled: true,
+    },
+    LEAVE_LOP_FINALIZED: {
+        category: 'ATTENDANCE',
+        defaultTitle: 'Loss of Pay Decision Finalized',
+        defaultMessage: 'Loss of Pay decision for {{month}} finalized for {{recipientName}} ({{lopDays}} days, {{currency}} {{finalDeductionAmount}})',
+        defaultStyle: 'INFO',
+        icon: 'dollar-sign',
+        allowedVariables: ['actorName', 'recipientName', 'month', 'lopDays', 'currency', 'finalDeductionAmount'],
         defaultEnabled: true,
     },
     ATTENDANCE_ADJUSTMENT_REQUESTED: {

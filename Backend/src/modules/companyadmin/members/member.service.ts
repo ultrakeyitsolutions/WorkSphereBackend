@@ -4,6 +4,9 @@ import Invitation from '../invitations/invitation.model';
 import User from '../../users/user.model';
 import CompanyRole from '../invitations/roles/company-role.model';
 import Designation from '../invitations/designation/designation.model';
+import { getRedisClient } from '../../../config/redis';
+import { getSocketServer } from '../../../sockets/socket-server';
+import { SubscriptionQuotaService } from '../../../services/subscription-quota.service';
 
 export interface GetMembersQuery {
     companyId: string;
@@ -413,8 +416,65 @@ export class MemberService {
             throw new Error('Member not found');
         }
 
-        member.status = status as any;
+        const validStatuses = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
+        const normalizedStatus = status ? status.toUpperCase() : 'ACTIVE';
+        if (!validStatuses.includes(normalizedStatus)) {
+            throw new Error(`Invalid status: ${status}. Must be one of ${validStatuses.join(', ')}`);
+        }
+
+        // If reactivating a non-active member to ACTIVE, enforce user quota
+        if (normalizedStatus === 'ACTIVE' && member.status !== 'ACTIVE') {
+            await SubscriptionQuotaService.assertQuota(companyId, 'users', 1);
+        }
+
+        member.status = normalizedStatus as any;
         await member.save();
+
+        const isActive = normalizedStatus === 'ACTIVE';
+        const userStatus = isActive ? 'ACTIVE' : 'INACTIVE';
+        const userRawId = (member.userId as any)?._id || member.userId;
+
+        if (userRawId) {
+            await User.updateOne(
+                { _id: userRawId },
+                { $set: { status: userStatus, isActive } }
+            );
+
+            try {
+                const redis = getRedisClient();
+                if (redis) {
+                    const uId = String(userRawId);
+                    await redis.del(
+                        `session:${uId}`,
+                        `user:${uId}`,
+                        `worksphere:cache:member:${companyId}:${uId}`,
+                        `worksphere:cache:module_access:${companyId}:${uId}`
+                    ).catch(() => {});
+                }
+            } catch {}
+
+            try {
+                const io = getSocketServer();
+                if (io) {
+                    const uId = String(userRawId);
+                    io.to(`user:${uId}`).emit('member:status_updated', {
+                        companyId,
+                        memberId,
+                        userId: uId,
+                        status: normalizedStatus,
+                        isActive,
+                        timestamp: Date.now(),
+                    });
+                    io.to(`company:${companyId}`).emit('company:member_status_updated', {
+                        companyId,
+                        memberId,
+                        userId: uId,
+                        status: normalizedStatus,
+                        timestamp: Date.now(),
+                    });
+                }
+            } catch {}
+        }
 
         return this.getMemberById(companyId, memberId);
     }
@@ -431,6 +491,41 @@ export class MemberService {
         // Soft delete
         member.status = 'INACTIVE';
         await member.save();
+
+        const userRawId = (member.userId as any)?._id || member.userId;
+        if (userRawId) {
+            await User.updateOne(
+                { _id: userRawId },
+                { $set: { status: 'INACTIVE', isActive: false } }
+            );
+
+            try {
+                const redis = getRedisClient();
+                if (redis) {
+                    const uId = String(userRawId);
+                    await redis.del(
+                        `session:${uId}`,
+                        `user:${uId}`,
+                        `worksphere:cache:member:${companyId}:${uId}`,
+                        `worksphere:cache:module_access:${companyId}:${uId}`
+                    ).catch(() => {});
+                }
+            } catch {}
+
+            try {
+                const io = getSocketServer();
+                if (io) {
+                    const uId = String(userRawId);
+                    io.to(`user:${uId}`).emit('member:deactivated', {
+                        companyId,
+                        memberId,
+                        userId: uId,
+                        status: 'INACTIVE',
+                        timestamp: Date.now(),
+                    });
+                }
+            } catch {}
+        }
 
         return { message: 'Member successfully deactivated' };
     }

@@ -38,7 +38,8 @@ export class DashboardDateRangeService {
                 endDate = this.getEndOfDay(now);
                 break;
             }
-            case 'week': {
+            case 'week':
+            case 'this_week': {
                 const startOfWeek = new Date(now);
                 const day = startOfWeek.getDay(); // 0 is Sunday, 1 is Monday
                 const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
@@ -47,7 +48,22 @@ export class DashboardDateRangeService {
                 endDate = this.getEndOfDay(now);
                 break;
             }
-            case 'month': {
+            case 'last_7_days': {
+                const past7 = new Date(now);
+                past7.setDate(past7.getDate() - 6);
+                startDate = this.getStartOfDay(past7);
+                endDate = this.getEndOfDay(now);
+                break;
+            }
+            case 'last_30_days': {
+                const past30 = new Date(now);
+                past30.setDate(past30.getDate() - 29);
+                startDate = this.getStartOfDay(past30);
+                endDate = this.getEndOfDay(now);
+                break;
+            }
+            case 'month':
+            case 'this_month': {
                 startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
                 endDate = this.getEndOfDay(now);
                 break;
@@ -55,6 +71,13 @@ export class DashboardDateRangeService {
             case 'last_month': {
                 startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
                 endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+                break;
+            }
+            case 'last_3_months': {
+                const past90 = new Date(now);
+                past90.setDate(past90.getDate() - 89);
+                startDate = this.getStartOfDay(past90);
+                endDate = this.getEndOfDay(now);
                 break;
             }
             case 'custom': {
@@ -87,6 +110,9 @@ export class DashboardDateRangeService {
         const endDateStr = this.formatDate(endDate);
         const days = this.generateDaysArray(startDate, endDate);
 
+        // Previous period of equal duration immediately preceding startDate
+        const previousPeriod = this.computePreviousPeriod(startDate, endDate);
+
         return {
             period,
             startDateStr,
@@ -95,6 +121,55 @@ export class DashboardDateRangeService {
             endDate,
             timezone,
             days,
+            previousStartDate: previousPeriod.startDate,
+            previousEndDate: previousPeriod.endDate,
+            previousStartDateStr: previousPeriod.startDateStr,
+            previousEndDateStr: previousPeriod.endDateStr,
+        };
+    }
+
+    public static computePreviousPeriod(startDate: Date, endDate: Date): {
+        startDate: Date;
+        endDate: Date;
+        startDateStr: string;
+        endDateStr: string;
+        days: string[];
+    } {
+        const durationMs = endDate.getTime() - startDate.getTime();
+        const prevEnd = new Date(startDate.getTime() - 1);
+        const prevStart = new Date(prevEnd.getTime() - durationMs + 1);
+
+        const normalizedStart = this.getStartOfDay(prevStart);
+        const normalizedEnd = this.getEndOfDay(prevEnd);
+
+        return {
+            startDate: normalizedStart,
+            endDate: normalizedEnd,
+            startDateStr: this.formatDate(normalizedStart),
+            endDateStr: this.formatDate(normalizedEnd),
+            days: this.generateDaysArray(normalizedStart, normalizedEnd),
+        };
+    }
+
+    public static calculatePercentageChange(
+        current: number,
+        previous: number
+    ): {
+        percentageChange: number | null;
+        trend: 'UP' | 'DOWN' | 'FLAT';
+    } {
+        if (previous === 0) {
+            return {
+                percentageChange: null,
+                trend: current > 0 ? 'UP' : 'FLAT',
+            };
+        }
+        const diff = current - previous;
+        const change = Math.round((diff / previous) * 10000) / 100;
+        const trend = change > 0 ? 'UP' : change < 0 ? 'DOWN' : 'FLAT';
+        return {
+            percentageChange: change,
+            trend,
         };
     }
 

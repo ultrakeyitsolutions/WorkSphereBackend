@@ -53,6 +53,7 @@ export enum LeaveStatus {
     APPROVED = 'APPROVED',
     REJECTED = 'REJECTED',
     CANCELLED = 'CANCELLED',
+    CHANGES_REQUESTED = 'CHANGES_REQUESTED',
 }
 
 // ─── Attendance Adjustment Status ────────────────────────────────────────────
@@ -67,6 +68,10 @@ export interface IScheduledShiftDetails {
     startTime: Date | null;
     endTime: Date | null;
     workingMinutes: number;
+    shiftName?: string | null;
+    shiftCode?: string | null;
+    gracePeriodMinutes?: number;
+    earlyCheckoutGraceMinutes?: number;
 }
 
 export interface IActualAttendanceDetails {
@@ -119,6 +124,7 @@ export interface IAttendanceDocument extends Document {
     attendanceDate?: string;
     workDurationMinutes?: number;
     lateMinutes?: number;
+    isLate?: boolean;
     earlyDepartureMinutes?: number;
     overtimeMinutes?: number;
     scheduledStartTime?: Date;
@@ -174,12 +180,43 @@ export interface ILeaveRequestDocument extends Document {
     startDate: string; // "YYYY-MM-DD"
     endDate: string;   // "YYYY-MM-DD"
     totalDays: number;
+    paidDays?: number;
+    unpaidDays?: number;
+    lopDays?: number;
+    excessDays?: number;
+    isLopProposed?: boolean;
+    lopDecisionId?: Types.ObjectId | null;
+    monthBreakdown?: Array<{
+        month: string;
+        totalDays: number;
+        eligiblePaidDays: number;
+        excessDays: number;
+        proposedLopDays: number;
+        unpaidDays: number;
+        calendarDays: string[];
+    }>;
+    revisionRequests?: Array<{
+        requestedBy: Types.ObjectId;
+        notes: string;
+        requestedAt: Date;
+        status: 'PENDING' | 'RESOLVED';
+    }>;
+    decisionHistory?: Array<{
+        action: string;
+        actorId: Types.ObjectId;
+        timestamp: Date;
+        details?: string;
+        snapshot?: Record<string, any>;
+    }>;
     reason: string;
     status: LeaveStatus;
     appliedAt: Date;
     approvedBy?: Types.ObjectId | null;
     approvedAt?: Date | null;
     rejectionReason?: string | null;
+    emailDeliveryStatus?: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+    emailDeliveryError?: string | null;
+    emailSentAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -310,3 +347,42 @@ export interface AttendanceReportQueryDto {
     departmentId?: string;
     employeeId?: string;
 }
+
+export interface CompanyAttendanceSummaryQueryDto {
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    departmentId?: string;
+}
+
+export interface LateArrivalsQueryDto {
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number | string;
+    page?: number | string;
+    departmentId?: string;
+}
+
+export interface CompanyAttendanceRecordsQueryDto {
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    employeeId?: string;
+    status?: AttendanceStatus | string;
+    lateOnly?: boolean | string;
+    incompleteOnly?: boolean | string;
+    page?: number | string;
+    limit?: number | string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+}
+
+export interface MemberAttendanceHistoryQueryDto {
+    startDate?: string;
+    endDate?: string;
+    status?: AttendanceStatus | string;
+    page?: number | string;
+    limit?: number | string;
+}
+

@@ -16,9 +16,10 @@ export class FileController {
             }
 
             const userId = req.user?.userId;
-            const companyId = req.user?.companyId;
+            const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
+            const companyId = req.user?.companyId || (isSuperAdmin ? req.body?.companyId : undefined);
 
-            if (!userId || !companyId) {
+            if (!userId || (!companyId && !isSuperAdmin)) {
                 return sendError(res, 'Authentication and company context required', 401);
             }
 
@@ -41,7 +42,7 @@ export class FileController {
                 res,
                 error.message || 'File upload failed',
                 error.statusCode || 400,
-                error.details || undefined
+                error.errors || error.details || undefined
             );
         }
     }

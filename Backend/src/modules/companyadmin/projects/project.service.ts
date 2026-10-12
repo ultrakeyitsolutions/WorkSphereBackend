@@ -9,6 +9,7 @@ import { UserService } from '../../users/user.service';
 import { NotificationEventBus } from '../../notifications/notification.event-bus';
 import { CreateProjectBody } from './project.validator';
 import { AppError } from '../../../utils/AppError';
+import { SubscriptionQuotaService } from '../../../services/subscription-quota.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -264,15 +265,19 @@ export class ProjectService {
             throw AppError.unprocessable('Your company account is not active');
         }
 
-        // ── 2. Check name uniqueness within company ───────────────────────────
-        const existingProject = await Project.findOne({
-            companyId: new Types.ObjectId(companyId),
-            name: { $regex: `^${input.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
-            isActive: true,
-        });
-        if (existingProject) {
-            throw AppError.conflict(`A project named "${input.name.trim()}" already exists in your company`);
-        }
+        // ── 1b. Enforce Subscription Project Quota ────────────────────────────
+        const quotaReservation = await SubscriptionQuotaService.reserveQuota(companyId, 'projects', 1);
+
+        try {
+            // ── 2. Check name uniqueness within company ───────────────────────────
+            const existingProject = await Project.findOne({
+                companyId: new Types.ObjectId(companyId),
+                name: { $regex: `^${input.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+                isActive: true,
+            });
+            if (existingProject) {
+                throw AppError.conflict(`A project named "${input.name.trim()}" already exists in your company`);
+            }
 
         // ── 3. De-duplicate input arrays ──────────────────────────────────────
         const uniqueTeamMemberIds = deduplicateIds(input.teamMemberIds ?? []);
@@ -501,6 +506,8 @@ export class ProjectService {
             addedAt: projectCreatedAt,
         }));
 
+        await quotaReservation.commit();
+
         return {
             id: String(projectId),
             name: projectName,
@@ -528,6 +535,10 @@ export class ProjectService {
             createdAt: projectCreatedAt,
             updatedAt: projectUpdatedAt,
         };
+        } catch (err) {
+            await quotaReservation.release();
+            throw err;
+        }
     }
 
     /**
@@ -1325,6 +1336,9 @@ export class ProjectService {
         if (project.isActive && project.status === 'Active') {
             throw AppError.conflict('Project is already active');
         }
+
+        // Enforce project quota before activating
+        await SubscriptionQuotaService.assertQuota(companyId, 'projects', 1);
 
         await Project.updateOne(
             { _id: new Types.ObjectId(projectId) },

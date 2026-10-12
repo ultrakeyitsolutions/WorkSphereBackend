@@ -61,7 +61,6 @@ const subscriptionSchema = new Schema<ISubscriptionDocument>(
     }
 );
 
-subscriptionSchema.index({ companyId: 1 });
 subscriptionSchema.index({ status: 1 });
 
 export const Subscription = model<ISubscriptionDocument>('Subscription', subscriptionSchema);

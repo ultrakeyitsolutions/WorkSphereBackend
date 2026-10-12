@@ -12,7 +12,7 @@ export type FileContextType =
     | 'OTHER';
 
 export interface IFile {
-    companyId: Types.ObjectId;
+    companyId?: Types.ObjectId;
     uploadedBy: Types.ObjectId;
     originalName: string;
     storageKey: string;

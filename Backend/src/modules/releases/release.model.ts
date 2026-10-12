@@ -101,6 +101,7 @@ const releaseSchema = new Schema<IRelease>(
 releaseSchema.index({ projectId: 1, version: 1 }, { unique: true });
 releaseSchema.index({ projectId: 1, status: 1, targetDate: -1 });
 releaseSchema.index({ companyId: 1, projectId: 1, createdAt: -1 });
+releaseSchema.index({ companyId: 1, status: 1, targetDate: 1 });
 
 export const Release = model<IRelease>('Release', releaseSchema);
 export default Release;

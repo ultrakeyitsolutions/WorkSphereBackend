@@ -51,13 +51,15 @@ export class CalendarService {
                 avatar: p.avatar || null,
                 role: p.role || null,
                 designation: p.designation || null,
-                status: p.status,
+                status: p.status === 'invited' ? 'pending' : p.status,
                 isCoOrganizer: !!p.isCoOrganizer,
                 ...(p.respondedAt ? { respondedAt: p.respondedAt } : {}),
             })),
             meetingType: event.meetingType || 'video',
             provider: event.provider || 'none',
-            meetingUrl: event.meetingUrl || null,
+            meetingUrl: (event.provider === 'google_meet' && !CalendarOAuthService.isGenuineMeetingUrl(event.meetingUrl, event.externalEventId))
+                ? null
+                : event.meetingUrl || null,
             externalEventId: event.externalEventId || null,
             ...(event.externalProviderData ? { externalProviderData: event.externalProviderData } : {}),
             agenda: event.agenda || [],
@@ -71,6 +73,89 @@ export class CalendarService {
             createdAt: event.createdAt,
             updatedAt: event.updatedAt,
         };
+    }
+
+    private static repairLocks = new Map<string, Promise<any>>();
+
+    /**
+     * Ensures an event has a genuine conference URL, creating or fetching one if missing/invalid
+     */
+    static async ensureValidConference(
+        companyId: string,
+        userId: string,
+        eventId: string
+    ) {
+        const cId = new Types.ObjectId(companyId);
+        const eId = new Types.ObjectId(eventId);
+
+        const event = await CalendarEvent.findOne({ _id: eId, companyId: cId });
+        if (!event) throw AppError.notFound('Calendar event not found');
+
+        if (event.provider !== 'google_meet') {
+            return event;
+        }
+
+        if (CalendarOAuthService.isGenuineMeetingUrl(event.meetingUrl, event.externalEventId)) {
+            return event;
+        }
+
+        // Concurrency lock per event ID to prevent duplicate room creation
+        const lockKey = eventId.toString();
+        if (this.repairLocks.has(lockKey)) {
+            await this.repairLocks.get(lockKey);
+            return CalendarEvent.findOne({ _id: eId, companyId: cId });
+        }
+
+        let resolveLock: () => void;
+        const lockPromise = new Promise<void>((resolve) => { resolveLock = resolve; });
+        this.repairLocks.set(lockKey, lockPromise);
+
+        try {
+            const isLegacyFakeId = !event.externalEventId ||
+                (event.meetingUrl && event.externalEventId === event.meetingUrl.replace('https://meet.google.com/', ''));
+
+            let meetingDetails: any;
+
+            if (!isLegacyFakeId && event.externalEventId) {
+                try {
+                    meetingDetails = await CalendarOAuthService.getConferenceByEventId(
+                        companyId,
+                        event.organizer?.userId?.toString() || userId,
+                        event.externalEventId
+                    );
+                } catch (e) {
+                    console.warn('[Meeting Repair] Failed to retrieve existing Google event:', e);
+                }
+            }
+
+            if (!meetingDetails?.meetingUrl) {
+                meetingDetails = await CalendarOAuthService.generateMeetingDetails(
+                    companyId,
+                    event.organizer?.userId?.toString() || userId,
+                    'google_meet',
+                    {
+                        title: event.title,
+                        description: event.description,
+                        startTime: event.startTime,
+                        endTime: event.endTime,
+                        timeZone: event.timeZone || 'Asia/Kolkata',
+                        participantEmails: (event.participants || []).map((p: any) => p.email).filter(Boolean),
+                    }
+                );
+            }
+
+            if (meetingDetails?.meetingUrl) {
+                event.meetingUrl = meetingDetails.meetingUrl;
+                event.externalEventId = meetingDetails.externalEventId || event.externalEventId;
+                event.externalProviderData = meetingDetails.externalProviderData;
+                await event.save();
+            }
+
+            return event;
+        } finally {
+            this.repairLocks.delete(lockKey);
+            resolveLock!();
+        }
     }
 
     /**
@@ -99,7 +184,11 @@ export class CalendarService {
         }
 
         if (filters.status) {
-            query['participants.status'] = filters.status;
+            if (filters.status === 'pending') {
+                query['participants.status'] = { $in: ['pending', 'invited'] };
+            } else {
+                query['participants.status'] = filters.status;
+            }
         }
 
         if (filters.search) {
@@ -282,31 +371,41 @@ export class CalendarService {
             }
         );
 
-        const newEvent: any = await CalendarEvent.create({
-            companyId: cId,
-            title: payload.title,
-            description: payload.description || '',
-            startTime: start,
-            endTime: end,
-            allDay: payload.allDay || false,
-            timeZone: payload.timeZone || 'Asia/Kolkata',
-            organizer,
-            coOrganizers: (payload.coOrganizers || []).map((id) => new Types.ObjectId(id)),
-            participants,
-            meetingType: payload.meetingType || 'video',
-            provider,
-            meetingUrl: meetingDetails.meetingUrl || null,
-            externalEventId: meetingDetails.externalEventId || null,
-            externalProviderData: meetingDetails.externalProviderData,
-            agenda: payload.agenda || [],
-            reminderMinutes: payload.reminderMinutes ?? 15,
-            recurrence: payload.recurrence || 'none',
-            projectId: payload.projectId ? new Types.ObjectId(payload.projectId) : null,
-            projectName,
-            taskId: payload.taskId ? new Types.ObjectId(payload.taskId) : null,
-            taskName,
-            color: payload.color || '#F97316',
-        });
+        let newEvent: any;
+        try {
+            newEvent = await CalendarEvent.create({
+                companyId: cId,
+                title: payload.title,
+                description: payload.description || '',
+                startTime: start,
+                endTime: end,
+                allDay: payload.allDay || false,
+                timeZone: payload.timeZone || 'Asia/Kolkata',
+                organizer,
+                coOrganizers: (payload.coOrganizers || []).map((id) => new Types.ObjectId(id)),
+                participants,
+                meetingType: payload.meetingType || 'video',
+                provider,
+                meetingUrl: meetingDetails.meetingUrl || null,
+                externalEventId: meetingDetails.externalEventId || null,
+                externalProviderData: meetingDetails.externalProviderData,
+                agenda: payload.agenda || [],
+                reminderMinutes: payload.reminderMinutes ?? 15,
+                recurrence: payload.recurrence || 'none',
+                projectId: payload.projectId ? new Types.ObjectId(payload.projectId) : null,
+                projectName,
+                taskId: payload.taskId ? new Types.ObjectId(payload.taskId) : null,
+                taskName,
+                color: payload.color || '#F97316',
+            });
+        } catch (dbErr: any) {
+            console.error('[Calendar Event] CalendarEvent persistence error:', dbErr);
+            if (dbErr.name === 'ValidationError') {
+                const messages = Object.values(dbErr.errors || {}).map((e: any) => e.message).join(', ');
+                throw AppError.badRequest(`Calendar event validation failed: ${messages || dbErr.message}`);
+            }
+            throw dbErr;
+        }
 
         NotificationEventBus.getInstance().publish({
             type: 'MEETING_SCHEDULED',
@@ -791,7 +890,7 @@ export class CalendarService {
                             avatar: u.avatar || null,
                             role: (u.role as any)?.name || 'Member',
                             designation: 'Participant',
-                            status: 'invited',
+                            status: 'pending',
                             isCoOrganizer: false,
                         });
                     }
@@ -807,7 +906,7 @@ export class CalendarService {
                             avatar: u.avatar || null,
                             role: (u.role as any)?.name || 'In Charge',
                             designation: 'Co-Organizer',
-                            status: 'invited',
+                            status: 'pending',
                             isCoOrganizer: true,
                         });
                     }
@@ -831,7 +930,7 @@ export class CalendarService {
                         avatar: (u as any).avatar || null,
                         role: ((u as any).role as any)?.name || 'Member',
                         designation: 'Participant',
-                        status: 'invited',
+                        status: 'pending',
                         isCoOrganizer: false,
                     });
                 }
@@ -855,30 +954,40 @@ export class CalendarService {
             }
         );
 
-        const event: any = await CalendarEvent.create({
-            companyId: cId,
-            title,
-            description: payload.description || `Instant meeting generated via WorkSphere Quick Meeting${projectName ? ` for project ${projectName}` : ''}`,
-            startTime,
-            endTime,
-            allDay: false,
-            timeZone: 'Asia/Kolkata',
-            organizer,
-            coOrganizers: participants.filter((p) => p.isCoOrganizer).map((p) => p.userId),
-            participants,
-            meetingType: 'video',
-            provider,
-            meetingUrl: meetingDetails.meetingUrl || null,
-            externalEventId: meetingDetails.externalEventId || null,
-            externalProviderData: meetingDetails.externalProviderData,
-            agenda: [],
-            reminderMinutes: 15,
-            recurrence: 'none',
-            projectId: projectObjId,
-            projectName,
-            color: '#F97316',
-            isQuickMeeting: true,
-        });
+        let event: any;
+        try {
+            event = await CalendarEvent.create({
+                companyId: cId,
+                title,
+                description: payload.description || `Instant meeting generated via WorkSphere Quick Meeting${projectName ? ` for project ${projectName}` : ''}`,
+                startTime,
+                endTime,
+                allDay: false,
+                timeZone: 'Asia/Kolkata',
+                organizer,
+                coOrganizers: participants.filter((p) => p.isCoOrganizer).map((p) => p.userId),
+                participants,
+                meetingType: 'video',
+                provider,
+                meetingUrl: meetingDetails.meetingUrl || null,
+                externalEventId: meetingDetails.externalEventId || null,
+                externalProviderData: meetingDetails.externalProviderData,
+                agenda: [],
+                reminderMinutes: 15,
+                recurrence: 'none',
+                projectId: projectObjId,
+                projectName,
+                color: '#F97316',
+                isQuickMeeting: true,
+            });
+        } catch (dbErr: any) {
+            console.error('[Quick Meeting] CalendarEvent persistence error:', dbErr);
+            if (dbErr.name === 'ValidationError') {
+                const messages = Object.values(dbErr.errors || {}).map((e: any) => e.message).join(', ');
+                throw AppError.badRequest(`Calendar event validation failed: ${messages || dbErr.message}`);
+            }
+            throw dbErr;
+        }
 
         // 5. Publish notification to all project members and invited participants
         const recipientIds = participants

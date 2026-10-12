@@ -10,6 +10,7 @@ import { AppError } from '../../utils/AppError';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
 import { NotificationEventBus } from '../notifications/notification.event-bus';
+import { SubscriptionQuotaService } from '../../services/subscription-quota.service';
 
 export class WishlistService {
     /**
@@ -354,6 +355,9 @@ export class WishlistService {
                     : wishlistItem.priority === WishlistPriority.HIGH ? TaskPriority.HIGH
                     : wishlistItem.priority === WishlistPriority.LOW ? TaskPriority.LOW
                     : TaskPriority.MEDIUM);
+
+            // 3b. Enforce Task Quota
+            await SubscriptionQuotaService.assertQuota(companyId, 'tasks', 1, { projectId });
 
             // 4. Create Task document
             const createdTasks = await Task.create(

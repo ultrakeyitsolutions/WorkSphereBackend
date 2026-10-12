@@ -75,3 +75,8 @@ desktop.ini
 # ==============================
 *.tmp
 *.temp
+# Test runner cache
+node_modules/
+**/node_modules/
+.vitest-cache/
+**/.vitest-cache/

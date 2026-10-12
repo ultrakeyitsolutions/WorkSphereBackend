@@ -16,19 +16,21 @@
 export class AppError extends Error {
     public readonly statusCode: number;
     public readonly isOperational: boolean;
+    public errors?: any;
 
-    constructor(message: string, statusCode: number) {
+    constructor(message: string, statusCode: number, errors?: any) {
         super(message);
         this.name = 'AppError';
         this.statusCode = statusCode;
         this.isOperational = true;
+        this.errors = errors;
         Error.captureStackTrace(this, this.constructor);
     }
 
     // ── Convenience factories ─────────────────────────────────────────────────
 
-    static badRequest(message: string): AppError {
-        return new AppError(message, 400);
+    static badRequest(message: string, errors?: any): AppError {
+        return new AppError(message, 400, errors);
     }
 
     static unauthorized(message: string): AppError {
@@ -47,8 +49,8 @@ export class AppError extends Error {
         return new AppError(message, 409);
     }
 
-    static unprocessable(message: string): AppError {
-        return new AppError(message, 422);
+    static unprocessable(message: string, errors?: any): AppError {
+        return new AppError(message, 422, errors);
     }
 
     static internal(message = 'Internal Server Error'): AppError {

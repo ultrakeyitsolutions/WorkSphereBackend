@@ -15,6 +15,8 @@ export interface IInvitationDelivery {
     sentAt?: Date | null;
     deliveredAt?: Date | null;
     failedAt?: Date | null;
+    senderEmail?: string;
+    senderMode?: 'PLATFORM' | 'COMPANY';
 }
 
 export interface IInvitationDeliveryDocument extends IInvitationDelivery, Document { }
@@ -51,6 +53,15 @@ const invitationDeliverySchema = new Schema<IInvitationDeliveryDocument>(
         failureReason: {
             type: String,
             trim: true,
+        },
+        senderEmail: {
+            type: String,
+            trim: true,
+            lowercase: true,
+        },
+        senderMode: {
+            type: String,
+            enum: ['PLATFORM', 'COMPANY'],
         },
         sentAt: {
             type: Date,

@@ -2,6 +2,9 @@ import mongoose from 'mongoose';
 import { Plan } from './plans.model';
 import { PlanFeatureService } from '../plan-features/plan-features.service';
 import { CreatePlanInput, UpdatePlanInput } from './plans.schema';
+import { EntitlementService } from '../../../services/entitlement.service';
+import { CompanyEmailEntitlementService } from '../../companyadmin/settings/company-email-entitlement.service';
+import { CompanyThemeEntitlementService } from '../../companyadmin/settings/company-theme-entitlement.service';
 
 export class PlanService {
 
@@ -66,6 +69,10 @@ export class PlanService {
             await PlanFeatureService.createEntitlements(String(plan._id), dto.features, session);
 
             await session.commitTransaction();
+
+            EntitlementService.clearAllCache();
+            CompanyEmailEntitlementService.clearAllCache();
+            CompanyThemeEntitlementService.clearAllCache();
 
             return this.buildResponse(String(plan._id));
         } catch (error) {
@@ -132,12 +139,17 @@ export class PlanService {
             const { features, ...planFields } = dto;
             await Plan.findByIdAndUpdate(id, planFields, { session, runValidators: true });
 
-            // If features were provided, replace all entitlements
-            if (features && features.length > 0) {
+            // If features were provided, replace all entitlements (including empty array to remove all)
+            if (features !== undefined) {
                 await PlanFeatureService.replaceEntitlements(id, features, session);
             }
 
             await session.commitTransaction();
+
+            EntitlementService.clearAllCache();
+            CompanyEmailEntitlementService.clearAllCache();
+            CompanyThemeEntitlementService.clearAllCache();
+
             return this.buildResponse(id);
         } catch (error) {
             await session.abortTransaction();

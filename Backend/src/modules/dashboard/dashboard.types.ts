@@ -1,6 +1,16 @@
 import { Types } from 'mongoose';
 
-export type DashboardPeriod = 'today' | 'week' | 'month' | 'last_month' | 'custom';
+export type DashboardPeriod =
+    | 'today'
+    | 'week'
+    | 'this_week'
+    | 'last_7_days'
+    | 'last_30_days'
+    | 'month'
+    | 'this_month'
+    | 'last_month'
+    | 'last_3_months'
+    | 'custom';
 export type DashboardScopeType = 'COMPANY' | 'SELF' | 'PROJECTS' | 'TEAM';
 
 export interface DashboardQueryDto {
@@ -21,6 +31,10 @@ export interface ResolvedDateRange {
     endDate: Date;
     timezone: string;
     days: string[];
+    previousStartDate?: Date;
+    previousEndDate?: Date;
+    previousStartDateStr?: string;
+    previousEndDateStr?: string;
 }
 
 export interface DashboardScopeContext {
@@ -293,3 +307,314 @@ export interface DashboardResponse {
     message?: string;
     data: DashboardData;
 }
+
+// ─── Company Admin Redesigned Dashboard Contracts ───────────────────────────
+
+export interface MetricComparison {
+    current: number;
+    previous: number;
+    percentageChange: number | null;
+    trend: 'UP' | 'DOWN' | 'FLAT';
+}
+
+export interface CompanyDashboardOverviewData {
+    meta: DashboardMeta;
+    projects: {
+        active: number;
+        completed: number;
+        total: number;
+        deliveryRate: number;
+    };
+    tasks: {
+        total: number;
+        completed: number;
+        open: number;
+        overdue: number;
+    };
+    periodMetrics: {
+        completedTasks: number;
+        createdTasks: number;
+        completionRate: number | null;
+        trackedHours: number;
+        attendanceHours: number;
+    };
+    comparisons: {
+        completedTasks: MetricComparison;
+        createdTasks: MetricComparison;
+        trackedHours: MetricComparison;
+    };
+}
+
+export interface DeliveryTrendBucket {
+    date: string;
+    label: string;
+    periodStart: string;
+    periodEnd: string;
+    plannedTasks: number;
+    completedTasks: number;
+    completionRate: number | null;
+}
+
+export interface CompanyDeliveryTrendsData {
+    meta: DashboardMeta & { interval: 'day' | 'week' | 'month' };
+    summary: {
+        totalPlanned: number;
+        totalCompleted: number;
+        overallCompletionRate: number | null;
+    };
+    buckets: DeliveryTrendBucket[];
+}
+
+export interface ProjectHealthCardItem {
+    projectId: string;
+    projectName: string;
+    status: string;
+    healthStatus: ProjectHealthStatus;
+    progressPercentage: number;
+    totalTasks: number;
+    completedTasks: number;
+    overdueTasks: number;
+    startDate: string;
+    endDate: string;
+    reasons: string[];
+}
+
+export interface CompanyProjectHealthData {
+    meta: {
+        generatedAt: string;
+        timezone: string;
+    };
+    summary: {
+        totalEvaluated: number;
+        onTrack: { count: number; percentage: number };
+        atRisk: { count: number; percentage: number };
+        delayed: { count: number; percentage: number };
+    };
+    projects: ProjectHealthCardItem[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+    };
+}
+
+export interface MemberWorkloadItem {
+    userId: string;
+    name: string;
+    email: string;
+    designation: string;
+    memberType: string;
+    assignedTasks: number;
+    openTasks: number;
+    completedTasks: number;
+    overdueTasks: number;
+    trackedHours: number;
+    workloadStatus: 'under_capacity' | 'balanced' | 'overloaded';
+}
+
+export interface CompanyWorkloadData {
+    meta: DashboardMeta;
+    summary: {
+        totalMembers: number;
+        underCapacity: number;
+        balanced: number;
+        overloaded: number;
+    };
+    members: MemberWorkloadItem[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+    };
+}
+
+export interface AttentionTaskItem {
+    id: string;
+    title: string;
+    taskNumber?: string;
+    projectId: string;
+    projectName: string;
+    assignedTo: { id: string; name: string } | null;
+    dueDate: string;
+    daysOverdue?: number;
+    priority: string;
+}
+
+export interface AttentionProjectItem {
+    id: string;
+    name: string;
+    healthStatus: 'delayed' | 'at_risk';
+    progressPercentage: number;
+    endDate: string;
+    reasons: string[];
+}
+
+export interface AttentionLeaveItem {
+    id: string;
+    employeeId: string;
+    employeeName: string;
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    totalDays: number;
+    reason: string;
+    appliedAt: string;
+}
+
+export interface AttentionTimesheetItem {
+    id: string;
+    userId: string;
+    userName: string;
+    periodStart: string;
+    periodEnd: string;
+    submittedAt?: string;
+}
+
+export interface CompanyAttentionData {
+    meta: {
+        generatedAt: string;
+        timezone: string;
+    };
+    counts: {
+        overdueTasks: number;
+        upcomingDeadlines: number;
+        atRiskProjects: number;
+        pendingLeaves: number;
+        pendingTimesheets: number;
+    };
+    overdueTasks: AttentionTaskItem[];
+    upcomingDeadlines: AttentionTaskItem[];
+    atRiskProjects: AttentionProjectItem[];
+    pendingLeaves: AttentionLeaveItem[];
+    pendingTimesheets: AttentionTimesheetItem[];
+}
+
+export interface MilestoneCardItem {
+    id: string;
+    name: string;
+    version?: string;
+    type: 'RELEASE' | 'PROJECT_END';
+    projectId: string;
+    projectName: string;
+    targetDate: string;
+    status: string;
+    progressPercentage: number;
+    totalTasks: number;
+    completedTasks: number;
+    daysRemaining: number;
+    isOverdue: boolean;
+}
+
+export interface CompanyMilestonesData {
+    meta: {
+        generatedAt: string;
+        timezone: string;
+    };
+    summary: {
+        total: number;
+        upcoming: number;
+        completed: number;
+        overdue: number;
+    };
+    milestones: MilestoneCardItem[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+    };
+}
+
+// ─── Member Redesigned Dashboard Contracts ───────────────────────────────────
+
+export interface MemberDashboardOverviewData {
+    meta: DashboardMeta;
+    projects: {
+        assignedTotal: number;
+    };
+    tasks: {
+        total: number;
+        completed: number;
+        open: number;
+        overdue: number;
+        completionRate: number;
+    };
+    periodMetrics: {
+        tasksCompleted: number;
+        tasksCreatedOrAssigned: number;
+        trackedHours: number;
+        attendanceDays: number;
+    };
+    todayAttendance: {
+        isCheckedIn: boolean;
+        checkInTime: string | null;
+        status: string | null;
+    };
+    pendingLeaves: number;
+    latestTimesheet: {
+        periodStart: string | null;
+        periodEnd: string | null;
+        status: string | null;
+    } | null;
+}
+
+export interface MemberTrendBucket {
+    date: string;
+    label: string;
+    tasksCompleted: number;
+    tasksAssigned: number;
+    trackedHours: number;
+}
+
+export interface MemberWorkTrendsData {
+    meta: DashboardMeta & { interval: 'day' | 'week' };
+    summary: {
+        totalTasksCompleted: number;
+        totalTrackedHours: number;
+    };
+    buckets: MemberTrendBucket[];
+}
+
+export interface MemberTaskItem {
+    id: string;
+    title: string;
+    taskNumber?: string;
+    projectId: string;
+    projectName: string;
+    priority: string;
+    status?: string;
+    dueDate?: string | null;
+    progress?: number;
+}
+
+export interface MemberProjectSummary {
+    id: string;
+    name: string;
+    status: string;
+    priority: string;
+    totalTasks: number;
+    completedTasks: number;
+    myTasks: number;
+    myCompletedTasks: number;
+    progressPercentage: number;
+}
+
+export interface MemberMyWorkData {
+    meta: {
+        generatedAt: string;
+        timezone: string;
+    };
+    summary: {
+        inProgressCount: number;
+        overdueCount: number;
+        upcomingCount: number;
+        projectsCount: number;
+    };
+    inProgressTasks: MemberTaskItem[];
+    overdueTasks: MemberTaskItem[];
+    upcomingTasks: MemberTaskItem[];
+    myProjects: MemberProjectSummary[];
+}
+

@@ -34,20 +34,36 @@ export class ImpersonationService {
         targetUserId: string,
         req?: Request
     ): Promise<ImpersonationStartResponse> {
-        // ── 1. Validate Authenticated Super Admin Authorization ────────────────
+        // ── 1. Validate Authenticated Administrator Authorization ──────────────
         const actualActorId = requester.authUserId || requester.sessionUserId || requester.userId;
 
         const actualAdminUser = await UserService.findById(actualActorId);
-        if (!actualAdminUser || !actualAdminUser.isActive) {
-            throw new AppError('Super Admin user account not found or inactive', 401);
+        if (!actualAdminUser || !actualAdminUser.isActive || actualAdminUser.status !== 'ACTIVE') {
+            throw new AppError('Administrator user account not found or inactive', 401);
         }
 
         const actualAdminRole = (actualAdminUser.role as any)?.name || 'User';
-        if (actualAdminRole !== 'SUPER_ADMIN') {
+        const isSuperAdmin = actualAdminRole === 'SUPER_ADMIN';
+        const isCompanyAdmin = actualAdminRole === 'COMPANY_ADMIN' || actualAdminRole === 'Admin';
+
+        if (!isSuperAdmin && !isCompanyAdmin) {
             throw new AppError('Only Super Admin can impersonate users.', 403);
         }
 
-        // If Super Admin is already in an impersonation session, automatically close prior active sessions
+        if (isCompanyAdmin) {
+            if (!actualAdminUser.companyId) {
+                throw new AppError('Company Admin must be associated with a valid organization.', 403);
+            }
+            const actorCompany = await Company.findById(actualAdminUser.companyId);
+            if (!actorCompany || !actorCompany.isActive || actorCompany.status === 'DELETED') {
+                throw new AppError('Administrator organization is no longer active', 403);
+            }
+            if (actorCompany.status === 'SUSPENDED') {
+                throw new AppError('Administrator organization is currently suspended', 403);
+            }
+        }
+
+        // If administrator is already in an impersonation session, automatically close prior active sessions
         if (requester.isImpersonating || requester.sessionType === 'IMPERSONATION' || requester.impersonationSessionId) {
             await ImpersonationSession.updateMany(
                 {
@@ -74,12 +90,78 @@ export class ImpersonationService {
             throw new AppError('Target user not found', 404);
         }
 
+        if (String(targetUser._id) === String(actualActorId)) {
+            throw new AppError('Cannot impersonate yourself', 400);
+        }
+
         if (!targetUser.isActive || targetUser.status !== 'ACTIVE') {
             throw new AppError('Target user is inactive', 403);
         }
 
         const targetRoleName = (targetUser.role as any)?.name || 'User';
         const targetCompanyId = targetUser.companyId ? String(targetUser.companyId) : null;
+
+        // Role-Specific Impersonation Rules & Tenant Isolation
+        if (isCompanyAdmin) {
+            const actorCompanyId = String(actualAdminUser.companyId);
+
+            // Role boundary: Company Admins cannot impersonate Super Admins
+            if (targetRoleName === 'SUPER_ADMIN') {
+                await AuditLogService.log({
+                    action: AuditAction.IMPERSONATION_STARTED,
+                    actorId: actualActorId,
+                    actorEmail: actualAdminUser.email,
+                    actorRole: actualAdminRole,
+                    targetUserId: String(targetUser._id),
+                    targetEmail: targetUser.email,
+                    companyId: actorCompanyId,
+                    metadata: { reason: 'SUPER_ADMIN_TARGET_DENIED' },
+                    success: false,
+                    description: `Impersonation attempt of Super Admin rejected for ${actualAdminUser.email}`,
+                    req,
+                });
+                throw new AppError('Company Admins cannot impersonate Super Admins.', 403);
+            }
+
+            // Tenant isolation: Company Admin can ONLY impersonate users within their own company
+            if (!targetCompanyId || targetCompanyId !== actorCompanyId) {
+                await AuditLogService.log({
+                    action: AuditAction.IMPERSONATION_STARTED,
+                    actorId: actualActorId,
+                    actorEmail: actualAdminUser.email,
+                    actorRole: actualAdminRole,
+                    targetUserId: String(targetUser._id),
+                    targetEmail: targetUser.email,
+                    companyId: actorCompanyId,
+                    metadata: {
+                        reason: 'CROSS_TENANT_IMPERSONATION_DENIED',
+                        targetCompanyId,
+                    },
+                    success: false,
+                    description: `Cross-tenant impersonation attempt rejected: ${actualAdminUser.email} attempted to impersonate user ${targetUser.email}`,
+                    req,
+                });
+                throw new AppError('You can only impersonate users within your own organization.', 403);
+            }
+
+            // Role boundary: Company Admins cannot impersonate other Company Admins / Admins
+            if (targetRoleName === 'COMPANY_ADMIN' || targetRoleName === 'Admin') {
+                await AuditLogService.log({
+                    action: AuditAction.IMPERSONATION_STARTED,
+                    actorId: actualActorId,
+                    actorEmail: actualAdminUser.email,
+                    actorRole: actualAdminRole,
+                    targetUserId: String(targetUser._id),
+                    targetEmail: targetUser.email,
+                    companyId: actorCompanyId,
+                    metadata: { reason: 'ADMIN_TARGET_DENIED' },
+                    success: false,
+                    description: `Impersonation attempt of another Administrator rejected for ${actualAdminUser.email}`,
+                    req,
+                });
+                throw new AppError('Company Admins cannot impersonate other administrators.', 403);
+            }
+        }
 
         // Verify target company is not deleted/suspended if set
         if (targetCompanyId) {
@@ -164,6 +246,8 @@ export class ImpersonationService {
             req,
         });
 
+        const companyDoc = targetCompanyId ? await Company.findById(targetCompanyId) : null;
+
         return {
             isImpersonating: true,
             authenticatedUserId: actualActorId,
@@ -184,6 +268,14 @@ export class ImpersonationService {
                 role: targetRoleName,
                 companyId: targetCompanyId,
             },
+            company: companyDoc
+                ? {
+                    id: String(companyDoc._id),
+                    name: companyDoc.name,
+                    slug: companyDoc.slug,
+                    logoUrl: companyDoc.logoUrl || null,
+                }
+                : null,
         };
     }
 
@@ -200,7 +292,7 @@ export class ImpersonationService {
 
         const actualAdminId = requester.authUserId || requester.sessionUserId;
         if (!actualAdminId) {
-            throw new AppError('Original Super Admin context not found in session', 400);
+            throw new AppError('Original administrator context not found in session', 400);
         }
 
         // ── 1. End Impersonation Session in Database ──────────────────────────
@@ -222,10 +314,10 @@ export class ImpersonationService {
             await session.save();
         }
 
-        // ── 2. Restore Original Super Admin Context ───────────────────────────
+        // ── 2. Restore Original Administrator Context ─────────────────────────
         const adminUser = await UserService.findById(actualAdminId);
         if (!adminUser || !adminUser.isActive) {
-            throw new AppError('Original Super Admin user account is no longer active', 401);
+            throw new AppError('Original administrator user account is no longer active', 401);
         }
 
         const adminRoleName = (adminUser.role as any)?.name || 'SUPER_ADMIN';

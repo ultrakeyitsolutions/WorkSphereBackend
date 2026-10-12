@@ -12,6 +12,7 @@ import {
     rsvpSchema,
     quickMeetingSchema,
     connectOAuthSchema,
+    oauthConfigSchema,
 } from './calendar.validation';
 
 export class CalendarController {
@@ -253,6 +254,48 @@ export class CalendarController {
     });
 
     /**
+     * GET /api/v1/company/calendar/oauth/:provider/config
+     */
+    static getOAuthConfig = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        if (!companyId) throw AppError.unauthorized('Unauthorized');
+
+        const provider = req.params.provider as string;
+        const data = await CalendarOAuthService.getOAuthPublicConfig(companyId, provider);
+        return sendSuccess(res, 'OAuth configuration retrieved successfully', data, 200);
+    });
+
+    /**
+     * POST /api/v1/company/calendar/oauth/:provider/config
+     */
+    static saveOAuthConfig = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const provider = CalendarOAuthService.normalizeProvider(req.params.provider as string);
+        const parsed = oauthConfigSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation Error',
+                details: parsed.error.format(),
+            });
+        }
+
+        const data = await CalendarOAuthService.saveCompanyCredentials(
+            companyId,
+            provider,
+            parsed.data.clientId,
+            parsed.data.clientSecret,
+            parsed.data.redirectUri,
+            userId
+        );
+
+        return sendSuccess(res, 'OAuth configuration saved successfully', data, 200);
+    });
+
+    /**
      * POST /api/v1/company/calendar/oauth/:provider/connect
      */
     static connectOAuth = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
@@ -275,7 +318,9 @@ export class CalendarController {
             userId,
             provider,
             parsed.data.code,
-            parsed.data.redirectUri
+            parsed.data.redirectUri,
+            parsed.data.clientId,
+            parsed.data.clientSecret
         );
 
         return sendSuccess(res, 'Integration connected successfully', data, 200);
@@ -296,6 +341,18 @@ export class CalendarController {
             success: true,
             message: 'Integration disconnected successfully',
         });
+    });
+
+    /**
+     * POST /api/v1/company/calendar/events/:id/conference
+     */
+    static prepareConference = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const companyId = req.user?.companyId;
+        const userId = req.user?.userId;
+        if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const event = await CalendarService.ensureValidConference(companyId, userId, req.params.id as string);
+        return sendSuccess(res, 'Conference verified successfully', CalendarService.formatEvent(event), 200);
     });
 }
 export default CalendarController;

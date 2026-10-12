@@ -49,6 +49,13 @@ export const createTask = async (req: AuthenticatedRequest, res: Response) => {
             data: result
         });
     } catch (error: any) {
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({
+                success: false,
+                message: error.message,
+                errors: error.errors,
+            });
+        }
         if (error.message === 'PROJECT_NOT_FOUND') {
             return res.status(404).json({ success: false, message: 'Project not found' });
         }
@@ -213,6 +220,9 @@ export const reopenTask = async (req: AuthenticatedRequest, res: Response) => {
         );
         return res.status(201).json({ success: true, data: result });
     } catch (error: any) {
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({ success: false, message: error.message, errors: error.errors });
+        }
         if (error.message === 'TASK_NOT_FOUND') return res.status(404).json({ success: false, message: 'Task not found' });
         if (error.message === 'PROJECT_NOT_FOUND') return res.status(404).json({ success: false, message: 'Project not found' });
         if (error.message === 'TASK_NOT_COMPLETED' || error.message === 'TASK_NOT_COMPLETED_OR_CANCELLED') {
@@ -297,6 +307,9 @@ export const unarchiveTask = async (req: AuthenticatedRequest, res: Response) =>
         const result = await TaskService.unarchiveTask(taskId, companyId as string, userId as string);
         return res.status(200).json({ success: true, message: result.message, data: result });
     } catch (error: any) {
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({ success: false, message: error.message, errors: error.errors });
+        }
         if (error.message === 'TASK_NOT_FOUND') return res.status(404).json({ success: false, message: 'Task not found' });
         if (error.message === 'PROJECT_NOT_FOUND') return res.status(404).json({ success: false, message: 'Project not found' });
         if (error.message === 'TASK_NOT_ARCHIVED') return res.status(400).json({ success: false, message: 'Task is not archived' });

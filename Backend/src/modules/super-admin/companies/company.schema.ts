@@ -26,6 +26,14 @@ export const createCompanySchema = z.object({
         })
         .optional(),
 
+    logoUrl: z
+        .string()
+        .trim()
+        .url({ message: 'Logo URL must be a valid URL' })
+        .nullable()
+        .optional()
+        .or(z.literal('')),
+
     // ── Admin user fields ───────────────────────────────────────────────────
     adminName: z
         .string()
@@ -75,6 +83,7 @@ export const editCompanySchema = z.object({
     postalCode: z.string().trim().max(20).optional(),
     timezone: z.string().trim().refine(timezoneValidator, { message: 'Invalid IANA timezone' }).optional(),
     currency: z.string().trim().refine(currencyValidator, { message: 'Invalid ISO 4217 currency' }).optional(),
+    logoUrl: z.string().trim().url({ message: 'Invalid logo URL' }).nullable().optional().or(z.literal('')),
 }).strict();
 
 export type EditCompanyDto = z.infer<typeof editCompanySchema>;

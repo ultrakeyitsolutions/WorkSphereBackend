@@ -58,14 +58,16 @@ router.post('/:taskId/archive', validateRequest(taskParamSchema), archiveTask);
 router.patch('/:taskId/unarchive', validateRequest(taskParamSchema), unarchiveTask);
 router.post('/:taskId/unarchive', validateRequest(taskParamSchema), unarchiveTask);
 
+import { requireFeature } from '../../middleware/entitlement.middleware';
+
 // GET /api/v1/company/tasks/:taskId/recurrence
-router.get('/:taskId/recurrence', validateRequest(taskParamSchema), getTaskRecurrence);
+router.get('/:taskId/recurrence', requireFeature('RECURRING_TASKS'), validateRequest(taskParamSchema), getTaskRecurrence);
 
 // PUT /api/v1/company/tasks/:taskId/recurrence
-router.put('/:taskId/recurrence', validateRequest(updateRecurrenceSchema), updateTaskRecurrence);
+router.put('/:taskId/recurrence', requireFeature('RECURRING_TASKS'), validateRequest(updateRecurrenceSchema), updateTaskRecurrence);
 
 // DELETE /api/v1/company/tasks/:taskId/recurrence
-router.delete('/:taskId/recurrence', validateRequest(taskParamSchema), deleteTaskRecurrence);
+router.delete('/:taskId/recurrence', requireFeature('RECURRING_TASKS'), validateRequest(taskParamSchema), deleteTaskRecurrence);
 
 // POST /api/v1/company/tasks/:taskId/cancel
 router.post('/:taskId/cancel', validateRequest(cancelTaskSchema), cancelTask);

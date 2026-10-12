@@ -8,6 +8,7 @@ import { ProjectService } from '../companyadmin/projects/project.service';
 import { PresenceService } from '../../sockets/presence.service';
 import { NotificationEventBus } from '../notifications/notification.event-bus';
 import { StorageConfigurationService } from '../super-admin/storage/storage-config.service';
+import { FeatureAccessService } from '../companyadmin/settings/feature-access.service';
 
 export const registerChatHandlers = (io: Server, socket: Socket): void => {
     const user = socket.data.user;
@@ -18,6 +19,12 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
      */
     socket.on('join_conversation', async (data: { conversationId: string }, callback?: (response: any) => void) => {
         try {
+            const chatAccess = await FeatureAccessService.checkAccess(user.companyId, 'enableChat');
+            if (!chatAccess.allowed) {
+                if (callback) callback({ success: false, message: chatAccess.message || 'Chat is disabled for your organization' });
+                return;
+            }
+
             const { conversationId } = data;
             if (!conversationId || !Types.ObjectId.isValid(conversationId)) {
                 if (callback) callback({ success: false, message: 'Invalid conversationId' });
@@ -75,6 +82,12 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
         ) => {
             try {
                 const { conversationId, messageType, text, fileId } = data;
+
+                const chatAccess = await FeatureAccessService.checkAccess(user.companyId, 'enableChat');
+                if (!chatAccess.allowed) {
+                    if (callback) callback({ success: false, message: chatAccess.message || 'Chat is disabled for your organization' });
+                    return;
+                }
 
                 if (!conversationId || !Types.ObjectId.isValid(conversationId)) {
                     if (callback) callback({ success: false, message: 'Invalid conversationId' });
@@ -250,6 +263,9 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
      */
     socket.on('typing_start', async (data: { conversationId: string }) => {
         try {
+            const isChatEnabled = await FeatureAccessService.canAccess(user.companyId, 'enableChat');
+            if (!isChatEnabled) return;
+
             const { conversationId } = data;
             if (!conversationId) return;
 
@@ -269,6 +285,9 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
 
     socket.on('typing_stop', async (data: { conversationId: string }) => {
         try {
+            const isChatEnabled = await FeatureAccessService.canAccess(user.companyId, 'enableChat');
+            if (!isChatEnabled) return;
+
             const { conversationId } = data;
             if (!conversationId) return;
 
@@ -291,6 +310,9 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
      */
     socket.on('message_delivered', async (data: { messageId: string; conversationId: string }) => {
         try {
+            const isChatEnabled = await FeatureAccessService.canAccess(user.companyId, 'enableChat');
+            if (!isChatEnabled) return;
+
             const { messageId, conversationId } = data;
             if (!messageId || !Types.ObjectId.isValid(messageId)) return;
 
@@ -315,6 +337,9 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
      */
     socket.on('message_read', async (data: { conversationId: string }) => {
         try {
+            const isChatEnabled = await FeatureAccessService.canAccess(user.companyId, 'enableChat');
+            if (!isChatEnabled) return;
+
             const { conversationId } = data;
             if (!conversationId || !Types.ObjectId.isValid(conversationId)) return;
 

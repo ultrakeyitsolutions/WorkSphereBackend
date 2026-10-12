@@ -151,6 +151,38 @@ const initialFeatures = [
         category: 'Integrations',
         type: 'BOOLEAN',
         unit: 'NONE',
+    },
+    {
+        key: 'CUSTOM_COMPANY_EMAIL',
+        name: 'Custom Company Email',
+        description: 'Allow companies to configure a custom verified sender address or SMTP server for invitations and emails',
+        category: 'Integrations',
+        type: 'BOOLEAN',
+        unit: 'NONE',
+    },
+    {
+        key: 'CUSTOM_COMPANY_THEME',
+        name: 'Custom Company Theme',
+        description: 'Custom corporate theme branding, primary colors, and logo styling',
+        category: 'Customization',
+        type: 'BOOLEAN',
+        unit: 'NONE',
+    },
+    {
+        key: 'LIVE_MONITORING',
+        name: 'Live Monitoring',
+        description: 'Real-time employee activity, presence, and live dashboard monitoring',
+        category: 'Management',
+        type: 'BOOLEAN',
+        unit: 'NONE',
+    },
+    {
+        key: 'DETAILED_MONITORING',
+        name: 'Detailed Monitoring',
+        description: 'In-depth work logs, timeline activity, and individual productivity analysis',
+        category: 'Management',
+        type: 'BOOLEAN',
+        unit: 'NONE',
     }
 ];
 

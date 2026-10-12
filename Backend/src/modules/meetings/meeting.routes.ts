@@ -3,11 +3,13 @@ import { authenticate } from '../../middleware/auth.middleware';
 import { authorizeRoles } from '../../middleware/authorization.middleware';
 import meetingRequestRoutes from './meeting-request.routes';
 import { MeetingController } from './meeting.controller';
+import { requireModuleAccess } from '../../middleware/module-access.middleware';
 
 const router = Router();
 
-// Authentication required for all meeting endpoints
+// Authentication and module access required for all meeting endpoints
 router.use(authenticate);
+router.use(requireModuleAccess('meetings'));
 
 // ── Sub-routes ───────────────────────────────────────────────────────────────
 router.use('/requests', meetingRequestRoutes);
