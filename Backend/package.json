@@ -60,16 +60,10 @@
     "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.68.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "overrides": {
-    "@vercel/static-config": {
-      "ajv": "^8.17.2",
-      "ts-morph": "^28.0.0"
-    },
-    "@vercel/node": {
-      "ts-morph": "^28.0.0"
-    },
+    "ajv": "^8.17.2",
     "ts-morph": "^28.0.0",
     "@ts-morph/common": "^0.29.0",
     "fast-glob": "^3.3.3",
@@ -79,6 +73,8 @@
     "ip-address": "^10.7.1",
     "micromatch": "^4.0.8",
     "path-to-regexp": "^6.3.0",
-    "undici": "^6.27.1"
+    "undici": "^6.27.1",
+    "vite": "^8.2.4",
+    "@vitest/mocker": "^4.1.12"
   }
 }
