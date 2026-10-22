@@ -4,7 +4,6 @@ import { sendError } from '../utils/response';
 import { AuthenticatedRequest } from '../modules/auth/auth.types';
 import { User } from '../modules/users/user.model';
 import { Company } from '../modules/super-admin/companies/company.model';
-import CompanyMember from '../modules/companyadmin/invitations/company-member.model';
 import { ImpersonationSession } from '../modules/super-admin/impersonation/impersonation.model';
 import { ImpersonationStatus } from '../modules/super-admin/impersonation/impersonation.types';
 import { AuditLogService } from '../modules/audit-logs/audit-log.service';
@@ -183,15 +182,6 @@ export const authenticate = async (
                 }
                 if (company.status === 'DELETED' || !company.isActive) {
                     return sendError(res, 'Your organization account is no longer active.', 403);
-                }
-
-                // Verify CompanyMember status for non-admin company members
-                const userRoleName = (user.role as any)?.name;
-                if (userRoleName !== 'COMPANY_ADMIN' && userRoleName !== 'Admin') {
-                    const member = await CompanyMember.findOne({ userId: user._id, companyId: user.companyId });
-                    if (member && (member.status === 'SUSPENDED' || member.status === 'INACTIVE')) {
-                        return sendError(res, 'User account is suspended', 403);
-                    }
                 }
             }
         }
