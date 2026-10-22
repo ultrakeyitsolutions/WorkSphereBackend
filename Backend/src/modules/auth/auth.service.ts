@@ -16,7 +16,11 @@ import { PasswordReset } from './password-reset.model';
 import { getMailTransporter, mailDefaults } from '../../config/mail';
 import { ImpersonationSession } from '../super-admin/impersonation/impersonation.model';
 import { ImpersonationStatus } from '../super-admin/impersonation/impersonation.types';
-
+import { User } from '../users/user.model';
+import { AppError } from '../../utils/AppError';
+import CompanyMember from '../companyadmin/invitations/company-member.model';
+import { getRedisClient } from '../../config/redis';
+import { getSocketServer } from '../../sockets/socket-server';
 
 export class AuthService {
     static async register(data: any) {
@@ -73,24 +77,53 @@ export class AuthService {
             throw new Error('Invalid email or password');
         }
 
-        if (!user.isActive) {
+        if (user.isDeleted || user.deletedAt || !user.isActive || user.status === 'DEACTIVATED' || user.status === 'SUSPENDED' || (user as any).accountStatus === 'SUSPENDED') {
             const auditStart = performance.now();
+            const isSuspended = user.status === 'SUSPENDED' || (user as any).accountStatus === 'SUSPENDED';
+            const roleName = (user.role as any)?.name ?? '';
+            const isCompanyAdmin = roleName === 'COMPANY_ADMIN' || roleName === 'Admin';
+
             await AuditLogService.log({
                 action: AuditAction.USER_LOGIN_FAILED,
                 actorId: String(user._id),
                 actorEmail: user.email,
-                actorRole: (user.role as any)?.name ?? null,
+                actorRole: roleName || null,
+                companyId: user.companyId ? String(user.companyId) : null,
                 success: false,
-                description: `Failed login — account deactivated for: ${user.email}`,
+                description: isSuspended
+                    ? `Failed login — account suspended for: ${user.email}`
+                    : user.isDeleted
+                        ? `Failed login — account deleted for: ${user.email}`
+                        : `Failed login — account deactivated for: ${user.email}`,
                 req,
             });
             console.log(
-                `[LOGIN] auditLog (deactivated): ${(performance.now() - auditStart).toFixed(2)}ms`
+                `[LOGIN] auditLog (deactivated/suspended/deleted): ${(performance.now() - auditStart).toFixed(2)}ms`
             );
             console.log(
                 `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
             );
-            throw new Error('Your account is deactivated');
+
+            if (isSuspended) {
+                const suspensionMsg = isCompanyAdmin
+                    ? 'Your account has been suspended. Please contact the platform administrator.'
+                    : 'Your account has been suspended. Please contact your company administrator.';
+                throw new AppError(suspensionMsg, 403, { code: 'ACCOUNT_SUSPENDED' });
+            }
+
+            // Determine if account is eligible for recovery
+            const now = new Date();
+            const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+            const eligibleUntil =
+                user.recoveryEligibleUntil ||
+                (user.deletedAt ? new Date(user.deletedAt.getTime() + thirtyDaysMs) : null);
+            const isEligible = !eligibleUntil || eligibleUntil > now;
+
+            throw new AppError('Your account is deactivated', 400, {
+                action: isEligible ? 'ACCOUNT_RECOVERY_AVAILABLE' : 'ACCOUNT_DELETED_INELIGIBLE',
+                recoveryAction: isEligible ? 'ACCOUNT_RECOVERY_AVAILABLE' : undefined,
+                recoveryEligible: isEligible,
+            });
         }
 
         // ─── Company Status Check ────────────────────────────────────────────────
@@ -114,7 +147,7 @@ export class AuthService {
                 console.log(
                     `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
                 );
-                throw new Error('Your organization account is not found.');
+                throw new AppError('Your organization account is not found.', 401);
             }
             if (company.status === 'SUSPENDED') {
                 await AuditLogService.log({
@@ -130,7 +163,7 @@ export class AuthService {
                 console.log(
                     `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
                 );
-                throw new Error('Your organization account is currently suspended.');
+                throw new AppError('Your organization account is currently suspended.', 403);
             }
             if (company.status === 'DELETED' || !company.isActive) {
                 await AuditLogService.log({
@@ -146,9 +179,30 @@ export class AuthService {
                 console.log(
                     `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
                 );
-                throw new Error('Your organization account is no longer active.');
+                throw new AppError('Your organization account is no longer active.', 403);
             }
             companyDoc = company;
+
+            // ─── Company Member Status Check for non-admin members ─────────────────
+            const roleName = (user.role as any)?.name ?? '';
+            if (roleName !== 'SUPER_ADMIN' && roleName !== 'COMPANY_ADMIN' && roleName !== 'Admin') {
+                const member = await CompanyMember.findOne({ userId: user._id, companyId: user.companyId });
+                if (member && (member.status === 'SUSPENDED' || member.status === 'INACTIVE')) {
+                    await AuditLogService.log({
+                        action: AuditAction.USER_LOGIN_FAILED,
+                        actorId: String(user._id),
+                        actorEmail: user.email,
+                        companyId: String(user.companyId),
+                        success: false,
+                        description: `Failed login — employee ${member.status.toLowerCase()} for: ${user.email}`,
+                        req,
+                    });
+                    const msg = member.status === 'SUSPENDED'
+                        ? 'Your account has been suspended. Please contact your company administrator.'
+                        : 'Your account is currently inactive. Please contact your company administrator.';
+                    throw new AppError(msg, 403, { code: 'ACCOUNT_SUSPENDED' });
+                }
+            }
         }
 
         const pwdStart = performance.now();
@@ -360,8 +414,20 @@ export class AuthService {
         if (!user) {
             throw new Error('User not found');
         }
-        if (!user.isActive) {
-            throw new Error('User account is deactivated');
+        if (!user.isActive || user.isDeleted || (user as any).status === 'DEACTIVATED' || (user as any).status === 'SUSPENDED' || (user as any).accountStatus === 'SUSPENDED') {
+            const msg = (user as any).status === 'SUSPENDED' || (user as any).accountStatus === 'SUSPENDED'
+                ? 'User account is suspended'
+                : 'User account is deactivated';
+            throw new AppError(msg, 403);
+        }
+
+        // ─── Company Member Status Check for non-admin users ─────────────────────
+        const roleName = (user.role as any)?.name ?? '';
+        if (user.companyId && roleName !== 'SUPER_ADMIN' && roleName !== 'COMPANY_ADMIN' && roleName !== 'Admin') {
+            const member = await CompanyMember.findOne({ userId: user._id, companyId: user.companyId });
+            if (member && (member.status === 'SUSPENDED' || member.status === 'INACTIVE')) {
+                throw new AppError('User account is suspended', 403);
+            }
         }
 
         // ─── Company Status Check ────────────────────────────────────────────────
@@ -369,13 +435,13 @@ export class AuthService {
         if (user.companyId) {
             const company = await Company.findById(user.companyId);
             if (!company) {
-                throw new Error('Your organization account is not found.');
+                throw new AppError('Your organization account is not found.', 401);
             }
             if (company.status === 'SUSPENDED') {
-                throw new Error('Your organization account is currently suspended.');
+                throw new AppError('Your organization account is currently suspended.', 403);
             }
             if (company.status === 'DELETED' || !company.isActive) {
-                throw new Error('Your organization account is no longer active.');
+                throw new AppError('Your organization account is no longer active.', 403);
             }
             companyDoc = company;
         }
@@ -716,4 +782,205 @@ export class AuthService {
             message: 'Password reset successfully. You can now log in with your new password.',
         };
     }
+
+    /**
+     * Authenticated user soft-deletes/suspends their own account
+     */
+    static async deleteAccount(userId: string, reason?: string, req?: Request) {
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        if (user.isDeleted || user.status === 'DEACTIVATED' || user.status === 'SUSPENDED' || !user.isActive) {
+            throw new Error('Account is already deleted, suspended, or deactivated');
+        }
+
+        let roleName = '';
+        if (user.role && typeof user.role === 'object' && (user.role as any).name) {
+            roleName = (user.role as any).name;
+        } else if (user.role) {
+            const roleDoc = await Role.findById(user.role).select('name');
+            roleName = roleDoc?.name ?? '';
+        }
+
+        if (roleName === 'SUPER_ADMIN') {
+            throw new Error('Super Admin account deletion is not permitted via this endpoint');
+        }
+
+        const isCompanyAdmin = roleName === 'COMPANY_ADMIN' || roleName === 'Admin';
+        const isMember = Boolean(user.companyId && !isCompanyAdmin);
+
+        const now = new Date();
+        const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+        const defaultReason = reason || (isCompanyAdmin ? 'Company Admin requested account deletion' : 'Employee requested account deletion');
+
+        if (isCompanyAdmin) {
+            // Requirement 2: Company Admin Account Deletion
+            // - Do not permanently delete the company admin or company record.
+            // - Suspend/deactivate the Company Admin account and immediately block login.
+            // - Show the suspended Company Admin and the correct status in the Super Admin panel.
+            // - Only the Super Admin can reactivate the suspended Company Admin account.
+            user.isDeleted = false;
+            user.deletedAt = now;
+            user.deletedBy = user._id;
+            user.isActive = false;
+            user.status = 'SUSPENDED';
+            user.accountStatus = 'SUSPENDED';
+            user.recoveryEligibleUntil = new Date(now.getTime() + thirtyDaysMs);
+            user.deletionReason = defaultReason;
+            await user.save();
+
+            // When a Company Admin is suspended, all users belonging to that company
+            // must be prevented from logging in or accessing protected APIs according
+            // to the existing company suspension rules.
+            if (user.companyId) {
+                const company = await Company.findById(user.companyId);
+                if (company && company.status !== 'DELETED') {
+                    company.status = 'SUSPENDED';
+                    company.isActive = false;
+                    company.suspendedAt = now;
+                    company.suspendedBy = user._id as any;
+                    company.suspensionReason = defaultReason;
+                    await company.save();
+
+                    // Revoke sessions for all users in this company
+                    const companyUsers = await User.find({ companyId: user.companyId }).select('_id');
+                    for (const u of companyUsers) {
+                        await SessionService.revokeAllUserSessions(String(u._id)).catch(() => {});
+                        try {
+                            const redis = getRedisClient();
+                            if (redis) {
+                                await redis.del(`session:${u._id}`, `user:${u._id}`).catch(() => {});
+                            }
+                        } catch {}
+                    }
+
+                    // Disconnect all socket connections in the company
+                    try {
+                        const io = getSocketServer();
+                        if (io) {
+                            io.in(`company:${user.companyId}`).disconnectSockets(true);
+                        }
+                    } catch {}
+                }
+            }
+        } else if (isMember) {
+            // Requirement 1: Employee Account Deletion
+            // - Do not permanently delete the employee record from the database.
+            // - Change the employee's account status to Suspended/Inactive and immediately block login.
+            // - The suspended employee must be visible in the Company Admin panel with the correct status.
+            // - The Company Admin should be able to view the employee's suspended status.
+            user.isDeleted = false;
+            user.deletedAt = now;
+            user.deletedBy = user._id;
+            user.isActive = false;
+            user.status = 'SUSPENDED';
+            user.accountStatus = 'SUSPENDED';
+            user.recoveryEligibleUntil = new Date(now.getTime() + thirtyDaysMs);
+            user.deletionReason = defaultReason;
+            await user.save();
+
+            if (user.companyId) {
+                const member = await CompanyMember.findOne({ userId: user._id, companyId: user.companyId });
+                if (member) {
+                    member.status = 'SUSPENDED';
+                    await member.save();
+                }
+
+                try {
+                    const redis = getRedisClient();
+                    if (redis) {
+                        const uId = String(user._id);
+                        const cId = String(user.companyId);
+                        await redis.del(
+                            `session:${uId}`,
+                            `user:${uId}`,
+                            `worksphere:cache:member:${cId}:${uId}`,
+                            `worksphere:cache:module_access:${cId}:${uId}`
+                        ).catch(() => {});
+                    }
+                } catch {}
+
+                try {
+                    const io = getSocketServer();
+                    if (io) {
+                        const uId = String(user._id);
+                        const cId = String(user.companyId);
+                        io.to(`user:${uId}`).emit('member:status_updated', {
+                            companyId: cId,
+                            memberId: member?._id ? String(member._id) : undefined,
+                            userId: uId,
+                            status: 'SUSPENDED',
+                            isActive: false,
+                            timestamp: Date.now(),
+                        });
+                        io.to(`company:${cId}`).emit('company:member_status_updated', {
+                            companyId: cId,
+                            memberId: member?._id ? String(member._id) : undefined,
+                            userId: uId,
+                            status: 'SUSPENDED',
+                            timestamp: Date.now(),
+                        });
+                        io.in(`user:${uId}`).disconnectSockets(true);
+                    }
+                } catch {}
+            }
+        } else {
+            // Standalone user without company
+            user.isDeleted = true;
+            user.deletedAt = now;
+            user.deletedBy = user._id;
+            user.isActive = false;
+            user.status = 'DEACTIVATED';
+            user.accountStatus = 'DELETED';
+            user.recoveryEligibleUntil = new Date(now.getTime() + thirtyDaysMs);
+            user.deletionReason = reason || 'User requested account deletion';
+            await user.save();
+        }
+
+        // Invalidate all active user sessions
+        try {
+            await SessionService.revokeAllUserSessions(String(user._id));
+        } catch (sessionErr) {
+            console.warn('[AuthService] Session revocation failed during account deletion:', sessionErr);
+        }
+
+        // Disconnect user socket directly
+        try {
+            const io = getSocketServer();
+            if (io) {
+                io.in(`user:${user._id}`).disconnectSockets(true);
+            }
+        } catch {}
+
+        // Audit log
+        await AuditLogService.log({
+            action: isCompanyAdmin ? AuditAction.COMPANY_SUSPENDED : AuditAction.USER_ACCOUNT_DELETED,
+            actorId: String(user._id),
+            actorEmail: user.email,
+            companyId: user.companyId ? String(user.companyId) : null,
+            success: true,
+            description: isCompanyAdmin
+                ? `Company Admin requested account deletion & company suspension for: ${user.email}`
+                : `User requested account deletion/suspension for: ${user.email}`,
+            metadata: {
+                deletedAt: now,
+                recoveryEligibleUntil: user.recoveryEligibleUntil,
+                reason: user.deletionReason,
+                accountStatus: user.accountStatus,
+            },
+            req,
+        });
+
+        return {
+            success: true,
+            message: isCompanyAdmin
+                ? 'Your company admin account and organization have been suspended. Please contact the platform super administrator to reactivate your account.'
+                : 'Your account has been suspended. Please contact your company administrator to reactivate your account.',
+            status: user.status,
+            recoveryEligibleUntil: user.recoveryEligibleUntil,
+        };
+    }
 }
+

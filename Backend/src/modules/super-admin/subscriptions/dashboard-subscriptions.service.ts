@@ -25,7 +25,7 @@ export class DashboardSubscriptionsService {
             Subscription.countDocuments({ status: SubscriptionStatus.CANCELLED }),
             Subscription.countDocuments({}),
             Payment.aggregate([
-                { $match: { status: 'PAID' } },
+                { $match: { status: { $in: ['PAID', 'SUCCESS'] } } },
                 { $group: { _id: null, totalRevenue: { $sum: '$amount' }, transactionCount: { $sum: 1 } } },
             ]),
         ]);

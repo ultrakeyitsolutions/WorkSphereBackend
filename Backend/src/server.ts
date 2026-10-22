@@ -7,6 +7,7 @@ import { NotificationEventHandler } from './modules/notifications/notification.e
 import { LiveMonitoringEventHandler } from './modules/companyadmin/live-monitoring/live-monitoring.event-handler';
 import { MeetingSchedulerJob } from './modules/meetings/meeting-scheduler.job';
 import { StickyNoteReminderJob } from './modules/sticky-notes/sticky-note-reminder.service';
+import { verifyMailConnection } from './config/mail';
 
 const PORT = process.env.PORT || 5000;
 
@@ -35,6 +36,10 @@ const startServer = async () => {
         // Start listening
         httpServer.listen(PORT, () => {
             console.log(`Server is running on port ${PORT} in ${env.NODE_ENV} environment with Socket.IO.`);
+            // Run background SMTP connection check for operational diagnostics
+            verifyMailConnection().catch((err) => {
+                console.error('[Server] Mail verification error:', err);
+            });
         });
     } catch (error) {
         console.error('Failed to start the server:', error);

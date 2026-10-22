@@ -6,7 +6,7 @@
 //   - Admin Preferences UI (rendered dynamically)
 
 export type NotificationStyle = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'SYSTEM';
-export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST' | 'SHIFT' | 'LEAVE';
+export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST' | 'SHIFT' | 'LEAVE' | 'SUBSCRIPTION';
 export type NotificationChannel = 'inApp' | 'push' | 'email';
 
 export interface NotificationTypeDefinition {
@@ -711,6 +711,80 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         defaultStyle: 'INFO',
         icon: 'volume-2',
         allowedVariables: ['message', 'title', 'actorName', 'companyName'],
+        defaultEnabled: true,
+    },
+
+    // ── SUBSCRIPTION & PAYMENTS ───────────────────────────────────────────────
+    PAYMENT_SUCCESS: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Payment Successful',
+        defaultMessage: 'Payment of {{currency}} {{formattedAmount}} for {{planName}} was successfully processed.',
+        defaultStyle: 'SUCCESS',
+        icon: 'credit-card',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'amount', 'formattedAmount', 'currency', 'paymentAttemptId', 'billingObligationId'],
+        defaultEnabled: true,
+    },
+    PAYMENT_FAILED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Payment Failed',
+        defaultMessage: 'Payment of {{currency}} {{formattedAmount}} for {{planName}} failed: {{errorMessage}}.',
+        defaultStyle: 'ERROR',
+        icon: 'alert-triangle',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'amount', 'formattedAmount', 'currency', 'errorMessage', 'paymentAttemptId'],
+        defaultEnabled: true,
+    },
+    PAYMENT_PENDING: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Payment Verification in Progress',
+        defaultMessage: 'Your payment of {{currency}} {{formattedAmount}} is currently being verified with the bank. Do not pay again.',
+        defaultStyle: 'WARNING',
+        icon: 'clock',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'amount', 'formattedAmount', 'currency', 'paymentAttemptId'],
+        defaultEnabled: true,
+    },
+    SUBSCRIPTION_ACTIVATED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Subscription Plan Activated',
+        defaultMessage: 'Your {{planName}} subscription is now active through {{periodEnd}}.',
+        defaultStyle: 'SUCCESS',
+        icon: 'shield-check',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'periodEnd', 'billingCycle'],
+        defaultEnabled: true,
+    },
+    SUBSCRIPTION_RENEWED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Subscription Renewed',
+        defaultMessage: 'Your subscription to {{planName}} was renewed until {{periodEnd}}.',
+        defaultStyle: 'SUCCESS',
+        icon: 'refresh-cw',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'periodEnd'],
+        defaultEnabled: true,
+    },
+    AUTOPAY_ACTIVATED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'AutoPay Authorized',
+        defaultMessage: 'AutoPay has been successfully configured for {{companyName}}.',
+        defaultStyle: 'SUCCESS',
+        icon: 'repeat',
+        allowedVariables: ['recipientName', 'companyName', 'planName'],
+        defaultEnabled: true,
+    },
+    AUTOPAY_CANCELLED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'AutoPay Cancelled',
+        defaultMessage: 'AutoPay mandate for {{companyName}} was cancelled.',
+        defaultStyle: 'WARNING',
+        icon: 'slash',
+        allowedVariables: ['recipientName', 'companyName', 'reason'],
+        defaultEnabled: true,
+    },
+    SUBSCRIPTION_EXPIRING: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Subscription Expiring Soon',
+        defaultMessage: 'Your {{planName}} subscription will expire on {{periodEnd}}.',
+        defaultStyle: 'WARNING',
+        icon: 'alert-circle',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'periodEnd', 'daysRemaining'],
         defaultEnabled: true,
     },
 

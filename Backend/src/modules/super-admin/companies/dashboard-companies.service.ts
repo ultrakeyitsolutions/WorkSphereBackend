@@ -42,7 +42,7 @@ export class DashboardCompaniesService {
                 .sort(sort)
                 .skip(pagination.skip)
                 .limit(pagination.limit)
-                .populate('adminId', 'name email status')
+                .populate('adminId', 'name email status isActive')
                 .lean(),
             Company.countDocuments(query),
         ]);
@@ -85,6 +85,7 @@ export class DashboardCompaniesService {
                           name: comp.adminId.name,
                           email: comp.adminId.email,
                           status: comp.adminId.status,
+                          isActive: comp.adminId.isActive,
                       }
                     : null,
                 userCount: userCountMap.get(String(comp._id)) || 0,
@@ -124,7 +125,7 @@ export class DashboardCompaniesService {
         }
 
         const company = await Company.findOne({ _id: companyId, status: { $ne: 'DELETED' } })
-            .populate('adminId', 'name email status')
+            .populate('adminId', 'name email status isActive')
             .lean();
 
         if (!company) {
@@ -167,6 +168,7 @@ export class DashboardCompaniesService {
                       name: (company.adminId as any).name,
                       email: (company.adminId as any).email,
                       status: (company.adminId as any).status,
+                      isActive: (company.adminId as any).isActive,
                   }
                 : null,
             userCount: totalUsers,
@@ -276,7 +278,7 @@ export class DashboardCompaniesService {
             status: { $ne: 'DEACTIVATED' },
         };
 
-        if (filters.status) {
+        if (filters.status && filters.status.toUpperCase() !== 'ALL') {
             query.status = filters.status.toUpperCase();
         }
 

@@ -28,6 +28,28 @@ router.get('/health', (req: Request, res: Response) => {
 // ── Public Modules ────────────────────────────────────────────────────────────
 router.use('/auth', authRoutes);
 
+// ── Public Account Recovery Routes (no auth) ──────────────────────────────────
+// POST /api/v1/public/account-recovery-requests
+// GET  /api/v1/public/account-recovery-requests/:requestId/status
+// POST /api/v1/public/account-recovery-requests/:requestId/complete
+import {
+    publicAccountRecoveryRouter,
+    superAdminAccountRecoveryRouter,
+} from '../modules/auth/recovery/account-recovery.routes';
+
+router.use('/v1/public', publicAccountRecoveryRouter);
+router.use('/public', publicAccountRecoveryRouter);
+
+// ── Super Admin Account Recovery Routes (SUPER_ADMIN auth required) ───────────
+// GET  /api/v1/superadmin/account-recovery-requests
+// GET  /api/v1/superadmin/account-recovery-requests/:requestId
+// POST /api/v1/superadmin/account-recovery-requests/:requestId/approve
+// POST /api/v1/superadmin/account-recovery-requests/:requestId/reject
+router.use('/v1/superadmin', superAdminAccountRecoveryRouter);
+router.use('/v1/super-admin', superAdminAccountRecoveryRouter);
+router.use('/superadmin', superAdminAccountRecoveryRouter);
+router.use('/super-admin', superAdminAccountRecoveryRouter);
+
 // ── Public Invitation Routes (no auth) ────────────────────────────────────────
 // GET  /api/v1/invitations/validate?token=xxx
 // POST /api/v1/invitations/accept
@@ -137,6 +159,11 @@ router.use('/v1/super-admin', superAdminDashboardRoutes);
 import globalSearchRoutes from '../modules/super-admin/global-search/global-search.routes';
 router.use('/global-search', globalSearchRoutes);
 router.use('/v1/global-search', globalSearchRoutes);
+
+// ── Payment & Subscription Billing Routes ──────────────────────────────────
+import { paymentRoutes } from '../modules/payments';
+router.use('/v1/payments', paymentRoutes);
+router.use('/payments', paymentRoutes);
 
 // ── Legacy / Plan / Storage Super Admin Routes ────────────────────────────────
 router.use('/super-admin', superAdminRoutes);

@@ -383,6 +383,7 @@ export interface CompanyProjectHealthData {
     meta: {
         generatedAt: string;
         timezone: string;
+        projectId?: string;
     };
     summary: {
         totalEvaluated: number;

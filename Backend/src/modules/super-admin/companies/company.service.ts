@@ -9,6 +9,9 @@ import { AuditLogService } from '../../audit-logs/audit-log.service';
 import { AuditAction } from '../../audit-logs/audit-log.types';
 import { StorageConfigurationService } from '../storage/storage-config.service';
 import { StorageProviderFactory } from '../../../infrastructure/storage/storage-provider.factory';
+import { SessionService } from '../../auth/session/session.service';
+import { getRedisClient } from '../../../config/redis';
+import { getSocketServer } from '../../../sockets/socket-server';
 
 export const ALLOWED_LOGO_MIME_TYPES = new Set([
     'image/png',
@@ -160,14 +163,14 @@ export class CompanyService {
      * Fetch a single company by its ObjectId. Excludes DELETED companies.
      */
     static async findById(id: string) {
-        return Company.findOne({ _id: id, status: { $ne: 'DELETED' } }).populate('adminId', 'name email');
+        return Company.findOne({ _id: id, status: { $ne: 'DELETED' } }).populate('adminId', 'name email status isActive');
     }
 
     /**
      * Fetch all companies. Excludes DELETED companies.
      */
     static async findAll() {
-        return Company.find({ status: { $ne: 'DELETED' } }).sort({ createdAt: -1 }).populate('adminId', 'name email');
+        return Company.find({ status: { $ne: 'DELETED' } }).sort({ createdAt: -1 }).populate('adminId', 'name email status isActive');
     }
 
     /**
@@ -315,6 +318,54 @@ export class CompanyService {
 
         await company.save();
 
+        // Suspend Company Admin user(s)
+        if (company.adminId) {
+            await User.updateOne(
+                { _id: company.adminId as any },
+                {
+                    $set: {
+                        status: 'SUSPENDED',
+                        isActive: false,
+                        accountStatus: 'SUSPENDED',
+                    }
+                }
+            );
+        }
+
+        const adminRole = await Role.findOne({ name: 'COMPANY_ADMIN' });
+        if (adminRole) {
+            await User.updateMany(
+                { companyId: company._id, role: adminRole._id },
+                {
+                    $set: {
+                        status: 'SUSPENDED',
+                        isActive: false,
+                        accountStatus: 'SUSPENDED',
+                    }
+                }
+            );
+        }
+
+        // Revoke all sessions for all users in this company
+        const companyUsers = await User.find({ companyId: company._id }).select('_id');
+        for (const u of companyUsers) {
+            await SessionService.revokeAllUserSessions(String(u._id)).catch(() => {});
+            try {
+                const redis = getRedisClient();
+                if (redis) {
+                    await redis.del(`session:${u._id}`, `user:${u._id}`).catch(() => {});
+                }
+            } catch {}
+        }
+
+        // Disconnect all sockets for company
+        try {
+            const io = getSocketServer();
+            if (io) {
+                io.in(`company:${companyId}`).disconnectSockets(true);
+            }
+        } catch {}
+
         await AuditLogService.log({
             action: AuditAction.COMPANY_SUSPENDED,
             actorId: actorUserId,
@@ -353,13 +404,53 @@ export class CompanyService {
 
         await company.save();
 
+        // Restore Company Admin backend account status and login access
+        if (company.adminId) {
+            await User.updateOne(
+                { _id: company.adminId as any },
+                {
+                    $set: {
+                        status: 'ACTIVE',
+                        isActive: true,
+                        isDeleted: false,
+                        accountStatus: 'ACTIVE',
+                        deletedAt: null,
+                        deletedBy: null,
+                        deletionReason: null,
+                        restoredAt: new Date(),
+                        restoredBy: actorUserId as any,
+                    }
+                }
+            );
+        }
+
+        const adminRole = await Role.findOne({ name: 'COMPANY_ADMIN' });
+        if (adminRole) {
+            await User.updateMany(
+                { companyId: company._id, role: adminRole._id, status: { $in: ['SUSPENDED', 'DEACTIVATED'] } },
+                {
+                    $set: {
+                        status: 'ACTIVE',
+                        isActive: true,
+                        isDeleted: false,
+                        accountStatus: 'ACTIVE',
+                        deletedAt: null,
+                        deletedBy: null,
+                        deletionReason: null,
+                        restoredAt: new Date(),
+                        restoredBy: actorUserId as any,
+                    }
+                }
+            );
+        }
+
         await AuditLogService.log({
             action: AuditAction.COMPANY_ACTIVATED,
             actorId: actorUserId,
             companyId: companyId,
             companyName: company.name,
             success: true,
-            description: `Company "${company.name}" re-activated`,
+            description: `Company "${company.name}" re-activated and admin login restored`,
         });
 
         return company;

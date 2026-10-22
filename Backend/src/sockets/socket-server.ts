@@ -4,6 +4,7 @@ import { verifyAccessToken } from '../utils/tokens';
 import { env } from '../config/env';
 import { User } from '../modules/users/user.model';
 import { Company } from '../modules/super-admin/companies/company.model';
+import CompanyMember from '../modules/companyadmin/invitations/company-member.model';
 import { PresenceService } from './presence.service';
 import { registerChatHandlers } from '../modules/chat/chat.socket';
 import { registerCallHandlers } from '../modules/calls/call.socket';
@@ -74,14 +75,21 @@ export const initSocketServer = (httpServer: HttpServer): Server => {
             // Verify user in database if not SUPER_ADMIN
             if (decoded.role !== 'SUPER_ADMIN') {
                 const user = await User.findById(decoded.userId).lean();
-                if (!user || !user.isActive) {
-                    return next(new Error('Authentication error: User account is inactive.'));
+                if (!user || !user.isActive || user.isDeleted || user.status === 'SUSPENDED' || user.status === 'DEACTIVATED' || user.status === 'INACTIVE' || (user as any).accountStatus === 'SUSPENDED') {
+                    return next(new Error('Authentication error: User account is suspended or inactive.'));
                 }
 
                 if (user.companyId) {
                     const company = await Company.findById(user.companyId).lean();
-                    if (!company || company.status === 'SUSPENDED' || company.status === 'DELETED') {
+                    if (!company || company.status === 'SUSPENDED' || company.status === 'DELETED' || !company.isActive) {
                         return next(new Error('Authentication error: Organization account is suspended.'));
+                    }
+
+                    if (decoded.role !== 'COMPANY_ADMIN' && decoded.role !== 'Admin') {
+                        const member = await CompanyMember.findOne({ userId: user._id, companyId: user.companyId }).lean();
+                        if (member && (member.status === 'SUSPENDED' || member.status === 'INACTIVE')) {
+                            return next(new Error('Authentication error: User account is suspended.'));
+                        }
                     }
                 }
             }

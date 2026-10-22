@@ -40,3 +40,26 @@ export function getMailTransporter(): Transporter {
 export const mailDefaults = {
     from: `"${env.MAIL_FROM_NAME}" <${env.MAIL_FROM_ADDRESS}>`,
 };
+
+/**
+ * Validates the mail transport connection and logs actionable diagnostics.
+ * Especially useful on VPS deployments (e.g. Hostinger) to quickly detect blocked outbound SMTP ports.
+ */
+export async function verifyMailConnection(): Promise<boolean> {
+    try {
+        const transporter = getMailTransporter();
+        if (env.MAIL_DRIVER === 'smtp') {
+            await transporter.verify();
+            console.log(`[Mail] SMTP transport connection verified successfully (${env.MAIL_HOST}:${env.MAIL_PORT}).`);
+            return true;
+        }
+        return true;
+    } catch (error: any) {
+        console.error(
+            `[Mail] CRITICAL: SMTP verification failed for ${env.MAIL_HOST}:${env.MAIL_PORT}. ` +
+            `Error: ${error.message}. ` +
+            `If deployed on a VPS/Hostinger, check whether outbound mail ports 465/587 are blocked by the provider firewall.`
+        );
+        return false;
+    }
+}

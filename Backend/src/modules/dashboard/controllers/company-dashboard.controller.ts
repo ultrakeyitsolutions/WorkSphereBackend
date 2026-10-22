@@ -57,8 +57,11 @@ export class CompanyDashboardController {
         const page = Math.max(1, Number(query.page) || 1);
         const limit = Math.min(Math.max(1, Number(query.limit) || 20), 100);
         const status = query.status as any;
+        const filterProjectId = query.projectId && query.projectId !== 'all' && Types.ObjectId.isValid(query.projectId)
+            ? new Types.ObjectId(query.projectId)
+            : undefined;
 
-        const data = await ProjectHealthAnalytics.getHealth(companyId, status, page, limit);
+        const data = await ProjectHealthAnalytics.getHealth(companyId, status, page, limit, filterProjectId);
         return sendSuccess(res, 'Project health retrieved successfully', data);
     });
 

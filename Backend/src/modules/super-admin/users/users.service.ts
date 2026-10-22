@@ -1,11 +1,16 @@
 import { Types } from 'mongoose';
 import { User } from '../../users/user.model';
+import { Company } from '../companies/company.model';
+import CompanyMember from '../../companyadmin/invitations/company-member.model';
 import { Project, ProjectTeamMember } from '../../companyadmin/projects/project.model';
 import { Task } from '../../tasks/task.model';
 import { Attendance, AttendanceStatus } from '../../attendance/attendance.model';
 import { TimeTracking } from '../../task-tracking/time-tracking.model';
 import { AuditLog } from '../../audit-logs/audit-log.model';
+import { AuditLogService } from '../../audit-logs/audit-log.service';
+import { AuditAction } from '../../audit-logs/audit-log.types';
 import { AuthSession } from '../../auth/session/auth-session.model';
+import { SessionService } from '../../auth/session/session.service';
 import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../shared/pagination.util';
 import { UserStatisticsData, UserEffectivePermissionsData } from './users.types';
 import { AppError } from '../../../utils/AppError';
@@ -21,7 +26,11 @@ export class SuperAdminUsersService {
         const query: any = { status: { $ne: 'DEACTIVATED' } };
 
         if (filters.status) {
-            query.status = filters.status.toUpperCase();
+            if (filters.status.toUpperCase() === 'ALL') {
+                delete query.status;
+            } else {
+                query.status = filters.status.toUpperCase();
+            }
         }
 
         if (filters.companyId && Types.ObjectId.isValid(filters.companyId)) {
@@ -280,6 +289,105 @@ export class SuperAdminUsersService {
             grantedPermissions,
             revokedPermissions,
             effectivePermissions: Array.from(effectiveSet),
+        };
+    }
+
+    /**
+     * Updates user status (ACTIVE, INACTIVE, SUSPENDED) with synchronization.
+     */
+    public static async updateUserStatus(userId: string, status: string, actorUserId: string) {
+        if (!Types.ObjectId.isValid(userId)) {
+            throw AppError.badRequest('Invalid user ID');
+        }
+
+        const validStatuses = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
+        const normalized = status ? status.toUpperCase() : '';
+        if (!validStatuses.includes(normalized)) {
+            throw AppError.badRequest(`Invalid status: ${status}. Must be one of ${validStatuses.join(', ')}`);
+        }
+
+        const user = await User.findById(userId).populate('role');
+        if (!user) {
+            throw AppError.notFound('User not found');
+        }
+
+        const isActive = normalized === 'ACTIVE';
+        user.status = normalized as any;
+        user.isActive = isActive;
+        if (isActive) {
+            user.isDeleted = false;
+            user.accountStatus = 'ACTIVE';
+            user.deletedAt = null;
+            user.deletedBy = null;
+            user.deletionReason = null;
+            user.restoredAt = new Date();
+            user.restoredBy = actorUserId as any;
+        } else if (normalized === 'SUSPENDED') {
+            user.accountStatus = 'SUSPENDED';
+        }
+        await user.save();
+
+        if (!isActive) {
+            await SessionService.revokeAllUserSessions(String(user._id)).catch(() => {});
+        }
+
+        // If this user is an admin of a company, synchronize company status
+        const roleName = (user.role as any)?.name;
+        if ((roleName === 'COMPANY_ADMIN' || roleName === 'Admin') && user.companyId) {
+            if (isActive) {
+                await Company.updateOne(
+                    { _id: user.companyId },
+                    {
+                        $set: {
+                            status: 'ACTIVE',
+                            isActive: true,
+                            activatedAt: new Date(),
+                            activatedBy: actorUserId as any,
+                        },
+                        $unset: {
+                            suspendedAt: 1,
+                            suspendedBy: 1,
+                            suspensionReason: 1,
+                        }
+                    }
+                );
+            } else if (normalized === 'SUSPENDED') {
+                await Company.updateOne(
+                    { _id: user.companyId },
+                    {
+                        $set: {
+                            status: 'SUSPENDED',
+                            isActive: false,
+                            suspendedAt: new Date(),
+                            suspendedBy: actorUserId as any,
+                            suspensionReason: 'Company Admin suspended by Super Admin',
+                        }
+                    }
+                );
+            }
+        }
+
+        if (user.companyId) {
+            await CompanyMember.updateOne(
+                { userId: user._id, companyId: user.companyId },
+                { $set: { status: normalized } }
+            );
+        }
+
+        await AuditLogService.log({
+            action: isActive ? AuditAction.USER_ACTIVATED : AuditAction.USER_DEACTIVATED,
+            actorId: actorUserId,
+            targetUserId: String(user._id),
+            companyId: user.companyId ? String(user.companyId) : null,
+            success: true,
+            description: `Super Admin updated user ${user.email} status to ${normalized}`,
+        });
+
+        return {
+            id: user._id,
+            email: user.email,
+            status: user.status,
+            isActive: user.isActive,
         };
     }
 }

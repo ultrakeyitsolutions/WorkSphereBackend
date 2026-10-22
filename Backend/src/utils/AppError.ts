@@ -45,8 +45,8 @@ export class AppError extends Error {
         return new AppError(message, 404);
     }
 
-    static conflict(message: string): AppError {
-        return new AppError(message, 409);
+    static conflict(message: string, errors?: any): AppError {
+        return new AppError(message, 409, errors);
     }
 
     static unprocessable(message: string, errors?: any): AppError {

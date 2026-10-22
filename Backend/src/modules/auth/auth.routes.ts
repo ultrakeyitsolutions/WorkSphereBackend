@@ -60,6 +60,10 @@ router.post('/refresh', AuthController.refresh);
 router.post('/forgot-password', passwordResetLimiter, AuthController.forgotPassword);
 router.post('/reset-password', passwordResetLimiter, AuthController.resetPassword);
 
+// ── Account Lifecycle (Self-Deletion) ─────────────────────────────────────────
+router.delete('/account', authenticate, AuthController.deleteAccount);
+router.post('/delete-account', authenticate, AuthController.deleteAccount);
+
 import { blockImpersonatedOperations } from '../../middleware/impersonation.middleware';
 
 // ── MFA Routes ───────────────────────────────────────────────────────────────

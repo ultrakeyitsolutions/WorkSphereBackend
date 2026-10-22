@@ -56,7 +56,23 @@ export class AuthController {
             console.log(
                 `[LOGIN] controllerTotal (error): ${(performance.now() - ctrlStart).toFixed(2)}ms`
             );
-            return sendError(res, error.message || 'Login failed', 400);
+            const statusCode = error.statusCode || 400;
+            return sendError(res, error.message || 'Login failed', statusCode, error.errors);
+        }
+    }
+
+    static async deleteAccount(req: Request, res: Response) {
+        try {
+            const authReq = req as any;
+            const userId = authReq.user?.userId || authReq.user?.id;
+            if (!userId) {
+                return sendError(res, 'Authentication required', 401);
+            }
+
+            const result = await AuthService.deleteAccount(userId, req.body?.reason, req);
+            return sendSuccess(res, result.message, result, 200);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Account deletion failed', error.statusCode || 400);
         }
     }
 

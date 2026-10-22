@@ -7,6 +7,7 @@ import Designation from '../invitations/designation/designation.model';
 import { getRedisClient } from '../../../config/redis';
 import { getSocketServer } from '../../../sockets/socket-server';
 import { SubscriptionQuotaService } from '../../../services/subscription-quota.service';
+import { SessionService } from '../../auth/session/session.service';
 
 export interface GetMembersQuery {
     companyId: string;
@@ -47,9 +48,9 @@ export class MemberService {
             memberType,
         };
 
-        if (status && status !== 'PENDING') {
-            memberMatch.status = status;
-        } else if (status === 'PENDING') {
+        if (status && status.toUpperCase() !== 'PENDING' && status.toUpperCase() !== 'ALL') {
+            memberMatch.status = status.toUpperCase();
+        } else if (status && status.toUpperCase() === 'PENDING') {
             // Cannot match actual members if asking only for pending
             memberMatch._id = null; // Forces empty result for this branch
         }
@@ -64,8 +65,8 @@ export class MemberService {
             status: 'PENDING',
         };
 
-        if (status && status !== 'PENDING') {
-            invMatch._id = null; // Forces empty result if looking for active/inactive but examining invites
+        if (status && status.toUpperCase() !== 'PENDING' && status.toUpperCase() !== 'ALL') {
+            invMatch._id = null; // Forces empty result if looking for active/inactive/suspended but examining invites
         }
 
         if (roleId) invMatch.roleId = new Types.ObjectId(roleId);
@@ -431,14 +432,31 @@ export class MemberService {
         await member.save();
 
         const isActive = normalizedStatus === 'ACTIVE';
-        const userStatus = isActive ? 'ACTIVE' : 'INACTIVE';
+        const userStatus = isActive ? 'ACTIVE' : (normalizedStatus === 'SUSPENDED' ? 'SUSPENDED' : 'INACTIVE');
         const userRawId = (member.userId as any)?._id || member.userId;
 
         if (userRawId) {
+            const userUpdate: any = {
+                status: userStatus,
+                isActive,
+            };
+            if (isActive) {
+                userUpdate.isDeleted = false;
+                userUpdate.accountStatus = 'ACTIVE';
+                userUpdate.deletedAt = null;
+                userUpdate.deletedBy = null;
+                userUpdate.deletionReason = null;
+            } else if (normalizedStatus === 'SUSPENDED') {
+                userUpdate.accountStatus = 'SUSPENDED';
+            }
             await User.updateOne(
                 { _id: userRawId },
-                { $set: { status: userStatus, isActive } }
+                { $set: userUpdate }
             );
+
+            if (!isActive) {
+                await SessionService.revokeAllUserSessions(String(userRawId)).catch(() => {});
+            }
 
             try {
                 const redis = getRedisClient();
@@ -472,6 +490,9 @@ export class MemberService {
                         status: normalizedStatus,
                         timestamp: Date.now(),
                     });
+                    if (!isActive) {
+                        io.in(`user:${uId}`).disconnectSockets(true);
+                    }
                 }
             } catch {}
         }
@@ -480,7 +501,7 @@ export class MemberService {
     }
 
     /**
-     * Delete/Deactivate Member
+     * Delete/Suspend Member
      */
     static async deleteMember(companyId: string, memberId: string) {
         const member = await CompanyMember.findOne({ _id: memberId, companyId });
@@ -488,16 +509,25 @@ export class MemberService {
             throw new Error('Member not found');
         }
 
-        // Soft delete
-        member.status = 'INACTIVE';
+        // Soft delete / suspend
+        member.status = 'SUSPENDED';
         await member.save();
 
         const userRawId = (member.userId as any)?._id || member.userId;
         if (userRawId) {
             await User.updateOne(
                 { _id: userRawId },
-                { $set: { status: 'INACTIVE', isActive: false } }
+                {
+                    $set: {
+                        status: 'SUSPENDED',
+                        isActive: false,
+                        accountStatus: 'SUSPENDED',
+                        deletedAt: new Date(),
+                    }
+                }
             );
+
+            await SessionService.revokeAllUserSessions(String(userRawId)).catch(() => {});
 
             try {
                 const redis = getRedisClient();
@@ -516,17 +546,26 @@ export class MemberService {
                 const io = getSocketServer();
                 if (io) {
                     const uId = String(userRawId);
-                    io.to(`user:${uId}`).emit('member:deactivated', {
+                    io.to(`user:${uId}`).emit('member:status_updated', {
                         companyId,
                         memberId,
                         userId: uId,
-                        status: 'INACTIVE',
+                        status: 'SUSPENDED',
+                        isActive: false,
                         timestamp: Date.now(),
                     });
+                    io.to(`company:${companyId}`).emit('company:member_status_updated', {
+                        companyId,
+                        memberId,
+                        userId: uId,
+                        status: 'SUSPENDED',
+                        timestamp: Date.now(),
+                    });
+                    io.in(`user:${uId}`).disconnectSockets(true);
                 }
             } catch {}
         }
 
-        return { message: 'Member successfully deactivated' };
+        return { message: 'Member successfully suspended' };
     }
 }

@@ -64,6 +64,7 @@ export const deliveryTrendsQuerySchema = z.object({
 // 3. Project Health
 export const projectHealthQuerySchema = z.object({
     query: z.object({
+        projectId: z.string().refine((val) => !val || val === 'all' || Types.ObjectId.isValid(val), 'Invalid projectId format').optional(),
         status: z.enum(['on_track', 'at_risk', 'delayed']).optional(),
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(100).default(20),

@@ -22,4 +22,7 @@ router.get('/:userId/activity', SuperAdminUsersController.getUserActivity);
 // GET /api/superadmin/users/:userId/permissions
 router.get('/:userId/permissions', SuperAdminUsersController.getUserPermissions);
 
+// PATCH /api/superadmin/users/:userId/status
+router.patch('/:userId/status', SuperAdminUsersController.updateUserStatus);
+
 export default router;

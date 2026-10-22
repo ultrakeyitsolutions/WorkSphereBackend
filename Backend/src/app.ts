@@ -10,6 +10,9 @@ import { env } from './config/env';
 
 const app = express();
 
+// Trust reverse proxy (Nginx / Hostinger / Vercel) for correct client IP detection in rate limiting
+app.set('trust proxy', 1);
+
 // Security Middlewares
 app.use(helmet());
 app.use(hpp());
@@ -47,7 +50,13 @@ const corsOptions: cors.CorsOptions = {
 app.use(cors(corsOptions));
 
 // Body parsers
-app.use(express.json());
+app.use(
+    express.json({
+        verify: (req: any, _res, buf) => {
+            req.rawBody = buf;
+        },
+    })
+);
 app.use(express.urlencoded({ extended: true }));
 
 // Rate Limiting (Enabled only in Production)

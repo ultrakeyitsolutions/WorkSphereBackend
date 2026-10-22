@@ -15,14 +15,21 @@ export class ProjectHealthAnalytics {
         statusFilter?: ProjectHealthStatus,
         page = 1,
         limit = 20,
+        filterProjectId?: Types.ObjectId,
         now = new Date()
     ): Promise<CompanyProjectHealthData> {
         // 1. Fetch non-deleted, non-archived projects
-        const projects = await Project.find({
+        const projectMatch: any = {
             companyId,
             deletedAt: null,
             status: { $nin: [ProjectStatus.ARCHIVED, ProjectStatus.CANCELLED] },
-        })
+        };
+
+        if (filterProjectId) {
+            projectMatch._id = filterProjectId;
+        }
+
+        const projects = await Project.find(projectMatch)
             .sort({ isPinned: -1, createdAt: -1 })
             .lean();
 
@@ -31,6 +38,7 @@ export class ProjectHealthAnalytics {
                 meta: {
                     generatedAt: now.toISOString(),
                     timezone: 'UTC',
+                    projectId: filterProjectId ? filterProjectId.toString() : undefined,
                 },
                 summary: {
                     totalEvaluated: 0,
@@ -200,6 +208,7 @@ export class ProjectHealthAnalytics {
             meta: {
                 generatedAt: now.toISOString(),
                 timezone: 'UTC',
+                projectId: filterProjectId ? filterProjectId.toString() : undefined,
             },
             summary: {
                 totalEvaluated,

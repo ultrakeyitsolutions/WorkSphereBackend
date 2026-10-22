@@ -81,4 +81,17 @@ export class SuperAdminUsersController {
             return sendError(res, error.message || 'Failed to get user permissions', statusCode);
         }
     }
+
+    public static async updateUserStatus(req: Request, res: Response): Promise<Response> {
+        try {
+            const userId = String(req.params.userId);
+            const { status } = req.body;
+            const actorUserId = (req as any).user?.userId || '';
+            const result = await SuperAdminUsersService.updateUserStatus(userId, status, actorUserId);
+            return sendSuccess(res, `User status updated to ${status}`, result);
+        } catch (error: any) {
+            const statusCode = error instanceof AppError ? error.statusCode : 500;
+            return sendError(res, error.message || 'Failed to update user status', statusCode);
+        }
+    }
 }

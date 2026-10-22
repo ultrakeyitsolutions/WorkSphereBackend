@@ -73,5 +73,11 @@ export const env = {
     REDIS_HOST: (process.env.REDIS_HOST || '127.0.0.1') as string,
     REDIS_PORT: parseInt(process.env.REDIS_PORT || '6379', 10),
     REDIS_PASSWORD: (process.env.REDIS_PASSWORD || '') as string,
+
+    // ── Payment Gateway (Razorpay) ───────────────────────────────────────────
+    RAZORPAY_KEY_ID: (process.env.RAZORPAY_KEY_ID || '') as string,
+    RAZORPAY_KEY_SECRET: (process.env.RAZORPAY_KEY_SECRET || '') as string,
+    RAZORPAY_WEBHOOK_SECRET: (process.env.RAZORPAY_WEBHOOK_SECRET || '') as string,
+    PAYMENT_GATEWAY_PROVIDER: (process.env.PAYMENT_GATEWAY_PROVIDER || 'RAZORPAY') as string,
 };
 
