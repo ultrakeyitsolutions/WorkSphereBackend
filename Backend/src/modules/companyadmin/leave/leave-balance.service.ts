@@ -1,6 +1,5 @@
 import mongoose, { Types } from 'mongoose';
 import { EmployeeMonthlyLeaveBalance } from './leave-balance.model';
-import { CompanyLeavePolicy } from './leave-policy.model';
 import { LeaveRequest } from '../../attendance/leave.model';
 import { LeaveCalculatorService } from './leave-calculator.service';
 import { LeaveType, LeaveStatus } from '../../attendance/attendance.types';

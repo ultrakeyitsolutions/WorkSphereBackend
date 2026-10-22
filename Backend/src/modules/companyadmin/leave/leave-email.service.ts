@@ -1,10 +1,7 @@
-import { Types } from 'mongoose';
 import { getMailTransporter, mailDefaults } from '../../../config/mail';
 import { env } from '../../../config/env';
 import { LeaveRequest } from '../../attendance/leave.model';
 import { LopDecision } from './lop-decision.model';
-import { User } from '../../users/user.model';
-import { Company } from '../../super-admin/companies/company.model';
 
 export class LeaveEmailService {
     /**

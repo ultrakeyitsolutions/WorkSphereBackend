@@ -1,6 +1,5 @@
 import mongoose, { Types } from 'mongoose';
 import { LopDecision } from './lop-decision.model';
-import { LeaveRequest } from '../../attendance/leave.model';
 import { LeaveCalculatorService } from './leave-calculator.service';
 import { LeaveEmailService } from './leave-email.service';
 import { ApproveLopDecisionDto } from './leave-policy.types';

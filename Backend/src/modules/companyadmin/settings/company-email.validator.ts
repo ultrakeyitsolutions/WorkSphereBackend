@@ -43,7 +43,7 @@ export function isSafeOutboundHost(hostRaw: string): boolean {
     const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
     const ipv4Match = host.match(ipv4Regex);
     if (ipv4Match) {
-        const [_, o1Str, o2Str, o3Str, o4Str] = ipv4Match;
+        const [, o1Str, o2Str, o3Str, o4Str] = ipv4Match;
         const o1 = parseInt(o1Str, 10);
         const o2 = parseInt(o2Str, 10);
         const o3 = parseInt(o3Str, 10);

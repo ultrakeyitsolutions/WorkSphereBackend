@@ -234,7 +234,7 @@ export class FeatureRevocationService {
      * Initialize cross-worker Redis subscriber if Redis client is available.
      * Prevents duplicate subscriptions and handles connection lifecycle safely.
      */
-    public static async initCrossWorkerSubscriber(io?: Server): Promise<boolean> {
+    public static async initCrossWorkerSubscriber(_io?: Server): Promise<boolean> {
         if (this.isSubscribed || this.isInitializing) {
             return this.isSubscribed;
         }

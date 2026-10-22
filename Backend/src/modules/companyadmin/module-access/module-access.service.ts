@@ -22,7 +22,6 @@ import {
     normalizeModuleKey,
 } from './module-access.constants';
 import { CompanyMember } from '../invitations/company-member.model';
-import { User } from '../../users/user.model';
 import { FeatureAccessService } from '../settings/feature-access.service';
 import { EntitlementService } from '../../../services/entitlement.service';
 import { FeatureRevocationService } from '../settings/feature-revocation.service';

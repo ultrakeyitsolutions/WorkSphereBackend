@@ -1,5 +1,3 @@
-import { Types } from 'mongoose';
-
 // ─── Presence Status ─────────────────────────────────────────────────────────
 export type PresenceStatus = 'ONLINE' | 'OFFLINE';
 

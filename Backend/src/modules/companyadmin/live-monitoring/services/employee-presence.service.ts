@@ -1,7 +1,6 @@
 import { Types } from 'mongoose';
 import { PresenceService as GlobalPresenceService } from '../../../../sockets/presence.service';
 import {
-    PresenceStatus,
     EmployeeWorkStatus,
     IEmployeePresenceRecord,
 } from '../live-monitoring.types';

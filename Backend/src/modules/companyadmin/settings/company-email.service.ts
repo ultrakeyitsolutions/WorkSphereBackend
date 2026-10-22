@@ -334,8 +334,8 @@ export class CompanyEmailService {
      */
     static async sendVerificationCode(
         companyId: string,
-        userId: string,
-        req?: Request
+        _userId: string,
+        _req?: Request
     ): Promise<{ message: string; expiresAt: Date; senderEmail: string }> {
         if (!companyId || !Types.ObjectId.isValid(companyId)) {
             throw AppError.badRequest('Invalid company context ID');

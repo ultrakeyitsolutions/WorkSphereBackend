@@ -162,7 +162,7 @@ export class CompanyThemeRealtimeService {
     /**
      * Initializes Redis Pub/Sub subscriber for cross-worker event reception.
      */
-    public static async initCrossWorkerSubscriber(io?: Server): Promise<boolean> {
+    public static async initCrossWorkerSubscriber(_io?: Server): Promise<boolean> {
         if (this.isSubscribed || this.isInitializing) {
             return this.isSubscribed;
         }

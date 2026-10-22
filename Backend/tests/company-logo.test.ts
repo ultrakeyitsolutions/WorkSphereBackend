@@ -72,12 +72,6 @@ app.use(express.json());
 app.use('/api/super-admin', superAdminRouter);
 
 describe('Company Logo Management Feature', () => {
-    const superAdminToken = generateAccessToken({
-        userId: 'super_admin_123',
-        email: 'superadmin@worksphere.io',
-        role: 'SUPER_ADMIN',
-    });
-
     const companyAdminToken = generateAccessToken({
         userId: 'company_admin_456',
         email: 'admin@acme.com',
@@ -178,7 +172,6 @@ describe('Company Logo Management Feature', () => {
     describe('Company Registration with Logo', () => {
         it('allows creating a company with logoUrl', async () => {
             const companyId = new Types.ObjectId();
-            const adminId = new Types.ObjectId();
 
             vi.mocked(User.findOne).mockResolvedValue(null);
             vi.mocked(Company.findOne).mockResolvedValue(null);

@@ -2,8 +2,6 @@ import { Schema, model, Types } from 'mongoose';
 import {
     IAttendanceDocument,
     AttendanceStatus,
-    PunchStatus,
-    CheckoutStatus,
 } from './attendance.types';
 
 export { AttendanceStatus } from './attendance.types';

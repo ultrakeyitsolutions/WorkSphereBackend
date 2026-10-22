@@ -14,6 +14,8 @@ import { MfaService } from './mfa/mfa.service';
 import { SessionService } from './session/session.service';
 import { PasswordReset } from './password-reset.model';
 import { getMailTransporter, mailDefaults } from '../../config/mail';
+import { env } from '../../config/env';
+import { maskEmail } from '../../utils/mask.util';
 import { ImpersonationSession } from '../super-admin/impersonation/impersonation.model';
 import { ImpersonationStatus } from '../super-admin/impersonation/impersonation.types';
 import { User } from '../users/user.model';
@@ -544,6 +546,7 @@ export class AuthService {
      * Send email containing the 6-digit numeric OTP for password reset
      */
     private static async sendPasswordResetOtpEmail(toEmail: string, otp: string, userName?: string): Promise<boolean> {
+        const maskedRecipient = maskEmail(toEmail);
         try {
             const transporter = getMailTransporter();
             const subject = 'WorkSphere: Password Reset Verification Code';
@@ -596,15 +599,31 @@ export class AuthService {
 </html>
             `;
 
-            await transporter.sendMail({
+            console.log(`[AuthService] Attempting to dispatch password reset email: recipient=${maskedRecipient}, driver=${env.MAIL_DRIVER}, host=${env.MAIL_HOST}:${env.MAIL_PORT}, encryption=${env.MAIL_ENCRYPTION}`);
+
+            const info = await transporter.sendMail({
                 from: mailDefaults.from,
                 to: toEmail,
                 subject,
                 html,
             });
+
+            console.log(`[AuthService] Password reset email successfully delivered to SMTP server: recipient=${maskedRecipient}, messageId=${info.messageId || 'N/A'}, response=${info.response || 'OK'}`);
             return true;
-        } catch (error) {
-            console.error('[AuthService] Failed to send password reset email:', error);
+        } catch (error: any) {
+            console.error('[AuthService] Failed to send password reset email:', {
+                recipient: maskedRecipient,
+                driver: env.MAIL_DRIVER,
+                host: env.MAIL_HOST,
+                port: env.MAIL_PORT,
+                encryption: env.MAIL_ENCRYPTION,
+                from: env.MAIL_FROM_ADDRESS,
+                errorCode: error.code || error.name || 'UNKNOWN',
+                command: error.command || null,
+                responseCode: error.responseCode || null,
+                errorMessage: error.message || 'Unknown SMTP error',
+                smtpResponse: error.response || null,
+            });
             return false;
         }
     }
@@ -613,6 +632,7 @@ export class AuthService {
      * Send email notification confirming that the password has been changed
      */
     private static async sendPasswordChangedNotificationEmail(toEmail: string, userName?: string): Promise<boolean> {
+        const maskedRecipient = maskEmail(toEmail);
         try {
             const transporter = getMailTransporter();
             const subject = 'WorkSphere: Your Password Has Been Changed';
@@ -655,15 +675,25 @@ export class AuthService {
 </html>
             `;
 
-            await transporter.sendMail({
+            console.log(`[AuthService] Attempting to dispatch password changed notification email: recipient=${maskedRecipient}`);
+
+            const info = await transporter.sendMail({
                 from: mailDefaults.from,
                 to: toEmail,
                 subject,
                 html,
             });
+
+            console.log(`[AuthService] Password changed notification email delivered successfully: recipient=${maskedRecipient}, messageId=${info.messageId || 'N/A'}`);
             return true;
-        } catch (error) {
-            console.error('[AuthService] Failed to send password changed email:', error);
+        } catch (error: any) {
+            console.error('[AuthService] Failed to send password changed email:', {
+                recipient: maskedRecipient,
+                errorCode: error.code || error.name || 'UNKNOWN',
+                command: error.command || null,
+                responseCode: error.responseCode || null,
+                errorMessage: error.message || 'Unknown error',
+            });
             return false;
         }
     }
@@ -673,10 +703,12 @@ export class AuthService {
      */
     static async requestPasswordReset(email: string, _req?: Request) {
         const normalizedEmail = email.trim().toLowerCase();
+        const masked = maskEmail(normalizedEmail);
         const user = await UserService.findByEmail(normalizedEmail);
 
         // Security best practice: Always return generic success message to prevent user enumeration
         if (!user || !user.isActive) {
+            console.warn(`[AuthService] Password reset requested for non-existent or inactive user: ${masked} (userFound=${!!user}, isActive=${user?.isActive ?? false})`);
             return {
                 message: 'If an account exists with this email, a 6-digit password reset code has been sent.',
             };
@@ -700,7 +732,12 @@ export class AuthService {
         });
 
         // Send email
-        await this.sendPasswordResetOtpEmail(user.email, otp, user.name);
+        const emailSent = await this.sendPasswordResetOtpEmail(user.email, otp, user.name);
+        if (!emailSent) {
+            console.error(`[AuthService] Password reset OTP saved to database for ${masked}, but email dispatch FAILED.`);
+        } else {
+            console.log(`[AuthService] Password reset OTP successfully generated and email dispatched to ${masked}.`);
+        }
 
         return {
             message: 'If an account exists with this email, a 6-digit password reset code has been sent.',

@@ -1,10 +1,6 @@
-import { Types } from 'mongoose';
 import {
     PresenceStatus,
     EmployeeWorkStatus,
-    AlertType,
-    AlertSeverity,
-    AlertStatus,
     IMonitoringAlertDto,
 } from '../live-monitoring/live-monitoring.types';
 

@@ -25,7 +25,6 @@ describe('Attendance System - Security & Access Control Tests', () => {
     const employeeBId = new Types.ObjectId().toString();
 
     let employeeAToken: string;
-    let employeeBToken: string;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -35,13 +34,6 @@ describe('Attendance System - Security & Access Control Tests', () => {
             email: 'employeeA@companya.com',
             role: 'EMPLOYEE',
             companyId: companyAId,
-        });
-
-        employeeBToken = generateAccessToken({
-            userId: employeeBId,
-            email: 'employeeB@companyb.com',
-            role: 'EMPLOYEE',
-            companyId: companyBId,
         });
 
         vi.spyOn(User, 'findById').mockReturnValue({

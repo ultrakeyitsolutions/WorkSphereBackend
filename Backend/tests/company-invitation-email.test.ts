@@ -204,13 +204,6 @@ describe('Company Admin Custom Invitation Email Suite', () => {
         companyId: companyAId,
     });
 
-    const companyBAdminToken = generateAccessToken({
-        userId: userBId,
-        email: 'admin@companyb.com',
-        role: 'COMPANY_ADMIN',
-        companyId: companyBId,
-    });
-
     const employeeToken = generateAccessToken({
         userId: empUserId,
         email: 'emp@companya.com',

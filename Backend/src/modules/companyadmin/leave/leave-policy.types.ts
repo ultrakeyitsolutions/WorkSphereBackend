@@ -1,5 +1,5 @@
 import { Types, Document } from 'mongoose';
-import { LeaveType, LeaveDurationType, HalfDayPeriod, LeaveStatus } from '../../attendance/attendance.types';
+import { LeaveType, LeaveDurationType, HalfDayPeriod } from '../../attendance/attendance.types';
 
 // ─── Unused Leave & Excess Leave Policies ──────────────────────────────────
 export type UnusedLeavePolicy = 'EXPIRES' | 'CARRIES_FORWARD';

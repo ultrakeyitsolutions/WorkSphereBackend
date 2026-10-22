@@ -17,28 +17,19 @@ import {
     PresenceStatus,
     EmployeeWorkStatus,
     AlertStatus,
-    AlertType,
-    AlertSeverity,
     IMonitoringAlertDto,
 } from '../live-monitoring/live-monitoring.types';
 import { EmployeePresenceService } from '../live-monitoring/services/employee-presence.service';
-import { MonitoringAlertService } from '../live-monitoring/services/monitoring-alert.service';
 import { MonitoringActivity } from '../live-monitoring/models/monitoring-activity.model';
 import { MonitoringAlert } from '../live-monitoring/models/monitoring-alert.model';
 import CompanyMember from '../invitations/company-member.model';
-import Designation from '../invitations/designation/designation.model';
-import CompanyRole from '../invitations/roles/company-role.model';
-import User from '../../users/user.model';
 import { Project, ProjectTeamMember, ProjectInCharge } from '../projects/project.model';
 import { Task } from '../../tasks/task.model';
-import { Status } from '../../tasks/status.model';
-import { Stage } from '../../tasks/stage.model';
 import { Attendance, AttendanceStatus } from '../../attendance/attendance.model';
 import { AttendanceEvent } from '../../attendance/attendance-event.model';
 import { AttendanceAdjustment } from '../../attendance/attendance-adjustment.model';
-import { AttendanceEventType, LeaveStatus } from '../../attendance/attendance.types';
-import LeaveRequest from '../../attendance/leave.model';
-import { TimeTracking, TrackingState, IntervalType } from '../../task-tracking/time-tracking.model';
+import { AttendanceEventType } from '../../attendance/attendance.types';
+import { TimeTracking } from '../../task-tracking/time-tracking.model';
 import { TaskActivity } from '../../task-activities/task-activity.model';
 import { Meeting } from '../../meetings/models/meeting.model';
 import { MeetingParticipant } from '../../meetings/models/meeting-participant.model';
@@ -772,7 +763,7 @@ export class DetailedMonitoringService {
             endStr = now.toISOString().split('T')[0];
         }
 
-        const [attendances, adjustments, breakEvents, timeTrackings] = await Promise.all([
+        const [attendances, adjustments, , timeTrackings] = await Promise.all([
             Attendance.find({
                 companyId: companyObjId,
                 employeeId: employeeObjId,

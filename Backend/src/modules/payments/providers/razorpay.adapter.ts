@@ -170,7 +170,7 @@ export class RazorpayAdapter implements IPaymentGatewayAdapter {
             }
 
             return crypto.timingSafeEqual(sigBuf, expBuf);
-        } catch (err) {
+        } catch {
             return false;
         }
     }

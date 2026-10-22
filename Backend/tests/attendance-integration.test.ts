@@ -5,7 +5,6 @@ import { Attendance } from '../src/modules/attendance/attendance.model';
 import { AttendanceEvent } from '../src/modules/attendance/attendance-event.model';
 import { Holiday } from '../src/modules/attendance/holiday.model';
 import { LeaveRequest } from '../src/modules/attendance/leave.model';
-import { AttendanceAdjustment } from '../src/modules/attendance/attendance-adjustment.model';
 import { Shift } from '../src/modules/shifts/shift.model';
 import { EmployeeShiftAssignment } from '../src/modules/shifts/employee-shift-assignment.model';
 import { User } from '../src/modules/users/user.model';

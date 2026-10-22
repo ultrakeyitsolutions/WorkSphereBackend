@@ -406,7 +406,7 @@ export class PaymentService {
         let paymentDetails: any;
         try {
             paymentDetails = await this.provider.fetchPayment(payload.providerPaymentId);
-        } catch (fetchErr: any) {
+        } catch {
             // If provider fetch fails after signature, mark UNKNOWN and reconcile
             attempt.state = PaymentAttemptState.UNKNOWN;
             attempt.providerPaymentId = payload.providerPaymentId;

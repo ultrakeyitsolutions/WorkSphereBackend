@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { LeaveType, LeaveDurationType, HalfDayPeriod } from '../../attendance/attendance.types';
 
 export const leaveTypeEnum = z.enum([
     'CASUAL',

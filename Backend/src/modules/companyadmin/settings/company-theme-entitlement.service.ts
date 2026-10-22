@@ -13,7 +13,6 @@
 import { Types } from 'mongoose';
 import { Subscription } from '../../super-admin/subscriptions/subscription.model';
 import { SubscriptionStatus } from '../../super-admin/subscriptions/subscription.types';
-import { Plan } from '../../super-admin/plans/plans.model';
 import { Feature } from '../../super-admin/features/features.model';
 import { PlanFeature } from '../../super-admin/plan-features/plan-features.model';
 

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import crypto from 'crypto';
 import { Types } from 'mongoose';
 import { AccountRecoveryService } from '../src/modules/auth/recovery/account-recovery.service';
 import { AccountRecoveryRequest } from '../src/modules/auth/recovery/account-recovery.model';
@@ -8,11 +7,9 @@ import { AuthService } from '../src/modules/auth/auth.service';
 import { UserService } from '../src/modules/users/user.service';
 import { SessionService } from '../src/modules/auth/session/session.service';
 import { AccountRecoveryEmailService } from '../src/modules/auth/recovery/account-recovery-email.service';
-import { AuditLogService } from '../src/modules/audit-logs/audit-log.service';
 import {
     createRecoveryRequestSchema,
     completeRecoverySchema,
-    approveRecoverySchema,
     rejectRecoverySchema,
 } from '../src/modules/auth/recovery/account-recovery.validator';
 

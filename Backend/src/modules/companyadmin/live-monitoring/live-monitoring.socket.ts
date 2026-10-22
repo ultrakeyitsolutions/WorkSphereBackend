@@ -263,7 +263,7 @@ export function registerLiveMonitoringHandlers(io: Server, socket: Socket): void
     socket.on(MONITORING_SOCKET_EVENTS.HEARTBEAT, () => {
         try {
             EmployeePresenceService.recordHeartbeat(userId);
-        } catch (err: any) {
+        } catch {
             // Heartbeat failures should not disrupt client
         }
     });

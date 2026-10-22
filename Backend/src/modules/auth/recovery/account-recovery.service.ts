@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { Types } from 'mongoose';
 import { Request } from 'express';
-import { AccountRecoveryRequest, IAccountRecoveryRequestDocument } from './account-recovery.model';
+import { AccountRecoveryRequest } from './account-recovery.model';
 import { User } from '../../users/user.model';
 import { SessionService } from '../session/session.service';
 import { AccountRecoveryEmailService } from './account-recovery-email.service';
@@ -60,7 +60,7 @@ export class AccountRecoveryService {
         const requestId = crypto.randomUUID();
 
         // 5. Create recovery request record
-        const recoveryRequest = await AccountRecoveryRequest.create({
+        await AccountRecoveryRequest.create({
             requestId,
             userId: user._id,
             accountEmail: user.email,

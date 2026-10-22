@@ -14,7 +14,6 @@ import {
     LopCalculationMethod,
 } from './leave-policy.types';
 import { LeaveType, LeaveDurationType } from '../../attendance/attendance.types';
-import { CompanyMember } from '../invitations/company-member.model';
 
 export class LeaveCalculatorService {
     /**
