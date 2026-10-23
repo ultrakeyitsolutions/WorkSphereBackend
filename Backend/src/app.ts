@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import hpp from 'hpp';
-import rateLimit from 'express-rate-limit';
+import { apiRateLimiter } from './middleware/rate-limit.middleware';
 import pinoHttp from 'pino-http';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
@@ -11,7 +11,10 @@ import { env } from './config/env';
 const app = express();
 
 // Trust reverse proxy (Nginx / Hostinger / Vercel) for correct client IP detection in rate limiting
-app.set('trust proxy', 1);
+const trustProxySetting = env.TRUST_PROXY !== undefined
+    ? (!isNaN(Number(env.TRUST_PROXY)) ? Number(env.TRUST_PROXY) : env.TRUST_PROXY)
+    : 1;
+app.set('trust proxy', trustProxySetting);
 
 // Security Middlewares
 app.use(helmet());
@@ -59,19 +62,9 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true }));
 
-// Rate Limiting (Enabled only in Production)
+// Rate Limiting (Enabled in Production)
 if (env.NODE_ENV === 'production') {
-    const limiter = rateLimit({
-        windowMs: 15 * 60 * 1000, // 15 minutes
-        max: 100, // Limit each IP to 100 requests per window
-        standardHeaders: true,
-        legacyHeaders: false,
-        skip: (req) => {
-            // Bypass rate limiter for Super Admin endpoints
-            return req.originalUrl.startsWith('/api/super-admin');
-        },
-    });
-    app.use(limiter);
+    app.use(apiRateLimiter);
 }
 
 // Root health check endpoint

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import companyRoleRoutes from './invitations/roles/company-role.routes';
 import designationRoutes from './invitations/designation/designation.routes';
 import invitationRoutes from './invitations/invitation.routes';
@@ -25,14 +25,16 @@ import performanceRoutes from '../performance/performance.routes';
 
 const router = Router();
 
-// ─── Rate limiting for invitation endpoints ────────────────────────────────────
+// ─── Rate limiting for invitation endpoints (per authenticated admin) ─────────
 const inviteLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 30,
+    keyGenerator: (req) => (req as any).user?.userId || ipKeyGenerator(req.ip || '127.0.0.1'),
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, message: 'Too many invitation requests, please try again later.' },
 });
+
 
 // ─── Authentication guard for ALL company-admin routes ───────────────────────
 // Note: companyId is read from the JWT payload (set during token generation).

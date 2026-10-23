@@ -28,6 +28,12 @@ export const env = {
     JWT_REFRESH_SECRET: (process.env.JWT_REFRESH_SECRET || 'test_refresh_secret_1234567890') as string,
     CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:3000',
 
+    // ── Reverse Proxy & Rate Limiting ─────────────────────────────────────────
+    TRUST_PROXY: process.env.TRUST_PROXY || '1',
+    RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 mins default
+    RATE_LIMIT_MAX_AUTH: parseInt(process.env.RATE_LIMIT_MAX_AUTH || '1500', 10),      // 1500 req/15min (~100 req/min)
+    RATE_LIMIT_MAX_UNAUTH: parseInt(process.env.RATE_LIMIT_MAX_UNAUTH || '200', 10),  // 200 req/15min for unauthenticated IP
+
     // ── Mail ─────────────────────────────────────────────────────────────────
     MAIL_DRIVER: (process.env.MAIL_DRIVER || 'smtp') as string,
     MAIL_HOST: (process.env.MAIL_HOST || 'smtp.mailtrap.io') as string,

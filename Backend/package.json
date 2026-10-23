@@ -10,7 +10,11 @@
     "typecheck": "node --max-old-space-size=4096 node_modules/typescript/bin/tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "seed": "tsx src/scripts/seed.ts",
+    "seed": "tsx src/scripts/db-init.ts",
+    "db:init": "tsx src/scripts/db-init.ts",
+    "db:seed": "tsx src/scripts/db-init.ts",
+    "db:seed:dry-run": "tsx src/scripts/db-init.ts --dry-run",
+    "db:verify": "tsx src/scripts/db-verify.ts",
     "seed:company-settings": "tsx src/scripts/seed-company-settings.ts",
     "patch:permissions": "tsx src/scripts/patch-super-admin-permissions.ts",
     "migrate:search-indexes": "tsx src/scripts/add-global-search-indexes.ts",
@@ -63,6 +67,9 @@
     "vitest": "^4.1.12"
   },
   "overrides": {
+    "eslint": {
+      "ajv": "^6.12.6"
+    },
     "ajv": "^8.17.2",
     "ts-morph": "^28.0.0",
     "@ts-morph/common": "^0.29.0",
