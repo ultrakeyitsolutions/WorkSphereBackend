@@ -201,7 +201,7 @@ export class ManagerDashboardService {
         let inProgressTasks = 0;
         let overdueTasks = 0;
         let blockedTasks = 0;
-        let reopenedTasks = 0;
+        const reopenedTasks = 0;
 
         for (const t of tasks as any[]) {
             const isCompleted = t.progress === 100 || t.statusId?.isCompleted === true;

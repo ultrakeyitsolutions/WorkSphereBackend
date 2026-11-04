@@ -571,7 +571,7 @@ export class SuperAdminNotificationService {
      * Get notification preferences for a SuperAdmin.
      */
     public static async getPreferences(superAdminId: string): Promise<ISuperAdminPreference> {
-        let prefDoc = await SuperAdminNotificationPreference.findOne({
+        const prefDoc = await SuperAdminNotificationPreference.findOne({
             userId: new Types.ObjectId(superAdminId),
         }).lean();
 

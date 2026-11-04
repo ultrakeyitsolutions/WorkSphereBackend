@@ -266,8 +266,8 @@ export class TeamAccessService {
         const allTeamIds = Array.from(allTeamIdSet).map((id) => new Types.ObjectId(id));
 
         // Fetch team members and team projects for all assigned teams
-        let teamEmployeeIdSet = new Set<string>();
-        let teamProjectIdSet = new Set<string>();
+        const teamEmployeeIdSet = new Set<string>();
+        const teamProjectIdSet = new Set<string>();
 
         if (allTeamIds.length > 0) {
             const teams = await Team.find({

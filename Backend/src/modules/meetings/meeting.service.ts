@@ -1405,7 +1405,7 @@ export class MeetingService {
         const isManager = role === 'MANAGER';
 
         const now = new Date();
-        let baseMeetingMatch: any = { companyId: cId };
+        const baseMeetingMatch: any = { companyId: cId };
 
         if (!isAdmin) {
             if (isManager) {
@@ -1512,7 +1512,7 @@ export class MeetingService {
         const role = (userRole || '').toUpperCase();
         const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'COMPANY_ADMIN'].includes(role);
 
-        let filter: any = { companyId: cId };
+        const filter: any = { companyId: cId };
 
         if (!isAdmin) {
             const scope = await TeamAccessService.resolveScope(companyId, managerId);

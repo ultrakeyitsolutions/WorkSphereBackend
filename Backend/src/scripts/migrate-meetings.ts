@@ -1,5 +1,5 @@
-const mongoose = require('d:/Office Work/WorkSphereBackend/Backend/node_modules/mongoose');
-const crypto = require('crypto');
+import mongoose from 'mongoose';
+import crypto from 'crypto';
 
 async function migrateMeetings() {
     const uri = 'mongodb+srv://PawConnect_db_user:8yzDmAfsD8QZZrrc@cluster0.hqawdd0.mongodb.net/WorkSphere';
@@ -7,6 +7,9 @@ async function migrateMeetings() {
     console.log('Connected to MongoDB. Starting safe & idempotent meeting migration...');
 
     const db = mongoose.connection.db;
+    if (!db) {
+        throw new Error('Database connection failed: db instance is undefined');
+    }
     const calEventsCol = db.collection('calendar_events');
     const meetingsCol = db.collection('meetings');
     const participantsCol = db.collection('meetingparticipants');
