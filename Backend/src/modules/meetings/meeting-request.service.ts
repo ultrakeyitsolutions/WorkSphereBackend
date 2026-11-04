@@ -198,7 +198,7 @@ export class MeetingRequestService {
                     avatar: (requester as any).avatar || null,
                     role: (requester.role as any)?.name || 'Organizer',
                     designation: 'Organizer',
-                    status: 'organizer',
+                    status: 'organizer' as const,
                     isCoOrganizer: false,
                     respondedAt: new Date(),
                 },
@@ -209,7 +209,7 @@ export class MeetingRequestService {
                     avatar: (u as any).avatar || null,
                     role: ((u as any).role as any)?.name || 'Member',
                     designation: 'Participant',
-                    status: 'pending',
+                    status: 'pending' as const,
                     isCoOrganizer: false,
                 })),
             ];

@@ -18,7 +18,6 @@ import {
     WhiteLabelSettings,
     DEFAULT_WHITE_LABEL_THEME,
     DEFAULT_WHITE_LABEL_LOGIN,
-    DEFAULT_WHITE_LABEL_EMAIL,
 } from '../white-label/white-label.model';
 import { TenantMembership } from '../white-label/tenant-membership.model';
 import { WhiteLabelService } from '../white-label/white-label.service';
@@ -229,13 +228,6 @@ export class CompanyService {
                                 backgroundImageUrl: dto.whiteLabel?.loginPage?.backgroundImageUrl || null,
                                 hideWorkSphereBranding: Boolean(dto.whiteLabel?.loginPage?.hideWorkSphereBranding),
                                 customCss: dto.whiteLabel?.loginPage?.customCss || null,
-                            },
-                            emailBranding: {
-                                senderName: dto.emailSenderName || dto.whiteLabel?.emailBranding?.senderName || company.name,
-                                senderEmail: dto.whiteLabel?.emailBranding?.senderEmail || null,
-                                replyTo: dto.whiteLabel?.emailBranding?.replyTo || null,
-                                logoUrl: company.logoUrl || null,
-                                footerText: dto.whiteLabel?.emailBranding?.footerText || DEFAULT_WHITE_LABEL_EMAIL.footerText,
                             },
                             customDomain: customDomain || null,
                             domainVerificationStatus: customDomain ? 'VERIFIED' : 'NONE',

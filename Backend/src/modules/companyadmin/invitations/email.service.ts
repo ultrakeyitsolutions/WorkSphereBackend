@@ -25,7 +25,7 @@ export async function resolveInvitationBaseUrl(companyId?: string): Promise<stri
   // 1. If company has a verified custom domain, prefer that
   if (companyId) {
     try {
-      const { WhiteLabelSettings } = await import('../../super-admin/white-label/white-label.model');
+      const { WhiteLabelSettings } = await import('../../super-admin/white-label/white-label.model.js');
       const wl = await WhiteLabelSettings.findOne({ companyId }).lean();
       if (wl?.customDomain && wl?.domainVerificationStatus === 'VERIFIED') {
         const domain = wl.customDomain.trim().replace(/\/+$/, '');

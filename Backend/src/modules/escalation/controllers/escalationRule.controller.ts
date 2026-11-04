@@ -46,7 +46,7 @@ export class EscalationRuleController {
     public static async getRuleById(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
 
             const rule = await EscalationRuleService.getRuleById(companyId!, id);
             return sendSuccess(res, 'Rule retrieved', rule);
@@ -62,7 +62,7 @@ export class EscalationRuleController {
         try {
             const companyId = req.currentUser?.companyId;
             const userId = req.currentUser?.userId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
 
             const updated = await EscalationRuleService.updateRule(companyId!, id, req.body, userId!);
             return sendSuccess(res, 'Rule updated successfully', updated);
@@ -78,7 +78,7 @@ export class EscalationRuleController {
         try {
             const companyId = req.currentUser?.companyId;
             const userId = req.currentUser?.userId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const { isEnabled } = req.body;
 
             const updated = await EscalationRuleService.toggleRuleStatus(companyId!, id, isEnabled, userId!);

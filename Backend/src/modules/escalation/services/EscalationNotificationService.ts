@@ -76,11 +76,12 @@ export class EscalationNotificationService {
             const projects = await Project.find({
                 _id: { $in: projectIds },
                 companyId: companyObjId,
-            }).select('projectManagerId createdById').lean();
+            }).select('createdById').lean();
 
             for (const p of projects) {
-                if (p.projectManagerId && p.projectManagerId.toString() !== employeeId) {
-                    reportingManagerIdsSet.add(p.projectManagerId.toString());
+                const pAny = p as any;
+                if (pAny.projectManagerId && pAny.projectManagerId.toString() !== employeeId) {
+                    reportingManagerIdsSet.add(pAny.projectManagerId.toString());
                 }
             }
         }
@@ -201,7 +202,7 @@ export class EscalationNotificationService {
                 actorId: employeeIdStr,
                 entityId: caseIdStr,
                 entityType: 'ESCALATION',
-                recipientIds: hierarchy.effectiveRecipients,
+                recipientIds: hierarchy.effectiveRecipients.map((id) => id.toString()),
                 actionUrl: `/companyadmin/escalations?caseId=${caseIdStr}`,
                 metadata: {
                     caseId: caseIdStr,

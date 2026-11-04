@@ -620,8 +620,8 @@ export class TeamService {
         let inProgressTasks = 0;
         let overdueTasks = 0;
 
-        for (const task of tasks) {
-            const statusUpper = (task.status || '').toUpperCase();
+        for (const task of tasks as any[]) {
+            const statusUpper = ((task as any).status || '').toUpperCase();
             if (statusUpper === 'COMPLETED' || statusUpper === 'DONE') {
                 completedTasks++;
             } else {

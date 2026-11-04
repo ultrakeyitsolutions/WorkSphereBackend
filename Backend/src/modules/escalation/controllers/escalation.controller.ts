@@ -85,7 +85,7 @@ export class EscalationController {
             const role = req.currentUser?.role;
             const isFullAdmin = role === 'SUPER_ADMIN' || role === 'COMPANY_ADMIN' || role === 'Admin';
 
-            if (!isFullAdmin) {
+            if (!isFullAdmin && req.currentUser) {
                 const subordinateIds = await EscalationController.getManagerSubordinateIds(
                     companyId,
                     req.currentUser.userId
@@ -149,7 +149,7 @@ export class EscalationController {
     public static async getCaseById(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
 
             const escalationCase = await EscalationCase.findOne({
                 _id: new Types.ObjectId(id),
@@ -200,7 +200,7 @@ export class EscalationController {
     public static async acknowledgeCase(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const { comment } = req.body;
 
             const escalationCase = await EscalationCase.findOne({
@@ -245,7 +245,7 @@ export class EscalationController {
     public static async assignCase(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const { managerId, comment } = req.body;
 
             const escalationCase = await EscalationCase.findOne({
@@ -290,7 +290,7 @@ export class EscalationController {
     public static async resolveCase(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const { resolutionReason, comment } = req.body;
 
             const escalationCase = await EscalationCase.findOne({
@@ -338,7 +338,7 @@ export class EscalationController {
     public static async dismissCase(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const { dismissalReason, comment } = req.body;
 
             const escalationCase = await EscalationCase.findOne({
@@ -387,7 +387,7 @@ export class EscalationController {
     public static async overrideCase(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const { escalationLevel, status, assignedManager, dueAt, reason } = req.body;
 
             const escalationCase = await EscalationCase.findOne({
@@ -482,7 +482,7 @@ export class EscalationController {
         try {
             const companyId = req.currentUser?.companyId;
             const userId = req.currentUser?.userId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
 
             const escalationCase = await EscalationCase.findOne({
                 _id: new Types.ObjectId(id),
@@ -511,7 +511,7 @@ export class EscalationController {
         try {
             const companyId = req.currentUser?.companyId;
             const userId = req.currentUser?.userId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const { explanation } = req.body;
 
             const escalationCase = await EscalationCase.findOne({
@@ -562,7 +562,7 @@ export class EscalationController {
         try {
             const companyId = req.currentUser?.companyId;
             const userId = req.currentUser?.userId;
-            const { id } = req.params;
+            const { id } = req.params as { id: string };
             const file = req.file;
 
             if (!file) {

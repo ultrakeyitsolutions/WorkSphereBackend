@@ -1301,4 +1301,20 @@ export class ModuleAccessService {
 
         return result;
     }
+
+    /**
+     * Check if a specific module is allowed for a user or globally for the company
+     */
+    static async isModuleAllowed(companyId: string, moduleKey: string, userId?: string): Promise<boolean> {
+        try {
+            if (userId) {
+                const access = await this.getEffectiveMemberModuleAccess(companyId, userId);
+                return access.effectiveModules[moduleKey as ModuleKey] ?? true;
+            }
+            const globalAccess = await this.getGlobalModuleAccess(companyId);
+            return (globalAccess as any)?.globalSettings?.[moduleKey] ?? true;
+        } catch {
+            return true;
+        }
+    }
 }

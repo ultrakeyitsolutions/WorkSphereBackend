@@ -23,6 +23,7 @@ export interface CompanyThemeUpdateEvent {
     updatedAt: string;
     updatedBy?: string | null;
     timestamp: number;
+    theme?: any;
 }
 
 export class CompanyThemeRealtimeService {
@@ -37,7 +38,7 @@ export class CompanyThemeRealtimeService {
     public static validateEvent(raw: any): CompanyThemeUpdateEvent | null {
         if (!raw || typeof raw !== 'object') return null;
 
-        const { companyId, version, updatedAt, updatedBy, timestamp } = raw;
+        const { companyId, version, updatedAt, updatedBy, timestamp, theme } = raw;
 
         if (
             typeof companyId !== 'string' ||
@@ -67,6 +68,7 @@ export class CompanyThemeRealtimeService {
             updatedAt: typeof updatedAt === 'string' ? updatedAt : new Date(timestamp).toISOString(),
             updatedBy: updatedBy ? String(updatedBy) : null,
             timestamp,
+            theme: theme || null,
         };
     }
 
@@ -77,7 +79,8 @@ export class CompanyThemeRealtimeService {
         companyId: string,
         version: number,
         updatedAt: Date | string = new Date(),
-        updatedBy?: string | null
+        updatedBy?: string | null,
+        theme?: any
     ): Promise<{ localEmitted: boolean; publishedToRedis: boolean }> {
         if (!companyId || !Types.ObjectId.isValid(companyId)) {
             return { localEmitted: false, publishedToRedis: false };
@@ -93,6 +96,7 @@ export class CompanyThemeRealtimeService {
             updatedAt: isoUpdatedAt,
             updatedBy: updatedBy || null,
             timestamp,
+            theme: theme || null,
         };
 
         // 1. Emit locally via Socket.IO
@@ -154,6 +158,7 @@ export class CompanyThemeRealtimeService {
             version: event.version,
             updatedAt: event.updatedAt,
             updatedBy: event.updatedBy,
+            theme: event.theme,
         });
 
         return true;

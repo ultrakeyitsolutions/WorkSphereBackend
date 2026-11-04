@@ -592,7 +592,7 @@ export class MemberService {
             .lean();
 
         // Also fetch all teams in this company to attach assigned team info
-        const { Team } = await import('../../teams/team.model');
+        const { Team } = await import('../../teams/team.model.js');
         const allTeams = await Team.find({ companyId: compId, isArchived: false })
             .select('name leadId managerIds memberIds')
             .lean();
@@ -685,7 +685,7 @@ export class MemberService {
         const oldMemberType = member.memberType;
 
         // Find or map the Role document
-        const RoleModel = (await import('../../roles/role.model')).Role;
+        const RoleModel = (await import('../../roles/role.model.js')).Role;
         let roleDoc = await RoleModel.findOne({ name: targetRoleUpper });
         if (!roleDoc && targetRoleUpper === 'EMPLOYEE') {
             roleDoc = await RoleModel.findOne({ name: 'User' });
@@ -700,18 +700,16 @@ export class MemberService {
         await member.save();
 
         // Handle Manager Assignment and Revocation lifecycle
-        const { TeamAccessService } = await import('../../manager/services/team-access.service');
-        const { FeatureRevocationService } = await import('../settings/feature-revocation.service');
+        const { TeamAccessService } = await import('../../manager/services/team-access.service.js');
+        const { FeatureRevocationService } = await import('../settings/feature-revocation.service.js');
 
         if (targetRoleUpper === 'MANAGER') {
-            const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service');
-            await ManagerAssignmentService.promoteToManager(companyId, targetUserId, actorId, {
-                reason: 'Promoted to Manager by Company Administrator',
-            }).catch(() => {});
+            const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service.js');
+            await ManagerAssignmentService.promoteToManager(companyId, targetUserId, actorId, {}).catch(() => {});
         } else if (targetRoleUpper === 'EMPLOYEE') {
-            const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service');
+            const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service.js');
             await ManagerAssignmentService.demoteManager(companyId, targetUserId, actorId, 'Demoted to Employee by Company Administrator').catch(() => {});
-            await FeatureRevocationService.revokeManagerAccess(companyId, targetUserId, 'REVOKE_ALL', undefined, undefined, 'Role changed to Employee');
+            await FeatureRevocationService.revokeManagerAccess(companyId, targetUserId, 'DEMOTE', undefined, undefined, 'Role changed to Employee');
         }
 
         await TeamAccessService.invalidateScopeCache(companyId, targetUserId);

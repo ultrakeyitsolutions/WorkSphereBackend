@@ -63,14 +63,13 @@ export class EscalationProcessor {
         const employeeObjId = new Types.ObjectId(employeeId);
 
         // 1. Check Approved Leave for this date
-        const targetDate = new Date(`${eventDate}T00:00:00.000Z`);
         const leave = await LeaveRequest.findOne({
             companyId: companyObjId,
             employeeId: employeeObjId,
             status: 'APPROVED',
-            startDate: { $lte: targetDate },
-            endDate: { $gte: targetDate },
-        }).lean();
+            startDate: { $lte: eventDate },
+            endDate: { $gte: eventDate },
+        } as any).lean();
 
         if (leave) {
             return {

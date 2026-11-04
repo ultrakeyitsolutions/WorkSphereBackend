@@ -1311,7 +1311,7 @@ export class MeetingService {
                 provider: dto.provider,
                 meetingUrl: meetingDetails.meetingUrl,
                 externalEventId: meetingDetails.externalEventId || null,
-                externalProviderData: meetingDetails.externalProviderData || null,
+                externalProviderData: meetingDetails.externalProviderData || undefined,
                 agenda: [],
                 reminderMinutes: 15,
                 recurrence: 'none',

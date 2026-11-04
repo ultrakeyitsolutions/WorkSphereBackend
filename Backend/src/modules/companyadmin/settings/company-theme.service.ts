@@ -291,12 +291,31 @@ export class CompanyThemeService {
         // ── 3. Invalidate Local Cache & Broadcast Event ───────────────────────
         this.invalidateCache(companyId);
 
+        const resultTheme: ICompanyThemeConfig = {
+            version: nextVersion,
+            light: proposedLight,
+            dark: proposedDark,
+            updatedAt,
+            updatedBy: updatedByUserId,
+            customThemeConfigured: true,
+            entitlement: {
+                isEntitled: true,
+                isReadOnly: false,
+                reasonCode: 'ENTITLED',
+                message: 'Company is entitled to custom theme customization on this plan.',
+                billingCycle: entitlement.billingCycle,
+                planName: entitlement.planName,
+                status: entitlement.status,
+            },
+        };
+
         // Non-blocking real-time broadcast across Socket.IO and Redis Pub/Sub
         CompanyThemeRealtimeService.broadcastThemeUpdate(
             companyId,
             nextVersion,
             updatedAt,
-            updatedByUserId
+            updatedByUserId,
+            resultTheme
         ).catch((broadcastErr) => {
             console.warn('[CompanyThemeService] Realtime broadcast warning:', broadcastErr?.message);
         });
@@ -321,23 +340,7 @@ export class CompanyThemeService {
             // Non-blocking audit log
         }
 
-        return {
-            version: nextVersion,
-            light: proposedLight,
-            dark: proposedDark,
-            updatedAt,
-            updatedBy: updatedByUserId,
-            customThemeConfigured: true,
-            entitlement: {
-                isEntitled: true,
-                isReadOnly: false,
-                reasonCode: 'ENTITLED',
-                message: 'Company is entitled to custom theme customization on this plan.',
-                billingCycle: entitlement.billingCycle,
-                planName: entitlement.planName,
-                status: entitlement.status,
-            },
-        };
+        return resultTheme;
     }
 
     /**
@@ -400,11 +403,26 @@ export class CompanyThemeService {
         // Invalidate cache and broadcast update
         this.invalidateCache(companyId);
 
+        const resultTheme: ICompanyThemeConfig = {
+            ...defaultTheme,
+            customThemeConfigured: false,
+            entitlement: {
+                isEntitled: true,
+                isReadOnly: false,
+                reasonCode: 'ENTITLED',
+                message: 'Company is entitled to custom theme customization on this plan.',
+                billingCycle: entitlement.billingCycle,
+                planName: entitlement.planName,
+                status: entitlement.status,
+            },
+        };
+
         CompanyThemeRealtimeService.broadcastThemeUpdate(
             companyId,
             nextVersion,
             updatedAt,
-            updatedByUserId
+            updatedByUserId,
+            resultTheme
         ).catch((broadcastErr) => {
             console.warn('[CompanyThemeService] Realtime reset broadcast warning:', broadcastErr?.message);
         });
@@ -424,19 +442,7 @@ export class CompanyThemeService {
             // Non-blocking audit log
         }
 
-        return {
-            ...defaultTheme,
-            customThemeConfigured: false,
-            entitlement: {
-                isEntitled: true,
-                isReadOnly: false,
-                reasonCode: 'ENTITLED',
-                message: 'Company is entitled to custom theme customization on this plan.',
-                billingCycle: entitlement.billingCycle,
-                planName: entitlement.planName,
-                status: entitlement.status,
-            },
-        };
+        return resultTheme;
     }
 }
 export default CompanyThemeService;

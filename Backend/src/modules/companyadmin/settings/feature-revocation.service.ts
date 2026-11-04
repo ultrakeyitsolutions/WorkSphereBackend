@@ -422,7 +422,7 @@ export class FeatureRevocationService {
 
         // 1. Invalidate manager scope cache immediately
         try {
-            const { TeamAccessService } = await import('../../manager/services/team-access.service');
+            const { TeamAccessService } = await import('../../manager/services/team-access.service.js');
             await TeamAccessService.invalidateScopeCache(normalizedCompanyId, normalizedManagerId);
         } catch (err: any) {
             console.warn('[FeatureRevocationService] Error invalidating manager scope cache:', err?.message);
@@ -795,7 +795,7 @@ export class FeatureRevocationService {
                         } else if (validated.type === 'MANAGER_ACCESS') {
                             const managerEvent = validated as ManagerAccessRevocationEvent;
                             try {
-                                const { TeamAccessService } = await import('../../manager/services/team-access.service');
+                                const { TeamAccessService } = await import('../../manager/services/team-access.service.js');
                                 await TeamAccessService.invalidateScopeCache(managerEvent.companyId, managerEvent.managerId);
                             } catch {}
 

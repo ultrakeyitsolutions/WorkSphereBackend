@@ -42,7 +42,7 @@ export const requireManagerWorkspace = async (
 
         // Check if manager module is enabled in company module access
         if (!isSuperAdmin) {
-            const { ModuleAccessService } = await import('../../companyadmin/module-access/module-access.service');
+            const { ModuleAccessService } = await import('../../companyadmin/module-access/module-access.service.js');
             const isManagerModuleAllowed = await ModuleAccessService.isModuleAllowed(effectiveCompanyId, 'manager', userId);
             if (!isManagerModuleAllowed) {
                 return sendError(res, 'Forbidden: Manager Workspace is disabled for this organization or user', 403);

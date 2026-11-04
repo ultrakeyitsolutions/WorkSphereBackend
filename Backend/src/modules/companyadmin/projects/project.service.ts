@@ -180,7 +180,7 @@ export class ProjectService {
 
         const uId = new Types.ObjectId(userId);
         
-        const { Team } = await import('../../teams/team.model');
+        const { Team } = await import('../../teams/team.model.js');
         const [created, managed, team, clients, userTeams] = await Promise.all([
             Project.find({ companyId, createdById: uId }).select('_id').lean(),
             ProjectInCharge.find({ userId: uId }).select('projectId').lean(),
@@ -198,8 +198,8 @@ export class ProjectService {
         managed.forEach(p => projectIds.add(String(p.projectId)));
         team.forEach(p => projectIds.add(String(p.projectId)));
         clients.forEach(p => projectIds.add(String(p.projectId)));
-        userTeams.forEach((t) => {
-            (t.projectIds || []).forEach((pId) => projectIds.add(String(pId)));
+        userTeams.forEach((t: any) => {
+            (t.projectIds || []).forEach((pId: any) => projectIds.add(String(pId)));
         });
 
         return Array.from(projectIds).map(id => new Types.ObjectId(id));

@@ -244,11 +244,11 @@ export class EscalationReportController {
     public static async getCategoryReport(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { category } = req.params;
+            const { category } = req.params as { category: string };
 
             const cases = await EscalationCase.find({
                 companyId: new Types.ObjectId(companyId),
-                category,
+                category: category as any,
             })
                 .populate('employeeId', 'name email avatar')
                 .populate('assignedManager', 'name email')
@@ -268,7 +268,7 @@ export class EscalationReportController {
     public static async getEmployeeHistory(req: AuthenticatedRequest, res: Response) {
         try {
             const companyId = req.currentUser?.companyId;
-            const { employeeId } = req.params;
+            const { employeeId } = req.params as { employeeId: string };
 
             const [cases, events] = await Promise.all([
                 EscalationCase.find({

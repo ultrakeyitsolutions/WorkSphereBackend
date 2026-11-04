@@ -34,7 +34,7 @@ export class NotificationService {
             }
 
             // 2. Fetch Effective Company Preference
-            const pref = await this.prefService.getEffectivePreference(companyId, type);
+            const pref = await this.prefService.getEffectivePreference(companyId || '', type);
 
             // 3. Check if Enabled for this Company
             if (!pref.enabled) {
@@ -125,7 +125,7 @@ export class NotificationService {
             expiresAt.setDate(expiresAt.getDate() + retentionDays);
 
             // 9. Prepare Documents for Database Batch Insertion
-            const companyObjId = new Types.ObjectId(companyId);
+            const companyObjId = companyId ? new Types.ObjectId(companyId) : undefined;
             const actorObjId = actorId ? new Types.ObjectId(actorId) : undefined;
             const entityObjId = entityId ? new Types.ObjectId(entityId) : undefined;
             const projectObjId = payload.projectId && Types.ObjectId.isValid(payload.projectId) ? new Types.ObjectId(payload.projectId) : undefined;
@@ -189,7 +189,7 @@ export class NotificationService {
                     );
 
                     // Also push updated unread count
-                    NotificationRepository.countUnread(recipientIdStr, companyId).then((unreadCount: number) => {
+                    NotificationRepository.countUnread(recipientIdStr, companyId || '').then((unreadCount: number) => {
                         SocketNotificationChannel.deliverUnreadCount(recipientIdStr, unreadCount);
                     }).catch(() => { });
                 }
@@ -229,7 +229,7 @@ export class NotificationService {
     public async markAsRead(notificationId: string, recipientId: string): Promise<INotification | null> {
         const notif = await NotificationRepository.markRead(notificationId, recipientId);
         if (notif) {
-            const unreadCount = await NotificationRepository.countUnread(recipientId, notif.companyId.toString());
+            const unreadCount = await NotificationRepository.countUnread(recipientId, notif.companyId?.toString() || '');
             SocketNotificationChannel.deliverUnreadCount(recipientId, unreadCount);
         }
         return notif;
