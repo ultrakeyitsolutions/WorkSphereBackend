@@ -7,12 +7,16 @@ import { NotificationEventHandler } from './modules/notifications/notification.e
 import { LiveMonitoringEventHandler } from './modules/companyadmin/live-monitoring/live-monitoring.event-handler';
 import { MeetingSchedulerJob } from './modules/meetings/meeting-scheduler.job';
 import { StickyNoteReminderJob } from './modules/sticky-notes/sticky-note-reminder.service';
+import { EscalationSchedulerJob } from './modules/escalation/jobs/escalationScheduler';
 import { verifyMailConnection } from './config/mail';
+import { EntitlementService } from './services/entitlement.service';
+import { StorageConfigurationService } from './modules/super-admin/storage/storage-config.service';
 
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
     try {
+        
         // Establish database connection in background
         await connectDatabase();
 
@@ -20,12 +24,21 @@ const startServer = async () => {
         NotificationEventHandler.getInstance().initialize();
         LiveMonitoringEventHandler.getInstance().initialize();
 
+        // Initialize cross-worker entitlement invalidation subscriber
+        EntitlementService.initRedisSubscriber();
+
+        // Initialize cross-worker storage configuration invalidation subscriber
+        StorageConfigurationService.initRedisSubscriber();
+
 
         // Initialize meeting reminder scheduler
         MeetingSchedulerJob.start();
 
         // Initialize sticky note reminder scheduler
         StickyNoteReminderJob.start();
+
+        // Initialize workforce compliance escalation scheduler
+        EscalationSchedulerJob.start();
 
         // Create HTTP server wrapping Express
         const httpServer = http.createServer(app);

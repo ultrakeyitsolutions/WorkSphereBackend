@@ -4,6 +4,7 @@ export const createPaymentAttemptSchema = z.object({
     body: z.object({
         planId: z.string().min(1, 'planId is required'),
         billingCycle: z.enum(['MONTHLY', 'SEMI_ANNUAL', 'YEARLY']).optional(),
+        billingPolicy: z.enum(['FULL_PRICE', 'STANDARD', 'PRORATED', 'COMPLIMENTARY', 'NEXT_CYCLE']).optional(),
         billingObligationId: z.string().optional(),
         isAutoPay: z.boolean().optional(),
         idempotencyKey: z.string().min(1).optional(),

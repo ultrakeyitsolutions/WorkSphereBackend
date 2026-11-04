@@ -144,6 +144,7 @@ export class MemberService {
                     userId: '$userId',
                     email: '$user.email',
                     phoneNumber: '$user.phoneNumber',
+                    avatar: '$user.avatar',
                     name: '$user.name',
                     roleId: 1,
                     designationId: 1,
@@ -172,6 +173,7 @@ export class MemberService {
                                 userId: { $literal: null },
                                 email: '$email',
                                 phoneNumber: '$phoneNumber',
+                                avatar: { $literal: null },
                                 name: { $literal: null },
                                 roleId: 1,
                                 designationId: 1,
@@ -220,6 +222,7 @@ export class MemberService {
                     userId: 1,
                     email: 1,
                     phoneNumber: 1,
+                    avatar: 1,
                     designation: {
                         id: '$designation._id',
                         name: '$designation.name'
@@ -387,7 +390,7 @@ export class MemberService {
 
         await member.save();
 
-        if (data.name || data.email || data.phoneNumber) {
+        if (data.name || data.email || data.phoneNumber !== undefined || data.avatar !== undefined) {
             const updateFields: any = {};
             if (data.name) updateFields.name = data.name;
             if (data.email) {
@@ -400,7 +403,8 @@ export class MemberService {
                 }
                 updateFields.email = data.email;
             }
-            if (data.phoneNumber) updateFields.phoneNumber = data.phoneNumber;
+            if (data.phoneNumber !== undefined) updateFields.phoneNumber = data.phoneNumber;
+            if (data.avatar !== undefined) updateFields.avatar = data.avatar;
 
             await User.updateOne({ _id: member.userId }, { $set: updateFields });
         }
@@ -567,5 +571,188 @@ export class MemberService {
         }
 
         return { message: 'Member successfully suspended' };
+    }
+
+    /**
+     * Search all company users across all roles (Employee, Manager, Company Admin, etc.)
+     * Returns actual role, department, assigned teams, account status
+     */
+    static async searchAllUsers(companyId: string, search?: string) {
+        const compId = new Types.ObjectId(companyId);
+
+        // Fetch all active company members
+        const members = await CompanyMember.find({ companyId: compId })
+            .populate({
+                path: 'userId',
+                select: 'name email avatar status accountStatus role employeeId',
+                populate: { path: 'role', select: 'name' }
+            })
+            .populate('roleId', 'name')
+            .populate('designationId', 'name')
+            .lean();
+
+        // Also fetch all teams in this company to attach assigned team info
+        const { Team } = await import('../../teams/team.model');
+        const allTeams = await Team.find({ companyId: compId, isArchived: false })
+            .select('name leadId managerIds memberIds')
+            .lean();
+
+        const searchRegex = search && search.trim() ? new RegExp(search.trim(), 'i') : null;
+        const results: any[] = [];
+
+        for (const m of members) {
+            const u = m.userId as any;
+            if (!u) continue;
+
+            const name = u.name || '';
+            const email = u.email || '';
+            const empId = u.employeeId || (m as any).employeeId || '';
+            const deptName = (m.designationId as any)?.name || (m as any).departmentName || '';
+
+            if (searchRegex) {
+                const matches = searchRegex.test(name) || searchRegex.test(email) || searchRegex.test(empId);
+                if (!matches) continue;
+            }
+
+            // Determine current effective role
+            let roleName = 'EMPLOYEE';
+            if (u.role?.name) {
+                roleName = u.role.name;
+            } else if (typeof u.role === 'string') {
+                roleName = u.role;
+            } else if (m.roleId && (m.roleId as any).name) {
+                roleName = (m.roleId as any).name;
+            } else if (m.memberType) {
+                roleName = m.memberType;
+            }
+
+            // Find assigned teams
+            const uIdStr = String(u._id);
+            const assignedTeams = allTeams.filter((t: any) => {
+                const isLead = t.leadId && String(t.leadId) === uIdStr;
+                const isManager = (t.managerIds || []).some((mid: any) => String(mid) === uIdStr);
+                const isMember = (t.memberIds || []).some((mid: any) => String(mid) === uIdStr);
+                return isLead || isManager || isMember;
+            }).map((t: any) => ({
+                id: t._id,
+                name: t.name,
+                isLead: Boolean(t.leadId && String(t.leadId) === uIdStr),
+                isManager: Boolean((t.managerIds || []).some((mid: any) => String(mid) === uIdStr)),
+            }));
+
+            results.push({
+                memberId: m._id,
+                userId: u._id,
+                name,
+                email,
+                avatar: u.avatar || null,
+                employeeId: empId,
+                role: roleName.toUpperCase(),
+                memberType: m.memberType,
+                department: deptName,
+                assignedTeams,
+                accountStatus: u.accountStatus || u.status || m.status || 'ACTIVE',
+                status: m.status || 'ACTIVE',
+            });
+        }
+
+        return results;
+    }
+
+    /**
+     * Change user role between EMPLOYEE and MANAGER (or other supported company roles)
+     * Keeps user accounts unified - no duplicate accounts created!
+     */
+    static async changeUserRole(companyId: string, targetUserId: string, newRole: string, actorId: string) {
+        const compId = new Types.ObjectId(companyId);
+        const userOid = new Types.ObjectId(targetUserId);
+
+        const targetRoleUpper = newRole.trim().toUpperCase();
+        if (!['EMPLOYEE', 'MANAGER'].includes(targetRoleUpper)) {
+            throw new Error('Unsupported role assignment. Supported roles: EMPLOYEE, MANAGER');
+        }
+
+        const member = await CompanyMember.findOne({ companyId: compId, userId: userOid });
+        if (!member) {
+            throw new Error('User is not an active member of this company');
+        }
+
+        const user = await User.findById(userOid);
+        if (!user) {
+            throw new Error('User record not found');
+        }
+
+        const oldMemberType = member.memberType;
+
+        // Find or map the Role document
+        const RoleModel = (await import('../../roles/role.model')).Role;
+        let roleDoc = await RoleModel.findOne({ name: targetRoleUpper });
+        if (!roleDoc && targetRoleUpper === 'EMPLOYEE') {
+            roleDoc = await RoleModel.findOne({ name: 'User' });
+        }
+
+        if (roleDoc) {
+            user.role = roleDoc._id as any;
+        }
+        await user.save();
+
+        member.memberType = targetRoleUpper as any;
+        await member.save();
+
+        // Handle Manager Assignment and Revocation lifecycle
+        const { TeamAccessService } = await import('../../manager/services/team-access.service');
+        const { FeatureRevocationService } = await import('../settings/feature-revocation.service');
+
+        if (targetRoleUpper === 'MANAGER') {
+            const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service');
+            await ManagerAssignmentService.promoteToManager(companyId, targetUserId, actorId, {
+                reason: 'Promoted to Manager by Company Administrator',
+            }).catch(() => {});
+        } else if (targetRoleUpper === 'EMPLOYEE') {
+            const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service');
+            await ManagerAssignmentService.demoteManager(companyId, targetUserId, actorId, 'Demoted to Employee by Company Administrator').catch(() => {});
+            await FeatureRevocationService.revokeManagerAccess(companyId, targetUserId, 'REVOKE_ALL', undefined, undefined, 'Role changed to Employee');
+        }
+
+        await TeamAccessService.invalidateScopeCache(companyId, targetUserId);
+
+        try {
+            const redis = getRedisClient();
+            if (redis) {
+                await redis.del(
+                    `session:${targetUserId}`,
+                    `user:${targetUserId}`,
+                    `worksphere:cache:member:${companyId}:${targetUserId}`,
+                    `worksphere:cache:module_access:${companyId}:${targetUserId}`
+                ).catch(() => {});
+            }
+        } catch {}
+
+        try {
+            const io = getSocketServer();
+            if (io) {
+                io.to(`user:${targetUserId}`).emit('user:role_updated', {
+                    companyId,
+                    userId: targetUserId,
+                    oldRole: oldMemberType,
+                    newRole: targetRoleUpper,
+                    timestamp: Date.now(),
+                });
+                io.to(`company:${companyId}`).emit('company:user_role_updated', {
+                    companyId,
+                    userId: targetUserId,
+                    oldRole: oldMemberType,
+                    newRole: targetRoleUpper,
+                    timestamp: Date.now(),
+                });
+            }
+        } catch {}
+
+        return {
+            success: true,
+            userId: targetUserId,
+            newRole: targetRoleUpper,
+            message: `User role successfully updated to ${targetRoleUpper}`,
+        };
     }
 }

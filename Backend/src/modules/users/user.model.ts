@@ -17,6 +17,16 @@ const userSchema = new Schema<IUserDocument>(
             trim: true,
             lowercase: true,
         },
+        phoneNumber: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        avatar: {
+            type: String,
+            default: null,
+            trim: true,
+        },
         password: {
             type: String,
             required: true,

@@ -11,6 +11,8 @@ import impersonationRoutes from './impersonation/impersonation.routes';
 import systemHealthRoutes from './system-health/system-health.routes';
 import { notificationSoundRoutes } from '../notification-sounds';
 import globalSearchRoutes from './global-search/global-search.routes';
+import paymentsRoutes from './payments/super-admin-payment.routes';
+import superAdminNotificationRoutes from './notifications/super-admin-notification.routes';
 
 const router = Router();
 
@@ -21,14 +23,17 @@ router.use('/users', usersRoutes);
 router.use('/projects', projectsRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/subscriptions', subscriptionsRoutes);
+router.use('/payments', paymentsRoutes);
 router.use('/security', securityRoutes);
 router.use('/audit', auditRoutes);
 router.use('/impersonation', impersonationRoutes);
 router.use('/system-health', systemHealthRoutes);
 router.use('/notification-sounds', notificationSoundRoutes);
 router.use('/global-search', globalSearchRoutes);
+router.use('/notifications', superAdminNotificationRoutes);
 
 export default router;
+
 
 export * from './overview/overview.service';
 export * from './overview/overview.controller';

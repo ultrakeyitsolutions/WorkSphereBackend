@@ -61,7 +61,7 @@ export class MeetingNotificationService {
             entityType: 'MEETING',
             meetingId,
             recipientIds: uniqueRecipients,
-            actionUrl: actionUrl || `/companyadmin/quick-meetings?meetingId=${meetingId}`,
+            actionUrl: actionUrl || `/main/meetings?tab=inbox&meetingId=${meetingId}`,
             metadata: {
                 meetingName: meetingTitle,
                 projectName: projectName || 'General',

@@ -25,7 +25,8 @@ export class CompanyController {
         try {
             // ── Service call (transaction is handled inside) ───────────────────
             const actorUserId = req.user?.userId;
-            const result = await CompanyService.createWithAdmin(parsed.data, actorUserId);
+            const idempotencyKey = (req.headers['idempotency-key'] || req.headers['x-idempotency-key']) as string | undefined;
+            const result = await CompanyService.createWithAdmin(parsed.data, actorUserId, idempotencyKey);
 
             return sendSuccess(
                 res,

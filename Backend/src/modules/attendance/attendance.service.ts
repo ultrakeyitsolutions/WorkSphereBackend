@@ -23,6 +23,8 @@ import { AttendanceCalculationService } from './attendance-calculation.service';
 import { TimezoneUtils } from './utils/timezone.utils';
 import { LeaveRequest } from './leave.model';
 import { Holiday } from './holiday.model';
+import { EscalationEngine } from '../escalation/services/EscalationEngine';
+import { EscalationCategory, EscalationSourceModule } from '../escalation/constants/escalation.constants';
 import { AttendanceAdjustment } from './attendance-adjustment.model';
 import { NotificationEventBus } from '../notifications/notification.event-bus';
 import CompanyMember from '../companyadmin/invitations/company-member.model';
@@ -205,6 +207,30 @@ export class AttendanceService {
                 date: cycleDate,
             },
         });
+
+        // 10. Publish Late Check-in to EscalationEngine if lateness detected
+        if (lateMinutes > 0) {
+            EscalationEngine.getInstance().publishEvent({
+                companyId,
+                employeeId,
+                category: EscalationCategory.LATE_CHECK_IN,
+                sourceModule: EscalationSourceModule.ATTENDANCE,
+                sourceRecordId: attendance._id.toString(),
+                eventTimestamp: punchTime,
+                expectedValue: scheduledStartTime ? scheduledStartTime.toISOString() : 'Scheduled Shift Start',
+                actualValue: punchTime.toISOString(),
+                violationDuration: lateMinutes,
+                metadata: {
+                    attendanceId: attendance._id.toString(),
+                    cycleDate,
+                    punchStatus,
+                    lateMinutes,
+                },
+                idempotencyKey: `late_checkin_${attendance._id.toString()}_${cycleDate}`,
+            }).catch((err) => {
+                console.error('[AttendanceService] EscalationEngine publish error:', err);
+            });
+        }
 
         return { attendance, event };
     }
@@ -405,8 +431,44 @@ export class AttendanceService {
             type,
             timestamp: punchTime,
             source: dto.source || reqInfo?.source || 'WEB',
-            ipAddress: reqInfo?.ip || null,
         });
+
+        // Trigger Break Time Compliance Escalation if break concluded and duration exceeds limit
+        if (type === AttendanceEventType.BREAK_END) {
+            AttendanceEvent.findOne({
+                attendanceId: attendance._id,
+                type: AttendanceEventType.BREAK_START,
+                timestamp: { $lt: punchTime },
+            })
+                .sort({ timestamp: -1 })
+                .lean()
+                .then((lastStart) => {
+                    if (lastStart) {
+                        const breakDurationMins = Math.round(
+                            (punchTime.getTime() - new Date(lastStart.timestamp).getTime()) / 60000
+                        );
+                        if (breakDurationMins > 60) {
+                            EscalationEngine.getInstance().publishEvent({
+                                companyId,
+                                employeeId,
+                                category: EscalationCategory.BREAK_TIME_EXCEEDED,
+                                sourceModule: EscalationSourceModule.ATTENDANCE,
+                                sourceRecordId: event._id.toString(),
+                                eventTimestamp: punchTime,
+                                expectedValue: 'Max 60m break',
+                                actualValue: `${breakDurationMins}m break`,
+                                violationDuration: breakDurationMins - 60,
+                                metadata: {
+                                    attendanceId: attendance._id.toString(),
+                                    breakDurationMinutes: breakDurationMins,
+                                },
+                                idempotencyKey: `break_exceeded_${event._id.toString()}`,
+                            }).catch(() => {});
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
 
         return { attendance, event };
     }

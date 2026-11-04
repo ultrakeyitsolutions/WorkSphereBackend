@@ -76,7 +76,20 @@ export class ModuleAccessService {
      * When userIds is provided, invalidates specific members.
      * When userIds is omitted or empty, performs company-wide invalidation (all members).
      */
-    static async invalidateMemberAccessCache(companyId: string, userIds?: string[]): Promise<void> {
+    static async invalidateMemberAccessCache(
+        companyId: string,
+        userIds?: string[],
+        revokedModules?: ModuleKey[]
+    ): Promise<void> {
+        try {
+            await FeatureRevocationService.revokeEmployeeModules(
+                companyId,
+                userIds,
+                revokedModules && revokedModules.length > 0 ? revokedModules : VALID_MODULE_KEYS
+            );
+        } catch (err: any) {
+            console.warn('[ModuleAccessService] FeatureRevocationService delegation error:', err?.message);
+        }
         try {
             const redis = getRedisClient();
             if (redis) {
@@ -272,6 +285,14 @@ export class ModuleAccessService {
 
             // Invalidate member access caches and notify all members of updated company defaults
             await this.invalidateMemberAccessCache(companyId);
+            const disabledKeys = changedKeys.filter((k) => record.globalSettings[k] === false);
+            if (disabledKeys.length > 0) {
+                try {
+                    await FeatureRevocationService.revokeEmployeeModules(companyId, undefined, disabledKeys);
+                } catch (err: any) {
+                    console.warn('[ModuleAccessService] FeatureRevocationService delegation error:', err?.message);
+                }
+            }
 
             // If chat was disabled globally, invoke feature revocation
             if (changedKeys.includes('chat') && record.globalSettings.chat === false) {
@@ -917,6 +938,14 @@ export class ModuleAccessService {
 
         // Invalidate cache and emit real-time sync event
         await this.invalidateMemberAccessCache(companyId, [canonicalUserId]);
+        const revokedKeys = changedKeys.filter((k) => overridesMap.get(k) === 'DISABLED');
+        if (revokedKeys.length > 0) {
+            try {
+                await FeatureRevocationService.revokeEmployeeModules(companyId, [canonicalUserId], revokedKeys);
+            } catch (err: any) {
+                console.warn('[ModuleAccessService] FeatureRevocationService delegation error:', err?.message);
+            }
+        }
 
         return this.getSingleEmployeeModuleAccess(companyId, canonicalUserId);
     }
@@ -1107,6 +1136,14 @@ export class ModuleAccessService {
 
         // Invalidate caches and broadcast real-time sync
         await this.invalidateMemberAccessCache(companyId, targetUserIds);
+        const revokedOverrides = Object.entries(overridesToApply).filter(([_, s]) => s === 'DISABLED').map(([k]) => k as ModuleKey);
+        if (revokedOverrides.length > 0) {
+            try {
+                await FeatureRevocationService.revokeEmployeeModules(companyId, targetUserIds, revokedOverrides);
+            } catch (err: any) {
+                console.warn('[ModuleAccessService] FeatureRevocationService delegation error:', err?.message);
+            }
+        }
 
         // Fetch updated selected members access with aggregate stats
         const selectedResults = await this.getSelectedMembersModuleAccess(companyId, targetUserIds);
@@ -1179,6 +1216,8 @@ export class ModuleAccessService {
         }
 
         const effectiveModules: Record<ModuleKey, boolean> = {} as any;
+        const denialReasons: Partial<Record<ModuleKey, string>> = {};
+        const restrictions: Partial<Record<ModuleKey, { code: string; message: string }>> = {};
 
         for (const mod of SUPPORTED_MODULES) {
             // Tier 1: Plan / Subscription entitlement
@@ -1209,25 +1248,47 @@ export class ModuleAccessService {
             // Tier 4: Employee Override (Safely resolved without falsy coercion)
             const employeeOverride = resolveOverrideState(rawOverrides[mod.key]);
 
-            // Tier 5: Combined Precedence Resolution
-            // Rule: Mandatory restrictions (Tier 1 & 2) always supersede.
-            // If permitted by plan & company:
-            //   - Explicit member override (ENABLED / DISABLED) takes precedence.
-            //   - Otherwise, fall back to global company default.
-            if (!isPermittedByPlan || !isCompanyPermitted) {
+            // Tier 5: Combined Precedence Resolution with Structured Denial Explanations
+            if (!isPermittedByPlan) {
                 effectiveModules[mod.key] = false;
+                denialReasons[mod.key] = 'PLAN_NOT_INCLUDED';
+                restrictions[mod.key] = {
+                    code: 'PLAN_NOT_INCLUDED',
+                    message: 'Feature is not included in your organization subscription plan',
+                };
+            } else if (!isCompanyPermitted) {
+                effectiveModules[mod.key] = false;
+                denialReasons[mod.key] = 'COMPANY_DISABLED';
+                restrictions[mod.key] = {
+                    code: 'COMPANY_DISABLED',
+                    message: 'Module is disabled in organization settings',
+                };
             } else if (employeeOverride === 'DISABLED') {
                 effectiveModules[mod.key] = false;
+                denialReasons[mod.key] = 'USER_OVERRIDE_DISABLED';
+                restrictions[mod.key] = {
+                    code: 'USER_OVERRIDE_DISABLED',
+                    message: 'Access explicitly restricted by organization administrator',
+                };
             } else if (employeeOverride === 'ENABLED') {
                 effectiveModules[mod.key] = true;
             } else {
                 effectiveModules[mod.key] = isGloballyEnabled;
+                if (!isGloballyEnabled) {
+                    denialReasons[mod.key] = 'COMPANY_DISABLED';
+                    restrictions[mod.key] = {
+                        code: 'COMPANY_DISABLED',
+                        message: 'Module is globally disabled for all members',
+                    };
+                }
             }
         }
 
         const result: MemberEffectiveModuleAccessResponse = {
             effectiveModules,
             modulesMetadata: SUPPORTED_MODULES,
+            denialReasons,
+            restrictions,
         };
 
         if (redis) {

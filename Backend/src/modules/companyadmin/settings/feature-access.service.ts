@@ -19,6 +19,7 @@ export const FEATURE_ENTITLEMENT_MAP: Record<FeatureFlagKey, string | null> = {
     enableAttendanceAdjustments: 'ADVANCED_TIME_TRACKING',
     enableTimesheets: 'ADVANCED_TIME_TRACKING',
     enableTaskAttachments: 'FILE_ATTACHMENTS',
+    enableEscalations: null,
 };
 
 // In-memory cache for company settings (TTL 15 seconds)

@@ -86,6 +86,15 @@ export interface IPaymentAttempt {
     /** Safe error message */
     errorMessage?: string | null;
 
+    /** Error source (customer, gateway, bank, business) */
+    errorSource?: string | null;
+
+    /** Error step (payment_authentication, payment_authorization, payment_initiation) */
+    errorStep?: string | null;
+
+    /** Error reason / failure classification */
+    errorReason?: string | null;
+
     /** Sanitized provider raw response/metadata (never credentials/secrets) */
     rawResponse?: Record<string, any> | null;
 
@@ -100,6 +109,30 @@ export interface IPaymentAttempt {
 
     /** Reconciliation attempt count */
     reconciliationCount: number;
+
+    /** Immutable historical plan snapshot preserved at time of purchase */
+    planSnapshot?: {
+        name: string;
+        code: string;
+        price: number;
+        currency: string;
+        billingCycle: string;
+    } | null;
+
+    /** Billing policy applied (e.g. FULL_PRICE, PRORATED, COMPLIMENTARY, NEXT_CYCLE) */
+    billingPolicy?: 'FULL_PRICE' | 'PRORATED' | 'COMPLIMENTARY' | 'NEXT_CYCLE';
+
+    /** Razorpay refund ID if transaction was refunded */
+    refundId?: string | null;
+
+    /** Refunded amount in minor units */
+    refundAmount?: number | null;
+
+    /** Reason for refund */
+    refundReason?: string | null;
+
+    /** Refund completion timestamp */
+    refundedAt?: Date | null;
 
     /** Additional business context */
     metadata?: Record<string, any>;

@@ -79,6 +79,14 @@ vi.mock('../src/modules/super-admin/companies/company.model', () => ({
     },
 }));
 
+vi.mock('../src/modules/super-admin/white-label/white-label.model', () => ({
+    WhiteLabelSettings: {
+        findOne: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue(null),
+        }),
+    },
+}));
+
 vi.mock('../src/modules/users/user.model', () => {
     const UserModel: any = function (this: any, data: any) {
         Object.assign(this, data);
@@ -727,5 +735,15 @@ describe('Company Admin Custom Invitation Email Suite', () => {
         const currentSettings = settingsMap.get(companyAId);
         expect(currentSettings.email.mode).toBe('PLATFORM');
         expect(currentSettings.email.isVerified).toBe(false);
+    });
+
+    // ── Test 15: Invitation link URL resolves to original domain, never localhost ────
+    it('15. Invitation link resolves to original production domain and never localhost', async () => {
+        const { resolveInvitationBaseUrl } = await import('../src/modules/companyadmin/invitations/email.service');
+        const baseUrl = await resolveInvitationBaseUrl(companyAId);
+
+        expect(baseUrl).not.toContain('localhost');
+        expect(baseUrl).not.toContain('127.0.0.1');
+        expect(baseUrl).toBe('https://uworksphere.com');
     });
 });

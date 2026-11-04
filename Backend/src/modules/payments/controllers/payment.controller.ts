@@ -5,6 +5,7 @@ import { sendSuccess } from '../../../utils/response';
 import { AppError } from '../../../utils/AppError';
 import { PaymentService } from '../services/payment.service';
 import { PaymentAttemptState } from '../models/payment-attempt.types';
+import { env } from '../../../config/env';
 
 const paymentService = new PaymentService();
 
@@ -76,7 +77,8 @@ export class PaymentController {
                 billingObligationId: attempt.billingObligationId,
                 provider: attempt.provider,
                 providerOrderId: attempt.providerOrderId,
-                order,
+                keyId: env.RAZORPAY_KEY_ID,
+                order: order ? { ...order, keyId: env.RAZORPAY_KEY_ID } : undefined,
                 retryable: attempt.state === PaymentAttemptState.FAILED || attempt.state === PaymentAttemptState.CANCELLED,
             },
             isReplay ? 200 : 201
@@ -106,6 +108,9 @@ export class PaymentController {
             confirmedAt: attempt.confirmedAt,
             errorCode: attempt.errorCode,
             errorMessage: attempt.errorMessage,
+            errorSource: attempt.errorSource,
+            errorStep: attempt.errorStep,
+            errorReason: attempt.errorReason,
             retryable: attempt.state === PaymentAttemptState.FAILED || attempt.state === PaymentAttemptState.CANCELLED,
         });
     });
@@ -132,6 +137,11 @@ export class PaymentController {
             billingObligationId: attempt.billingObligationId,
             providerOrderId: attempt.providerOrderId,
             confirmedAt: attempt.confirmedAt,
+            errorCode: attempt.errorCode,
+            errorMessage: attempt.errorMessage,
+            errorSource: attempt.errorSource,
+            errorStep: attempt.errorStep,
+            errorReason: attempt.errorReason,
             retryable: attempt.state === PaymentAttemptState.FAILED || attempt.state === PaymentAttemptState.CANCELLED,
         });
     });

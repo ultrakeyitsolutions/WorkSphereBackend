@@ -1,4 +1,5 @@
 import { env } from '../../../config/env';
+import { getMailTransporter } from '../../../config/mail';
 import { CompanyEmailService } from '../settings/company-email.service';
 
 export interface SendInvitationEmailOptions {
@@ -16,6 +17,35 @@ export interface SendInvitationEmailResult {
   senderMode: 'PLATFORM' | 'COMPANY';
 }
 
+/**
+ * Resolves the public frontend base URL for invitations.
+ * Always resolves to the original production domain (or verified custom domain), never localhost.
+ */
+export async function resolveInvitationBaseUrl(companyId?: string): Promise<string> {
+  // 1. If company has a verified custom domain, prefer that
+  if (companyId) {
+    try {
+      const { WhiteLabelSettings } = await import('../../super-admin/white-label/white-label.model');
+      const wl = await WhiteLabelSettings.findOne({ companyId }).lean();
+      if (wl?.customDomain && wl?.domainVerificationStatus === 'VERIFIED') {
+        const domain = wl.customDomain.trim().replace(/\/+$/, '');
+        return domain.startsWith('http://') || domain.startsWith('https://')
+          ? domain
+          : `https://${domain}`;
+      }
+    } catch {}
+  }
+
+  // 2. Check APP_URL from env (strip trailing slash)
+  const envUrl = (env.APP_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+    return envUrl;
+  }
+
+  // 3. Fallback to original platform domain (never localhost)
+  return 'https://uworksphere.com';
+}
+
 export class EmailService {
 
   /**
@@ -27,7 +57,8 @@ export class EmailService {
   static async sendInvitationEmail(opts: SendInvitationEmailOptions): Promise<SendInvitationEmailResult> {
     const { to, rawToken, companyName, roleName, designationName, companyId } = opts;
 
-    const acceptUrl = `${env.APP_URL}/invite?token=${encodeURIComponent(rawToken)}`;
+    const baseUrl = await resolveInvitationBaseUrl(companyId);
+    const acceptUrl = `${baseUrl}/invite?token=${encodeURIComponent(rawToken)}`;
 
     // Centralized sender resolution
     const resolvedSender = await CompanyEmailService.resolveSender(companyId);
@@ -83,23 +114,55 @@ export class EmailService {
 </html>`;
 
     const transporter = resolvedSender.transporter;
-    const info = await transporter.sendMail({
+    const mailOptions = {
       from: resolvedSender.from,
       to,
       replyTo: resolvedSender.replyTo || undefined,
       subject: `You're invited to join ${companyName} on WorkSphere`,
       html: htmlBody,
       text: `You have been invited to join ${companyName}.\nRole: ${roleName}\nDesignation: ${designationName}\n\nAccept your invitation: ${acceptUrl}`,
-    });
+    };
+
+    let info: any;
+    let effectiveSenderEmail = resolvedSender.senderEmail;
+    let effectiveSenderMode: 'PLATFORM' | 'COMPANY' = resolvedSender.mode === 'COMPANY' ? 'COMPANY' : 'PLATFORM';
+
+    try {
+      info = await transporter.sendMail(mailOptions);
+    } catch (sendErr: any) {
+      // Auto-fallback: If SMTP provider rejected custom From address (553 5.7.1 Sender address rejected / anti-spoofing),
+      // gracefully retry using the platform's authenticated sender while preserving the company Reply-To.
+      const isSenderRejected =
+        sendErr?.responseCode === 553 ||
+        (typeof sendErr?.message === 'string' &&
+          (sendErr.message.includes('553') ||
+            sendErr.message.includes('Sender address rejected') ||
+            sendErr.message.includes('not owned by user')));
+
+      if (resolvedSender.mode !== 'PLATFORM' && isSenderRejected) {
+        console.warn(
+          `[EmailService] Mail provider rejected custom From address (${resolvedSender.from}). Retrying with platform authorized sender.`
+        );
+        const fallbackTransporter = getMailTransporter();
+        info = await fallbackTransporter.sendMail({
+          ...mailOptions,
+          from: `"${resolvedSender.senderName}" <${env.MAIL_FROM_ADDRESS}>`,
+          replyTo: resolvedSender.replyTo || resolvedSender.senderEmail,
+        });
+        effectiveSenderEmail = env.MAIL_FROM_ADDRESS;
+        effectiveSenderMode = 'PLATFORM';
+      } else {
+        throw sendErr;
+      }
+    }
 
     // nodemailer returns messageId for smtp, envelope for jsonTransport
-    const messageId = (info as any).messageId ?? (info as any).envelope?.to?.[0];
-    const senderMode: 'PLATFORM' | 'COMPANY' = resolvedSender.mode === 'COMPANY' ? 'COMPANY' : 'PLATFORM';
+    const messageId = info?.messageId ?? info?.envelope?.to?.[0];
 
     return {
       messageId,
-      senderEmail: resolvedSender.senderEmail,
-      senderMode,
+      senderEmail: effectiveSenderEmail,
+      senderMode: effectiveSenderMode,
     };
   }
 }

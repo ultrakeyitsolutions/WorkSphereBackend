@@ -9,6 +9,7 @@ import { AuditLogService } from '../../audit-logs/audit-log.service';
 import { AuditAction } from '../../audit-logs/audit-log.types';
 import { AppError } from '../../../utils/AppError';
 import { env } from '../../../config/env';
+import { SuperAdminNotificationService } from '../../super-admin/notifications/super-admin-notification.service';
 
 export class AccountRecoveryService {
     /**
@@ -98,6 +99,19 @@ export class AccountRecoveryService {
             requestId,
             user.name
         );
+
+        // 9. Dispatch SuperAdmin Notification
+        SuperAdminNotificationService.dispatch({
+            type: 'COMPANY_ACCOUNT_DELETION_REQUESTED',
+            companyId: user.companyId ? String(user.companyId) : null,
+            actorId: String(user._id),
+            eventId: `comp_acct_del_req_${requestId}`,
+            metadata: {
+                adminEmail: normalizedEmail,
+                requestId,
+                reason: 'Account deletion/recovery request submitted for administrative review',
+            },
+        }).catch(() => {});
 
         return safeGenericResponse(requestId);
     }

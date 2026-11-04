@@ -7,6 +7,7 @@ import {
     refreshSchema,
     forgotPasswordSchema,
     resetPasswordSchema,
+    switchTenantSchema,
 } from './auth.schema';
 import { sendSuccess, sendError } from '../../utils/response';
 
@@ -123,6 +124,30 @@ export class AuthController {
             return sendSuccess(res, result.message, result);
         } catch (error: any) {
             return sendError(res, error.message || 'Password reset failed', 400);
+        }
+    }
+
+    /**
+     * POST /auth/switch-tenant (Auth required)
+     * Securely switches the authenticated user's active workspace session
+     */
+    static async switchTenant(req: Request, res: Response) {
+        try {
+            const authReq = req as any;
+            const userId = authReq.user?.userId;
+            if (!userId) {
+                return sendError(res, 'Authentication required to switch workspace', 401);
+            }
+
+            const parsed = switchTenantSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return sendError(res, 'Validation Error', 400, parsed.error.format());
+            }
+
+            const result = await AuthService.switchTenant(userId, parsed.data, req);
+            return sendSuccess(res, 'Workspace switched successfully', result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to switch workspace', error.statusCode || 400);
         }
     }
 }

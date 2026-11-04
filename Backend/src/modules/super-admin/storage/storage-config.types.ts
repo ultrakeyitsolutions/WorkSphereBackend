@@ -26,10 +26,36 @@ export interface BunnyStorageSettings {
     tokenExpirySeconds?: number;
 }
 
+export interface CloudinaryStorageSettings {
+    cloudName: string;
+    apiKey: string;
+    apiSecret: string;
+    pullZoneUrl?: string; // Optional custom delivery domain/URL
+    deliveryUrl?: string; // e.g. https://res.cloudinary.com/<cloudName>
+    basePath?: string;    // e.g. worksphere
+}
+
+export interface CloudflareR2StorageSettings {
+    accountId: string;          // Cloudflare 32-char Account ID
+    bucketName: string;         // Cloudflare R2 Bucket Name
+    accessKeyId: string;        // Cloudflare R2 Token Access Key ID
+    secretAccessKey: string;    // Cloudflare R2 Token Secret Access Key
+    publicDeliveryUrl?: string; // Public R2.dev URL or Custom Domain (e.g. https://media.yourdomain.com)
+    pullZoneUrl?: string;       // Alias for publicDeliveryUrl
+    endpoint?: string;          // Optional custom endpoint override
+    basePath?: string;          // e.g. worksphere
+}
+
+export type StorageConfigurationSettings =
+    | (BunnyStorageSettings & Record<string, any>)
+    | (CloudinaryStorageSettings & Record<string, any>)
+    | (CloudflareR2StorageSettings & Record<string, any>)
+    | Record<string, any>;
+
 export interface IStorageConfiguration {
     provider: StorageProviderEnum;
     enabled: boolean;
-    configuration: BunnyStorageSettings & Record<string, any>;
+    configuration: StorageConfigurationSettings;
     limits: StorageLimits;
     allowedTypes: StorageAllowedTypes;
     createdBy?: Types.ObjectId;

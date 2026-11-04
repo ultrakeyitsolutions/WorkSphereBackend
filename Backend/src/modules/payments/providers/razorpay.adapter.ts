@@ -130,6 +130,10 @@ export class RazorpayAdapter implements IPaymentGatewayAdapter {
             headers,
         });
 
+        console.log(
+            `[RazorpayAdapter] Order created successfully: orderId=${res.id}, amount=${res.amount}, currency=${res.currency}, receipt=${res.receipt}, env=${this.environment}`
+        );
+
         return {
             providerOrderId: res.id,
             amount: res.amount,
@@ -212,6 +216,12 @@ export class RazorpayAdapter implements IPaymentGatewayAdapter {
             method: 'GET',
         });
 
+        if (res.status === 'failed' || res.error_code) {
+            console.warn(
+                `[RazorpayAdapter] Payment ${res.id} status is "${res.status}": error_code=${res.error_code}, description=${res.error_description}, source=${res.error_source}, step=${res.error_step}, reason=${res.error_reason}`
+            );
+        }
+
         return {
             providerPaymentId: res.id,
             providerOrderId: res.order_id || null,
@@ -221,12 +231,20 @@ export class RazorpayAdapter implements IPaymentGatewayAdapter {
             method: res.method,
             errorCode: res.error_code || null,
             errorDescription: res.error_description || null,
+            errorSource: res.error_source || null,
+            errorStep: res.error_step || null,
+            errorReason: res.error_reason || null,
             raw: {
                 id: res.id,
                 status: res.status,
                 order_id: res.order_id,
                 method: res.method,
                 captured: res.captured,
+                error_code: res.error_code,
+                error_description: res.error_description,
+                error_source: res.error_source,
+                error_step: res.error_step,
+                error_reason: res.error_reason,
                 email: res.email ? '[REDACTED]' : undefined,
                 contact: res.contact ? '[REDACTED]' : undefined,
             },
@@ -251,10 +269,18 @@ export class RazorpayAdapter implements IPaymentGatewayAdapter {
             method: p.method,
             errorCode: p.error_code || null,
             errorDescription: p.error_description || null,
+            errorSource: p.error_source || null,
+            errorStep: p.error_step || null,
+            errorReason: p.error_reason || null,
             raw: {
                 id: p.id,
                 status: p.status,
                 captured: p.captured,
+                error_code: p.error_code,
+                error_description: p.error_description,
+                error_source: p.error_source,
+                error_step: p.error_step,
+                error_reason: p.error_reason,
             },
         }));
     }

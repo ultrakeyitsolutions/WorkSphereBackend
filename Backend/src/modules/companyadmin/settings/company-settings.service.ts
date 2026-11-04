@@ -56,6 +56,25 @@ export class CompanySettingsService {
             settings.theme = { ...DEFAULT_COMPANY_THEME };
         }
 
+        // Overlay with ground-truth plan entitlements so frontend navigation and feature visibility align immediately
+        if (settings && settings.features) {
+            const rawFeatures = (settings.features as any).toObject ? (settings.features as any).toObject() : { ...settings.features };
+            const effectiveFeatures: any = { ...rawFeatures };
+            for (const [flagKey, entitlementKey] of Object.entries(FEATURE_ENTITLEMENT_MAP)) {
+                if (entitlementKey) {
+                    try {
+                        const hasAccess = await EntitlementService.hasFeature(companyId, entitlementKey);
+                        if (!hasAccess) {
+                            effectiveFeatures[flagKey] = false;
+                        }
+                    } catch {
+                        effectiveFeatures[flagKey] = false;
+                    }
+                }
+            }
+            (settings as any).features = effectiveFeatures;
+        }
+
         return settings;
     }
 

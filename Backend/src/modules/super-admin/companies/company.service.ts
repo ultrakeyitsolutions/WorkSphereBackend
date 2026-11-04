@@ -9,9 +9,25 @@ import { AuditLogService } from '../../audit-logs/audit-log.service';
 import { AuditAction } from '../../audit-logs/audit-log.types';
 import { StorageConfigurationService } from '../storage/storage-config.service';
 import { StorageProviderFactory } from '../../../infrastructure/storage/storage-provider.factory';
+import { CloudinaryStorageProvider } from '../../../infrastructure/storage/providers/cloudinary-storage.provider';
 import { SessionService } from '../../auth/session/session.service';
 import { getRedisClient } from '../../../config/redis';
 import { getSocketServer } from '../../../sockets/socket-server';
+import { SuperAdminNotificationService } from '../notifications/super-admin-notification.service';
+import {
+    WhiteLabelSettings,
+    DEFAULT_WHITE_LABEL_THEME,
+    DEFAULT_WHITE_LABEL_LOGIN,
+    DEFAULT_WHITE_LABEL_EMAIL,
+} from '../white-label/white-label.model';
+import { TenantMembership } from '../white-label/tenant-membership.model';
+import { WhiteLabelService } from '../white-label/white-label.service';
+import { Subscription } from '../subscriptions/subscription.model';
+import { Plan } from '../plans/plans.model';
+import { SubscriptionStatus } from '../subscriptions/subscription.types';
+import { SubscriptionService } from '../subscriptions/subscription.service';
+import { CompanySettings } from '../../companyadmin/settings/company-settings.model';
+import { getMailTransporter, mailDefaults } from '../../../config/mail';
 
 export const ALLOWED_LOGO_MIME_TYPES = new Set([
     'image/png',
@@ -21,6 +37,16 @@ export const ALLOWED_LOGO_MIME_TYPES = new Set([
 ]);
 export const ALLOWED_LOGO_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
 export const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+
+// ─── Idempotency Cache ────────────────────────────────────────────────────────
+interface IdempotencyRecord {
+    result?: any;
+    error?: any;
+    inFlight?: Promise<any>;
+    expiresAt: number;
+}
+const companyCreationIdempotencyMap = new Map<string, IdempotencyRecord>();
+const IDEMPOTENCY_TTL_MS = 120 * 1000; // 2 minutes
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -37,125 +63,395 @@ const toSlug = (name: string): string =>
 // ─── Company Service ──────────────────────────────────────────────────────────
 export class CompanyService {
     /**
-     * Creates a Company and its initial COMPANY_ADMIN user inside a single
-     * MongoDB session (atomic transaction).
+     * Creates a Company, WhiteLabel configuration, Subscription, and COMPANY_ADMIN user
+     * inside a single MongoDB atomic transaction with idempotency protection.
      *
      * Flow:
+     *  1. Idempotency guard (in-memory + lock)
+     *  2. Fast-fail uniqueness guards (email, slug, custom domain)
      *  BEGIN TRANSACTION
-     *    1. Resolve / create the "COMPANY_ADMIN" Role
-     *    2. Create the Company document
-     *    3. Create the admin User with companyId + COMPANY_ADMIN role
-     *    4. Back-patch company.adminId → the new User's _id
+     *    3. Resolve / create COMPANY_ADMIN role
+     *    4. Generate system tenantId (ws_comp_...)
+     *    5. Create Company document
+     *    6. Create admin User with companyId + COMPANY_ADMIN role
+     *    7. Back-patch company.adminId
+     *    8. Create WhiteLabelSettings document
+     *    9. Create TenantMembership document
+     *    10. Assign Subscription plan if requested or active default
+     *    11. Initialize CompanySettings
      *  COMMIT
-     *
-     * @param dto - Validated CreateCompanyDto from the controller
-     * @returns   - { company, admin } without the hashed password
+     *  12. Post-commit: invalidate caches, audit log, notifications, welcome email
      */
-    static async createWithAdmin(dto: CreateCompanyDto, actorUserId?: string) {
-        // ── Guard: duplicate email check (outside tx — fast fail) ────────────
-        const existingUser = await User.findOne({ email: dto.adminEmail.toLowerCase() });
-        if (existingUser) {
-            throw new Error(`A user with email "${dto.adminEmail}" already exists`);
+    static async createWithAdmin(
+        dto: CreateCompanyDto,
+        actorUserId?: string,
+        idempotencyKey?: string
+    ) {
+        // ── 1. Idempotency Protection ─────────────────────────────────────────
+        const normalizedKey = idempotencyKey?.trim() || `${dto.adminEmail.toLowerCase()}_${toSlug(dto.companyName)}`;
+        const existingRecord = companyCreationIdempotencyMap.get(normalizedKey);
+
+        if (existingRecord && existingRecord.expiresAt > Date.now()) {
+            if (existingRecord.inFlight) {
+                return await existingRecord.inFlight;
+            }
+            if (existingRecord.result) {
+                return existingRecord.result;
+            }
         }
 
-        // ── Guard: duplicate company slug check ──────────────────────────────
-        const slug = toSlug(dto.companyName);
-        const existingCompany = await Company.findOne({ slug });
-        if (existingCompany) {
-            throw new Error(`A company with the name "${dto.companyName}" already exists`);
-        }
-
-        // ── Open MongoDB session & start transaction ─────────────────────────
-        const session = await mongoose.startSession();
-        session.startTransaction();
-
-        try {
-            // Step 1 ── Resolve or create the COMPANY_ADMIN role ───────────────
-            let companyAdminRole = await Role.findOne({ name: 'COMPANY_ADMIN' }).session(session);
-            if (!companyAdminRole) {
-                const [created] = await Role.create(
-                    [{ name: 'COMPANY_ADMIN', permissions: [] }],
-                    { session }
-                );
-                companyAdminRole = created;
+        const executionPromise = (async () => {
+            // ── 2. Guard: duplicate email check (fast fail) ────────────────────
+            const existingUser = await User.findOne({ email: dto.adminEmail.toLowerCase() });
+            if (existingUser) {
+                throw new Error(`A user with email "${dto.adminEmail}" already exists`);
             }
 
-            // Step 2 ── Create the Company (adminId is null at first) ───────────
-            const [company] = await Company.create(
-                [
-                    {
-                        name: dto.companyName,
-                        slug,
-                        domain: dto.companyDomain,
-                        industry: dto.companyIndustry,
-                        size: dto.companySize,
-                        logoUrl: dto.logoUrl ? dto.logoUrl.trim() : undefined,
-                        status: 'ACTIVE',
-                        isActive: true,
-                    },
-                ],
-                { session }
-            );
+            // ── Guard: duplicate company slug check ────────────────────────────
+            const slug = (dto.slug?.trim() || toSlug(dto.companyName)).toLowerCase();
+            const existingCompany = await Company.findOne({ slug });
+            if (existingCompany) {
+                throw new Error(`A company with the name "${dto.companyName}" already exists`);
+            }
 
-            // Step 3 ── Create the Admin User linked to the Company ─────────────
-            const hashedPassword = await hashPassword(dto.adminPassword);
+            // ── Guard: custom domain uniqueness check ──────────────────────────
+            const customDomain = (dto.customDomain || dto.whiteLabel?.customDomain || dto.companyDomain)?.toLowerCase().trim();
+            if (customDomain) {
+                const existingDomain = await WhiteLabelSettings.findOne({
+                    customDomain,
+                    domainVerificationStatus: 'VERIFIED',
+                });
+                if (existingDomain) {
+                    throw new Error(`The custom domain "${customDomain}" is already registered to another company`);
+                }
+            }
 
-            const adminUser = new User({
-                name: dto.adminName,
-                email: dto.adminEmail.toLowerCase(),
-                password: hashedPassword,
-                role: companyAdminRole._id,
-                companyId: company._id,
-                isActive: true,
-                status: 'ACTIVE',
-            });
-            const admin = await adminUser.save({ session });
+            // ── Open MongoDB session & start transaction ───────────────────────
+            const session = await mongoose.startSession();
+            let transactionCommitted = false;
 
-            // Step 4 ── Back-patch company.adminId ────────────────────────────────
-            company.adminId = admin._id as any;
-            await company.save({ session });
+            try {
+                session.startTransaction();
 
-            // ── COMMIT ────────────────────────────────────────────────────────
-            await session.commitTransaction();
+                // Step 1 ── Resolve or create the COMPANY_ADMIN role ─────────────
+                let companyAdminRole = await Role.findOne({ name: 'COMPANY_ADMIN' }).session(session);
+                if (!companyAdminRole) {
+                    const [created] = await Role.create(
+                        [{ name: 'COMPANY_ADMIN', permissions: [] }],
+                        { session }
+                    );
+                    companyAdminRole = created;
+                }
 
-            // ── Audit log the company creation ────────────────────────────────
-            await AuditLogService.log({
-                action: AuditAction.COMPANY_CREATED,
-                actorId: actorUserId ?? null,
-                companyId: String(company._id),
-                companyName: company.name,
-                targetUserId: String(admin._id),
-                targetEmail: admin.email,
-                success: true,
-                description: `Company "${company.name}" created with admin: ${admin.email}`,
-            });
+                // Step 2 ── Generate unique system tenantId ─────────────────────
+                const tenantId = dto.tenantId?.trim() || `ws_comp_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-            return {
-                company: {
-                    id: company._id,
-                    name: company.name,
-                    slug: company.slug,
-                    domain: company.domain,
-                    industry: company.industry,
-                    size: company.size,
-                    logoUrl: company.logoUrl || null,
-                    status: company.status,
-                    createdAt: company.createdAt,
-                },
-                admin: {
-                    id: admin._id,
-                    name: admin.name,
-                    email: admin.email,
-                    role: 'COMPANY_ADMIN',
+                // Step 3 ── Create the Company document ─────────────────────────
+                const [company] = await Company.create(
+                    [
+                        {
+                            tenantId,
+                            name: dto.companyName,
+                            slug,
+                            domain: customDomain || undefined,
+                            industry: dto.companyIndustry,
+                            size: dto.companySize,
+                            logoUrl: dto.logoUrl ? dto.logoUrl.trim() : undefined,
+                            companyEmail: dto.companyEmail?.toLowerCase().trim(),
+                            companyPhone: dto.companyPhone?.trim() || dto.contactNumber?.trim(),
+                            website: dto.website?.trim(),
+                            address: dto.address?.trim(),
+                            city: dto.city?.trim(),
+                            state: dto.state?.trim(),
+                            country: dto.country?.trim(),
+                            postalCode: dto.postalCode?.trim(),
+                            timezone: dto.timezone?.trim(),
+                            currency: dto.currency?.trim(),
+                            status: dto.status || 'ACTIVE',
+                            isActive: dto.status ? dto.status === 'ACTIVE' : true,
+                        },
+                    ],
+                    { session }
+                );
+
+                // Step 4 ── Create Admin User linked to Company ──────────────────
+                const hashedPassword = await hashPassword(dto.adminPassword);
+
+                const adminUser = new User({
+                    name: dto.adminName,
+                    email: dto.adminEmail.toLowerCase(),
+                    password: hashedPassword,
+                    role: companyAdminRole._id,
                     companyId: company._id,
-                },
-            };
-        } catch (error) {
-            // ── ROLLBACK on any failure ───────────────────────────────────────
-            await session.abortTransaction();
-            throw error;
-        } finally {
-            session.endSession();
+                    isActive: true,
+                    status: 'ACTIVE',
+                });
+                const admin = await adminUser.save({ session });
+
+                // Step 5 ── Back-patch company.adminId ──────────────────────────
+                company.adminId = admin._id as any;
+
+                // Step 6 ── Initialize White-Label Settings ─────────────────────
+                const whiteLabelEnabled = Boolean(dto.whiteLabelEnabled ?? dto.whiteLabel?.enabled);
+                const displayName = dto.displayName || dto.whiteLabel?.displayName || company.name;
+                const faviconUrl = dto.faviconUrl || dto.whiteLabel?.faviconUrl || null;
+                const appTitle = dto.appTitle || dto.whiteLabel?.appTitle || company.name;
+
+                const primaryColor = dto.primaryColor || dto.whiteLabel?.primaryColor || DEFAULT_WHITE_LABEL_THEME.primaryColor;
+                const secondaryColor = dto.secondaryColor || dto.whiteLabel?.secondaryColor || DEFAULT_WHITE_LABEL_THEME.secondaryColor;
+                const backgroundColor = dto.backgroundColor || dto.whiteLabel?.backgroundColor || DEFAULT_WHITE_LABEL_THEME.backgroundColor;
+                const textColor = dto.textColor || dto.whiteLabel?.textColor || DEFAULT_WHITE_LABEL_THEME.textColor;
+                const accentColor = dto.accentColor || dto.whiteLabel?.accentColor || DEFAULT_WHITE_LABEL_THEME.accentColor;
+
+                const [whiteLabelSettings] = await WhiteLabelSettings.create(
+                    [
+                        {
+                            tenantId,
+                            companyId: company._id,
+                            enabled: whiteLabelEnabled,
+                            displayName,
+                            logoUrl: company.logoUrl || null,
+                            faviconUrl,
+                            appTitle,
+                            theme: {
+                                primaryColor,
+                                secondaryColor,
+                                backgroundColor,
+                                textColor,
+                                accentColor,
+                                sidebarBackground: dto.whiteLabel?.sidebarBackground || DEFAULT_WHITE_LABEL_THEME.sidebarBackground,
+                                sidebarText: dto.whiteLabel?.sidebarText || DEFAULT_WHITE_LABEL_THEME.sidebarText,
+                            },
+                            loginPage: {
+                                heading: dto.whiteLabel?.loginPage?.heading || `Welcome to ${company.name}`,
+                                subtitle: dto.whiteLabel?.loginPage?.subtitle || DEFAULT_WHITE_LABEL_LOGIN.subtitle,
+                                bannerImageUrl: dto.whiteLabel?.loginPage?.bannerImageUrl || null,
+                                backgroundImageUrl: dto.whiteLabel?.loginPage?.backgroundImageUrl || null,
+                                hideWorkSphereBranding: Boolean(dto.whiteLabel?.loginPage?.hideWorkSphereBranding),
+                                customCss: dto.whiteLabel?.loginPage?.customCss || null,
+                            },
+                            emailBranding: {
+                                senderName: dto.emailSenderName || dto.whiteLabel?.emailBranding?.senderName || company.name,
+                                senderEmail: dto.whiteLabel?.emailBranding?.senderEmail || null,
+                                replyTo: dto.whiteLabel?.emailBranding?.replyTo || null,
+                                logoUrl: company.logoUrl || null,
+                                footerText: dto.whiteLabel?.emailBranding?.footerText || DEFAULT_WHITE_LABEL_EMAIL.footerText,
+                            },
+                            customDomain: customDomain || null,
+                            domainVerificationStatus: customDomain ? 'VERIFIED' : 'NONE',
+                            updatedBy: actorUserId ? (new mongoose.Types.ObjectId(actorUserId) as any) : null,
+                        },
+                    ],
+                    { session }
+                );
+
+                // Step 7 ── Create TenantMembership ─────────────────────────────
+                await TenantMembership.create(
+                    [
+                        {
+                            tenantId,
+                            companyId: company._id,
+                            userId: admin._id,
+                            role: 'COMPANY_ADMIN',
+                            status: 'ACTIVE',
+                            permissions: ['ALL'],
+                            joinedAt: new Date(),
+                        },
+                    ],
+                    { session }
+                );
+
+                // Step 8 ── Apply Subscription Plan ─────────────────────────────
+                const targetPlanId = dto.planId || dto.subscriptionPlan;
+                let selectedPlan: any = null;
+
+                if (targetPlanId) {
+                    if (mongoose.Types.ObjectId.isValid(targetPlanId)) {
+                        selectedPlan = await Plan.findById(targetPlanId).session(session);
+                    }
+                    if (!selectedPlan) {
+                        selectedPlan = await Plan.findOne({ code: targetPlanId.toUpperCase() }).session(session);
+                    }
+                }
+
+                if (!selectedPlan) {
+                    // Fallback to default active plan
+                    selectedPlan = await Plan.findOne({ isActive: true, isArchived: { $ne: true } })
+                        .sort({ isDefault: -1, createdAt: 1 })
+                        .session(session);
+                }
+
+                if (selectedPlan) {
+                    const now = new Date();
+                    const periodEnd = SubscriptionService.calculatePeriodEnd(now, selectedPlan.billingCycle || 'MONTHLY');
+
+                    const [subscription] = await Subscription.create(
+                        [
+                            {
+                                companyId: company._id,
+                                planId: selectedPlan._id,
+                                status: SubscriptionStatus.ACTIVE,
+                                startedAt: now,
+                                currentPeriodStart: now,
+                                currentPeriodEnd: periodEnd,
+                                cancelAtPeriodEnd: false,
+                            },
+                        ],
+                        { session }
+                    );
+
+                    company.subscriptionId = subscription._id as any;
+                }
+
+                // Step 9 ── Initialize CompanySettings ──────────────────────────
+                await CompanySettings.create(
+                    [
+                        {
+                            companyId: company._id,
+                            general: {
+                                timezone: dto.timezone || 'UTC',
+                                currency: dto.currency || 'USD',
+                            },
+                        },
+                    ],
+                    { session }
+                );
+
+                await company.save({ session });
+
+                // ── COMMIT ────────────────────────────────────────────────────
+                await session.commitTransaction();
+                transactionCommitted = true;
+
+                // ── Post-Commit Operations ────────────────────────────────────
+                await WhiteLabelService.invalidateCache(tenantId, slug, customDomain || undefined);
+
+                // ── Audit log the company creation ────────────────────────────
+                await AuditLogService.log({
+                    action: AuditAction.COMPANY_CREATED,
+                    actorId: actorUserId ?? null,
+                    companyId: String(company._id),
+                    companyName: company.name,
+                    targetUserId: String(admin._id),
+                    targetEmail: admin.email,
+                    success: true,
+                    description: `Company "${company.name}" (Tenant: ${tenantId}) created with admin: ${admin.email}`,
+                    metadata: { tenantId, slug, whiteLabelEnabled },
+                });
+
+                // ── SuperAdmin Notifications ───────────────────────────────────
+                SuperAdminNotificationService.dispatch({
+                    type: 'COMPANY_REGISTERED',
+                    companyId: String(company._id),
+                    actorId: actorUserId,
+                    eventId: `comp_reg_${company._id}`,
+                    metadata: {
+                        tenantId,
+                        companyName: company.name,
+                        adminEmail: admin.email,
+                        companyDomain: company.domain,
+                        companySize: company.size,
+                    },
+                }).catch(() => {});
+
+                SuperAdminNotificationService.dispatch({
+                    type: 'COMPANY_ADMIN_CREATED',
+                    companyId: String(company._id),
+                    actorId: actorUserId,
+                    eventId: `comp_adm_created_${admin._id}`,
+                    metadata: {
+                        tenantId,
+                        companyName: company.name,
+                        adminEmail: admin.email,
+                        adminName: admin.name,
+                    },
+                }).catch(() => {});
+
+                // ── Send Welcome Email to Company Admin ────────────────────────
+                try {
+                    const transporter = getMailTransporter();
+                    const appUrl = process.env.APP_URL || 'https://worksphere.io';
+                    await transporter.sendMail({
+                        from: mailDefaults.from,
+                        to: admin.email,
+                        subject: `Welcome to WorkSphere — Your Workspace "${company.name}" is Ready`,
+                        html: `
+                            <div style="font-family: Arial, sans-serif; padding: 24px; color: #333;">
+                                <h2>Welcome, ${admin.name}!</h2>
+                                <p>Your organization workspace <strong>${company.name}</strong> has been successfully established on WorkSphere.</p>
+                                <p><strong>Workspace Details:</strong></p>
+                                <ul>
+                                    <li>Tenant ID: <code>${tenantId}</code></li>
+                                    <li>Workspace Slug: <code>${slug}</code></li>
+                                    <li>Admin Email: <code>${admin.email}</code></li>
+                                </ul>
+                                <p>You can sign in to your workspace portal here: <a href="${appUrl}/login?workspace=${slug}">${appUrl}/login?workspace=${slug}</a></p>
+                            </div>
+                        `,
+                    }).catch(() => {});
+                } catch {}
+
+                const resultPayload = {
+                    company: {
+                        id: company._id,
+                        tenantId: company.tenantId,
+                        name: company.name,
+                        slug: company.slug,
+                        domain: company.domain,
+                        industry: company.industry,
+                        size: company.size,
+                        logoUrl: company.logoUrl || null,
+                        status: company.status,
+                        subscriptionId: company.subscriptionId || null,
+                        createdAt: company.createdAt,
+                    },
+                    admin: {
+                        id: admin._id,
+                        name: admin.name,
+                        email: admin.email,
+                        role: 'COMPANY_ADMIN',
+                        companyId: company._id,
+                        tenantId: company.tenantId,
+                    },
+                    whiteLabel: {
+                        enabled: whiteLabelSettings.enabled,
+                        displayName: whiteLabelSettings.displayName,
+                        logoUrl: whiteLabelSettings.logoUrl,
+                        faviconUrl: whiteLabelSettings.faviconUrl,
+                        appTitle: whiteLabelSettings.appTitle,
+                        theme: whiteLabelSettings.theme,
+                        loginPage: whiteLabelSettings.loginPage,
+                        customDomain: whiteLabelSettings.customDomain,
+                        domainVerificationStatus: whiteLabelSettings.domainVerificationStatus,
+                    },
+                };
+
+                return resultPayload;
+            } catch (error) {
+                if (!transactionCommitted) {
+                    await session.abortTransaction();
+                }
+                throw error;
+            } finally {
+                session.endSession();
+            }
+        })();
+
+        companyCreationIdempotencyMap.set(normalizedKey, {
+            inFlight: executionPromise,
+            expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+        });
+
+        try {
+            const finalResult = await executionPromise;
+            companyCreationIdempotencyMap.set(normalizedKey, {
+                result: finalResult,
+                expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+            });
+            return finalResult;
+        } catch (err) {
+            companyCreationIdempotencyMap.delete(normalizedKey);
+            throw err;
         }
     }
 
@@ -272,6 +568,11 @@ export class CompanyService {
             logoUrl = `${pullZone}/${storageKey}`;
         }
 
+        // Ensure logoUrl is a valid HTTPS delivery URL if it's from Cloudinary
+        if (logoUrl && logoUrl.startsWith('cloudinary://')) {
+            logoUrl = CloudinaryStorageProvider.toHttpsDeliveryUrl(logoUrl, activeConfig?.configuration?.cloudName);
+        }
+
         // If an existing company ID was provided, automatically persist the new logo URL
         if (companyId) {
             const company = await Company.findOne({ _id: companyId, status: { $ne: 'DELETED' } });
@@ -376,6 +677,32 @@ export class CompanyService {
             metadata: { reason },
         });
 
+        // ── SuperAdmin Notifications ───────────────────────────────────────────
+        SuperAdminNotificationService.dispatch({
+            type: 'COMPANY_SUSPENDED',
+            companyId: String(company._id),
+            actorId: actorUserId,
+            eventId: `comp_susp_${company._id}_${Date.now()}`,
+            metadata: {
+                companyName: company.name,
+                reason: reason ?? 'Administrative suspension',
+                suspendedAt: company.suspendedAt?.toISOString(),
+            },
+        }).catch(() => {});
+
+        if (company.adminId) {
+            SuperAdminNotificationService.dispatch({
+                type: 'COMPANY_ADMIN_DEACTIVATED',
+                companyId: String(company._id),
+                actorId: actorUserId,
+                eventId: `comp_adm_deact_${company.adminId}_${Date.now()}`,
+                metadata: {
+                    companyName: company.name,
+                    reason: reason ?? 'Company suspended',
+                },
+            }).catch(() => {});
+        }
+
         return company;
     }
 
@@ -453,6 +780,18 @@ export class CompanyService {
             description: `Company "${company.name}" re-activated and admin login restored`,
         });
 
+        // ── SuperAdmin Notification ────────────────────────────────────────────
+        SuperAdminNotificationService.dispatch({
+            type: 'COMPANY_ACTIVATED',
+            companyId: String(company._id),
+            actorId: actorUserId,
+            eventId: `comp_act_${company._id}_${Date.now()}`,
+            metadata: {
+                companyName: company.name,
+                activatedAt: company.activatedAt?.toISOString(),
+            },
+        }).catch(() => {});
+
         return company;
     }
 
@@ -480,6 +819,18 @@ export class CompanyService {
             success: true,
             description: `Company "${company.name}" soft-deleted`,
         });
+
+        // ── SuperAdmin Notification ────────────────────────────────────────────
+        SuperAdminNotificationService.dispatch({
+            type: 'COMPANY_DELETED',
+            companyId: String(company._id),
+            actorId: actorUserId,
+            eventId: `comp_del_${company._id}_${Date.now()}`,
+            metadata: {
+                companyName: company.name,
+                deletedAt: company.deletedAt?.toISOString(),
+            },
+        }).catch(() => {});
 
         return company;
     }

@@ -55,6 +55,27 @@ const subscriptionSchema = new Schema<ISubscriptionDocument>(
         cancellationReason: {
             type: String,
         },
+        isComplimentary: {
+            type: Boolean,
+            default: false,
+        },
+        complimentaryReason: {
+            type: String,
+            default: null,
+        },
+        complimentaryGrantedBy: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+        complimentaryGrantedAt: {
+            type: Date,
+            default: null,
+        },
+        pricingOverride: {
+            type: Number,
+            default: null,
+        },
     },
     {
         timestamps: true,

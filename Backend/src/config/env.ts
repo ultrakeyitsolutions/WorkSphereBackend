@@ -21,7 +21,7 @@ for (const key of requiredEnv) {
 export const env = {
     NODE_ENV: process.env.NODE_ENV || 'development',
     PORT: parseInt(process.env.PORT || '5000', 10),
-    APP_URL: process.env.APP_URL || 'http://localhost:3000',
+    APP_URL: (process.env.APP_URL || 'https://uworksphere.com').replace(/\/+$/, ''),
 
     MONGODB_URI: (process.env.MONGODB_URI || 'mongodb://localhost:27017/worksphere_test') as string,
     JWT_ACCESS_SECRET: (process.env.JWT_ACCESS_SECRET || 'test_access_secret_1234567890') as string,

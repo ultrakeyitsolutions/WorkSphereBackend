@@ -16,6 +16,7 @@ export const DEFAULT_FEATURE_FLAGS = {
     enableAttendanceAdjustments: true,
     enableTimesheets: true,
     enableTaskAttachments: true,
+    enableEscalations: true,
 };
 
 export const DEFAULT_ATTENDANCE_POLICIES = {
@@ -71,6 +72,7 @@ const featureFlagsSchema = new Schema(
         enableAttendanceAdjustments: { type: Boolean, default: DEFAULT_FEATURE_FLAGS.enableAttendanceAdjustments },
         enableTimesheets: { type: Boolean, default: DEFAULT_FEATURE_FLAGS.enableTimesheets },
         enableTaskAttachments: { type: Boolean, default: DEFAULT_FEATURE_FLAGS.enableTaskAttachments },
+        enableEscalations: { type: Boolean, default: DEFAULT_FEATURE_FLAGS.enableEscalations },
     },
     { _id: false }
 );

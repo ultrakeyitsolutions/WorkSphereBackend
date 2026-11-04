@@ -7,7 +7,8 @@ import {
     ChangePlanInput,
     PauseSubscriptionInput,
     ResumeSubscriptionInput,
-    CancelSubscriptionInput
+    CancelSubscriptionInput,
+    ComplimentarySubscriptionInput,
 } from './subscription.schema';
 
 export class SubscriptionController {
@@ -90,5 +91,18 @@ export class SubscriptionController {
 
         const sub = await SubscriptionService.cancelSubscription(companyId, adminId, cancelImmediate, reason);
         sendSuccess(res, 'Subscription cancelled successfully', sub, 200);
+    });
+
+    static grantComplimentaryPlan = catchAsync(async (req: Request<any, any, ComplimentarySubscriptionInput>, res: Response) => {
+        const { companyId } = req.params as any;
+        const adminId = (req as any).user.userId;
+        const { planId, reason, durationDays, periodEnd } = req.body;
+
+        const sub = await SubscriptionService.grantComplimentaryPlan(companyId, planId, adminId, {
+            reason,
+            durationDays,
+            periodEnd: periodEnd ? new Date(periodEnd) : undefined,
+        });
+        sendSuccess(res, 'Complimentary plan granted successfully', sub, 200);
     });
 }

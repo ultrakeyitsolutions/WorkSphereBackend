@@ -14,6 +14,7 @@ export interface IInvitation {
     invitedByUserId: Types.ObjectId;
     /** SHA-256 hash of the raw invitation token */
     tokenHash: string;
+    previousTokenHashes?: string[];
     status: InvitationStatus;
     expiresAt: Date;
     acceptedUserId?: Types.ObjectId | null;
@@ -66,6 +67,11 @@ const invitationSchema = new Schema<IInvitationDocument>(
             type: String,
             required: true,
             unique: true,
+            index: true,
+        },
+        previousTokenHashes: {
+            type: [String],
+            default: [],
             index: true,
         },
         status: {

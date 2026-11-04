@@ -47,12 +47,12 @@ const corsOptions: cors.CorsOptions = {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'idempotency-key', 'X-Requested-With', 'Accept', 'Origin', 'x-razorpay-signature'],
     optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
 
-// Body parsers
+// Body parsers`
 app.use(
     express.json({
         verify: (req: any, _res, buf) => {

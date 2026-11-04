@@ -56,6 +56,19 @@ export function getRedisClient(): Redis {
         // Log but do NOT crash — Redis is a performance optimisation, not
         // a hard dependency.
         console.error('[Redis] Connection error:', err.message);
+        import('../modules/super-admin/notifications/super-admin-notification.service.js').then(
+            ({ SuperAdminNotificationService }) => {
+                SuperAdminNotificationService.dispatch({
+                    type: 'REDIS_CONNECTION_FAILED',
+                    priority: 'HIGH',
+                    eventId: `redis_err_${Date.now()}`,
+                    metadata: {
+                        errorMessage: err.message,
+                        timestamp: new Date().toISOString(),
+                    },
+                }).catch(() => {});
+            }
+        ).catch(() => {});
     });
 
     redisClient.on('connect', () => {

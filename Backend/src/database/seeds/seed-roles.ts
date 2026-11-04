@@ -37,6 +37,11 @@ export async function seedRoles(dryRun = false): Promise<RoleSeedResult> {
     );
     const basePermissionIds = basePermissions.map((p) => p._id as Types.ObjectId);
 
+    const managerPermissions = allPermissions.filter((p) =>
+        BASE_MEMBER_PERMISSION_NAMES.includes(p.name) || p.category === 'MANAGER'
+    );
+    const managerPermissionIds = managerPermissions.map((p) => p._id as Types.ObjectId);
+
     const roleDefinitions = [
         {
             name: 'SUPER_ADMIN',
@@ -57,6 +62,11 @@ export async function seedRoles(dryRun = false): Promise<RoleSeedResult> {
             name: 'EMPLOYEE',
             description: 'Standard company employee role',
             targetPermissionIds: basePermissionIds,
+        },
+        {
+            name: 'MANAGER',
+            description: 'Team and Project Manager with team oversight and workspace management',
+            targetPermissionIds: managerPermissionIds,
         },
     ];
 

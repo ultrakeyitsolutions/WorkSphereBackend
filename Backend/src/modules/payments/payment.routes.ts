@@ -5,6 +5,8 @@ import { authenticate } from '../../middleware/auth.middleware';
 import { validateRequest } from '../../middleware/validateRequest';
 import { createPaymentAttemptSchema, verifyPaymentSchema } from './payment.schema';
 
+import companyBillingRoutes from '../companyadmin/billing/company-billing.routes';
+
 const router = Router();
 
 // ── Webhook Endpoint (No JWT Auth — Cryptographic Provider Signature Verification) ──
@@ -12,6 +14,9 @@ router.post('/webhooks/razorpay', PaymentWebhookController.handleRazorpayWebhook
 
 // ── Authenticated Payment Attempt Endpoints ────────────────────────────────────
 router.use(authenticate);
+
+// ── Tenant-Scoped Company Billing Subrouter ───────────────────────────────────
+router.use('/company', companyBillingRoutes);
 
 // POST /api/v1/payments/attempts
 router.post(

@@ -1,3 +1,7 @@
+import crypto from 'crypto';
+import { Meeting } from '../meetings/models/meeting.model';
+import { MeetingParticipant } from '../meetings/models/meeting-participant.model';
+import { MeetingType, MeetingStatus, ParticipantRole, ParticipantResponseStatus } from '../meetings/meeting.types';
 import { Types } from 'mongoose';
 import CalendarEvent from './calendar-event.model';
 import { CalendarOAuthService } from './calendar-oauth.service';
@@ -980,6 +984,45 @@ export class CalendarService {
                 color: '#F97316',
                 isQuickMeeting: true,
             });
+
+        // Bridge synchronization: Also persist canonical Meeting and MeetingParticipant records
+        try {
+            const shortHash = crypto.randomBytes(4).toString('hex');
+            const meetingIdStr = `ws-meet-${Date.now().toString(36)}-${shortHash}`;
+            const canonicalMeeting = await Meeting.create({
+                meetingId: meetingIdStr,
+                companyId: cId,
+                organizerId: new Types.ObjectId(user.userId),
+                title,
+                agenda: payload.description || 'Quick Video Sync',
+                description: payload.description || null,
+                projectId: projectObjId,
+                meetingType: MeetingType.QUICK,
+                meetingLink: event.meetingUrl,
+                meetingProvider: provider,
+                externalMeetingId: event.externalEventId || null,
+                calendarEventId: event._id,
+                scheduledStartAt: startTime,
+                scheduledEndAt: endTime,
+                durationMinutes,
+                timezone: 'Asia/Kolkata',
+                status: MeetingStatus.IN_PROGRESS,
+                currentVersion: 1,
+            });
+
+            const pDocs = participants.map((p) => ({
+                meetingId: canonicalMeeting._id,
+                userId: p.userId,
+                companyId: cId,
+                role: p.isCoOrganizer ? ParticipantRole.REQUIRED : p.status === 'organizer' ? ParticipantRole.ORGANIZER : ParticipantRole.REQUIRED,
+                responseStatus: ParticipantResponseStatus.ACCEPTED,
+                responseAt: new Date(),
+                joinedAt: p.userId.toString() === user.userId ? new Date() : null,
+            }));
+            await MeetingParticipant.insertMany(pDocs);
+        } catch (syncErr: any) {
+            console.error('[Quick Meeting] Canonical Meeting bridge synchronization warning:', syncErr.message);
+        }
         } catch (dbErr: any) {
             console.error('[Quick Meeting] CalendarEvent persistence error:', dbErr);
             if (dbErr.name === 'ValidationError') {

@@ -5,13 +5,14 @@ import { SubscriptionEvent } from './subscription-event.model';
 import { SubscriptionEventType } from './subscription-event.types';
 import { Plan } from '../plans/plans.model';
 import { Company } from '../companies/company.model';
-
 import { User } from '../../users/user.model';
 import { Feature } from '../features/features.model';
 import { PlanFeature } from '../plan-features/plan-features.model';
 import { CompanyThemeEntitlementService } from '../../companyadmin/settings/company-theme-entitlement.service';
 import { CompanyEmailEntitlementService } from '../../companyadmin/settings/company-email-entitlement.service';
 import { EntitlementService } from '../../../services/entitlement.service';
+import { SubscriptionEntitlementSyncService } from '../../../services/subscription-entitlement-sync.service';
+import { AuditAction } from '../../audit-logs/audit-log.types';
 
 export class SubscriptionService {
     /**
@@ -24,13 +25,44 @@ export class SubscriptionService {
     }
 
     /**
+     * Calculates period end date from a start date and plan billing cycle.
+     * Accurately supports yearly plans, annual aliases, and leap years.
+     */
+    public static calculatePeriodEnd(startDate: Date, billingCycle: string, durationDays?: number): Date {
+        const endDate = new Date(startDate);
+        if (durationDays && durationDays > 0) {
+            endDate.setDate(endDate.getDate() + durationDays);
+            return endDate;
+        }
+
+        const cycle = (billingCycle || '').toString().trim().toUpperCase();
+        if (cycle === 'YEARLY' || cycle === 'ANNUAL' || cycle === '1_YEAR') {
+            const startYear = endDate.getFullYear();
+            const startMonth = endDate.getMonth();
+            const startDay = endDate.getDate();
+            endDate.setFullYear(startYear + 1);
+            // Leap year safety: if Feb 29 rolled over to March 1, clamp to Feb 28
+            if (startMonth === 1 && startDay === 29 && endDate.getMonth() !== 1) {
+                endDate.setDate(0);
+            }
+        } else if (cycle === 'SEMI_ANNUAL' || cycle === '6_MONTHS') {
+            endDate.setMonth(endDate.getMonth() + 6);
+        } else if (cycle === 'QUARTERLY' || cycle === '3_MONTHS') {
+            endDate.setMonth(endDate.getMonth() + 3);
+        } else {
+            endDate.setMonth(endDate.getMonth() + 1);
+        }
+        return endDate;
+    }
+
+    /**
      * Create a new subscription for a company.
      */
     static async createSubscription(
         companyId: string,
         planId: string,
         adminId: string,
-        opts?: { periodStart?: Date }
+        opts?: { periodStart?: Date; durationDays?: number }
     ): Promise<ISubscriptionDocument> {
         const company = await Company.findById(companyId);
         if (!company) throw new Error('Company not found');
@@ -39,18 +71,14 @@ export class SubscriptionService {
         if (!plan) throw new Error('Plan not found');
         if (!plan.isActive || plan.isArchived) throw new Error('Cannot subscribe to inactive plan');
 
-        const existingSub = await Subscription.findOne({ companyId, status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] } });
+        const existingSub = await Subscription.findOne({
+            companyId,
+            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] },
+        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
         if (existingSub) throw new Error('Company already has an active subscription');
 
         const now = opts?.periodStart || new Date();
-        const endDate = new Date(now);
-
-        // Example: hardcode 1 month for simplicity, ideally based on Plan's billing cycle (monthly/yearly)
-        if (plan.billingCycle === 'YEARLY') {
-            endDate.setFullYear(endDate.getFullYear() + 1);
-        } else {
-            endDate.setMonth(endDate.getMonth() + 1);
-        }
+        const endDate = this.calculatePeriodEnd(now, plan.billingCycle || 'MONTHLY', opts?.durationDays);
 
         const subscription = await Subscription.create({
             companyId,
@@ -73,18 +101,122 @@ export class SubscriptionService {
             metadata: { message: 'Initial subscription creation' },
         });
 
-        this.invalidateCompanyEntitlementCaches(companyId);
+        await SubscriptionEntitlementSyncService.sync({
+            companyId,
+            toPlanId: planId,
+            actorId: adminId,
+            action: AuditAction.SUBSCRIPTION_CREATED,
+            effectiveDate: now,
+            metadata: { billingCycle: plan.billingCycle, periodEnd: endDate },
+        });
+
         return subscription;
     }
 
     /**
-     * Upgrade or downgrade a plan (immediate activation by default).
+     * SuperAdmin grant of a complimentary subscription plan.
+     * Never fabricates payment records or routes through payment gateways.
+     */
+    static async grantComplimentaryPlan(
+        companyId: string,
+        targetPlanId: string,
+        adminId: string,
+        opts?: { reason?: string; durationDays?: number; periodEnd?: Date }
+    ): Promise<ISubscriptionDocument> {
+        const company = await Company.findById(companyId);
+        if (!company) throw new Error('Company not found');
+
+        const targetPlan = await Plan.findById(targetPlanId);
+        if (!targetPlan) throw new Error('Target plan not found');
+        if (!targetPlan.isActive || targetPlan.isArchived) throw new Error('Target plan is not active');
+
+        const now = new Date();
+        const endDate = opts?.periodEnd
+            ? new Date(opts.periodEnd)
+            : this.calculatePeriodEnd(now, targetPlan.billingCycle || 'YEARLY', opts?.durationDays || 365);
+
+        let activeSub = await Subscription.findOne({
+            companyId: new Types.ObjectId(companyId),
+            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] },
+        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+
+        if (!activeSub) {
+            activeSub = await Subscription.findOne({ companyId: new Types.ObjectId(companyId) }).sort({ createdAt: -1 });
+        }
+
+        const prevPlanId = activeSub?.planId ? String(activeSub.planId) : null;
+
+        if (!activeSub) {
+            activeSub = await Subscription.create({
+                companyId: new Types.ObjectId(companyId),
+                planId: new Types.ObjectId(targetPlanId),
+                status: SubscriptionStatus.ACTIVE,
+                startedAt: now,
+                currentPeriodStart: now,
+                currentPeriodEnd: endDate,
+                cancelAtPeriodEnd: false,
+                isComplimentary: true,
+                complimentaryReason: opts?.reason || 'Complimentary plan granted by SuperAdmin',
+                complimentaryGrantedBy: new Types.ObjectId(adminId),
+                complimentaryGrantedAt: now,
+                pricingOverride: 0,
+            });
+        } else {
+            activeSub.planId = new Types.ObjectId(targetPlanId);
+            activeSub.status = SubscriptionStatus.ACTIVE;
+            activeSub.currentPeriodStart = now;
+            activeSub.currentPeriodEnd = endDate;
+            activeSub.cancelAtPeriodEnd = false;
+            activeSub.scheduledPlanId = undefined;
+            activeSub.isComplimentary = true;
+            activeSub.complimentaryReason = opts?.reason || 'Complimentary plan granted by SuperAdmin';
+            activeSub.complimentaryGrantedBy = new Types.ObjectId(adminId);
+            activeSub.complimentaryGrantedAt = now;
+            activeSub.pricingOverride = 0;
+            await activeSub.save();
+        }
+
+        await SubscriptionEvent.create({
+            subscriptionId: activeSub._id,
+            companyId,
+            type: SubscriptionEventType.COMPLIMENTARY_PLAN_GRANTED,
+            fromPlanId: prevPlanId ? new Types.ObjectId(prevPlanId) : undefined,
+            toPlanId: new Types.ObjectId(targetPlanId),
+            fromStatus: activeSub.status,
+            toStatus: SubscriptionStatus.ACTIVE,
+            effectiveAt: now,
+            performedBy: adminId,
+            metadata: {
+                reason: opts?.reason || 'Complimentary plan granted by SuperAdmin',
+                durationDays: opts?.durationDays,
+                periodEnd: endDate,
+            },
+        });
+
+        await SubscriptionEntitlementSyncService.sync({
+            companyId,
+            fromPlanId: prevPlanId,
+            toPlanId: targetPlanId,
+            actorId: adminId,
+            action: AuditAction.COMPLIMENTARY_PLAN_GRANTED,
+            isComplimentary: true,
+            reason: opts?.reason || 'Complimentary plan granted by SuperAdmin',
+            effectiveDate: now,
+            metadata: { durationDays: opts?.durationDays, periodEnd: endDate },
+        });
+
+        return activeSub;
+    }
+
+    /**
+     * Upgrade or downgrade a plan (immediate activation or scheduled for next billing cycle).
      */
     static async changePlan(
         companyId: string,
         targetPlanId: string,
         adminId: string,
-        immediate: boolean = true
+        immediate: boolean = true,
+        reason?: string
     ) {
         const targetPlan = await Plan.findById(targetPlanId);
         if (!targetPlan) throw new Error('Target plan not found');
@@ -92,15 +224,15 @@ export class SubscriptionService {
 
         const activeSub = await Subscription.findOne({
             companyId,
-            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] }
-        });
+            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] },
+        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
 
         // If no existing active/trialing/paused subscription, create one immediately
         if (!activeSub) {
             return await this.createSubscription(companyId, targetPlanId, adminId);
         }
 
-        if (activeSub.planId.toString() === targetPlanId.toString()) {
+        if (activeSub.planId.toString() === targetPlanId.toString() && !activeSub.scheduledPlanId) {
             throw new Error('Company is already on this plan');
         }
 
@@ -118,7 +250,7 @@ export class SubscriptionService {
             if (maxUsersFeature) {
                 const planLimit = await PlanFeature.findOne({
                     planId: targetPlanId,
-                    featureId: maxUsersFeature._id
+                    featureId: maxUsersFeature._id,
                 });
 
                 if (planLimit && planLimit.enabled && planLimit.limitType === 'LIMITED' && planLimit.value !== null) {
@@ -146,10 +278,20 @@ export class SubscriptionService {
                 toStatus: SubscriptionStatus.ACTIVE,
                 effectiveAt: new Date(),
                 performedBy: adminId,
+                metadata: { immediate: true, reason },
+            });
+
+            await SubscriptionEntitlementSyncService.sync({
+                companyId,
+                fromPlanId: previousPlanId,
+                toPlanId: targetPlanId,
+                actorId: adminId,
+                action: isUpgrade ? AuditAction.SUBSCRIPTION_UPGRADED : AuditAction.SUBSCRIPTION_DOWNGRADED,
+                reason,
+                effectiveDate: new Date(),
                 metadata: { immediate: true },
             });
 
-            this.invalidateCompanyEntitlementCaches(companyId);
             return activeSub;
         } else {
             // Next cycle change
@@ -166,11 +308,81 @@ export class SubscriptionService {
                 toStatus: activeSub.status,
                 effectiveAt: activeSub.currentPeriodEnd,
                 performedBy: adminId,
-                metadata: { immediate: false, message: 'Plan change scheduled for next billing cycle' },
+                metadata: { immediate: false, reason, message: 'Plan change scheduled for next billing cycle' },
+            });
+
+            await SubscriptionEntitlementSyncService.sync({
+                companyId,
+                fromPlanId: activeSub.planId,
+                toPlanId: targetPlanId,
+                actorId: adminId,
+                action: isUpgrade ? AuditAction.SUBSCRIPTION_UPGRADED : AuditAction.SUBSCRIPTION_DOWNGRADED,
+                reason,
+                effectiveDate: activeSub.currentPeriodEnd,
+                metadata: { immediate: false, scheduled: true, effectiveAt: activeSub.currentPeriodEnd },
             });
 
             return activeSub;
         }
+    }
+
+    /**
+     * Atomically rolls over a scheduled plan change if its arrival date has passed.
+     */
+    static async reconcileScheduledSubscription(companyId: string): Promise<ISubscriptionDocument | null> {
+        const sub = await Subscription.findOne({
+            companyId: new Types.ObjectId(companyId),
+            scheduledPlanId: { $ne: null },
+            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING] },
+        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+
+        if (!sub || !sub.scheduledPlanId || !sub.currentPeriodEnd) {
+            return null;
+        }
+
+        const now = new Date();
+        if (now < new Date(sub.currentPeriodEnd)) {
+            return null; // Not due yet
+        }
+
+        const prevPlanId = sub.planId;
+        const targetPlanId = sub.scheduledPlanId;
+        const targetPlan = await Plan.findById(targetPlanId);
+
+        const newPeriodStart = sub.currentPeriodEnd;
+        const newPeriodEnd = this.calculatePeriodEnd(
+            newPeriodStart,
+            targetPlan?.billingCycle || 'MONTHLY'
+        );
+
+        sub.planId = targetPlanId;
+        sub.scheduledPlanId = undefined;
+        sub.currentPeriodStart = newPeriodStart;
+        sub.currentPeriodEnd = newPeriodEnd;
+        await sub.save();
+
+        await SubscriptionEvent.create({
+            subscriptionId: sub._id,
+            companyId,
+            type: SubscriptionEventType.PLAN_DOWNGRADED,
+            fromPlanId: prevPlanId,
+            toPlanId: targetPlanId,
+            fromStatus: sub.status,
+            toStatus: sub.status,
+            effectiveAt: now,
+            metadata: { message: 'Automated rollover of scheduled plan transition' },
+        });
+
+        await SubscriptionEntitlementSyncService.sync({
+            companyId,
+            fromPlanId: prevPlanId,
+            toPlanId: targetPlanId,
+            action: AuditAction.SUBSCRIPTION_DOWNGRADED,
+            effectiveDate: now,
+            metadata: { automatedRollover: true },
+        });
+
+        return sub;
     }
 
     static async pauseSubscription(
@@ -180,7 +392,7 @@ export class SubscriptionService {
         resumeAt?: Date,
         reason?: string
     ) {
-        const sub = await Subscription.findOne({ companyId });
+        const sub = await Subscription.findOne({ companyId }).sort({ currentPeriodEnd: -1, createdAt: -1 });
         if (!sub) throw new Error('Subscription not found');
         if (sub.status !== SubscriptionStatus.ACTIVE) throw new Error('Can only pause active subscriptions');
 
@@ -203,7 +415,15 @@ export class SubscriptionService {
                 performedBy: adminId,
                 metadata: { resumeAt, reason },
             });
-            this.invalidateCompanyEntitlementCaches(companyId);
+
+            await SubscriptionEntitlementSyncService.sync({
+                companyId,
+                toPlanId: sub.planId,
+                actorId: adminId,
+                action: AuditAction.SUBSCRIPTION_PAUSED,
+                reason,
+                effectiveDate: new Date(),
+            });
         }
 
         return sub;
@@ -214,7 +434,7 @@ export class SubscriptionService {
         adminId: string,
         resumeImmediate: boolean
     ) {
-        const sub = await Subscription.findOne({ companyId });
+        const sub = await Subscription.findOne({ companyId }).sort({ currentPeriodEnd: -1, createdAt: -1 });
         if (!sub) throw new Error('Subscription not found');
 
         if (resumeImmediate && sub.status === SubscriptionStatus.PAUSED) {
@@ -233,7 +453,14 @@ export class SubscriptionService {
                 effectiveAt: new Date(),
                 performedBy: adminId,
             });
-            this.invalidateCompanyEntitlementCaches(companyId);
+
+            await SubscriptionEntitlementSyncService.sync({
+                companyId,
+                toPlanId: sub.planId,
+                actorId: adminId,
+                action: AuditAction.SUBSCRIPTION_UPGRADED,
+                effectiveDate: new Date(),
+            });
         }
         return sub;
     }
@@ -244,7 +471,7 @@ export class SubscriptionService {
         cancelImmediate: boolean,
         reason?: string
     ) {
-        const sub = await Subscription.findOne({ companyId });
+        const sub = await Subscription.findOne({ companyId }).sort({ currentPeriodEnd: -1, createdAt: -1 });
         if (!sub) throw new Error('Subscription not found');
 
         if (cancelImmediate) {
@@ -257,19 +484,27 @@ export class SubscriptionService {
                 subscriptionId: sub._id,
                 companyId,
                 type: SubscriptionEventType.SUBSCRIPTION_CANCELLED,
-                fromStatus: SubscriptionStatus.ACTIVE, // Assuming it was active
+                fromStatus: SubscriptionStatus.ACTIVE,
                 toStatus: SubscriptionStatus.CANCELLED,
                 effectiveAt: new Date(),
                 performedBy: adminId,
                 metadata: { immediate: true, reason },
             });
-            this.invalidateCompanyEntitlementCaches(companyId);
+
+            await SubscriptionEntitlementSyncService.sync({
+                companyId,
+                toPlanId: sub.planId,
+                actorId: adminId,
+                action: AuditAction.SUBSCRIPTION_CANCELLED,
+                reason,
+                effectiveDate: new Date(),
+            });
         } else {
             sub.cancelAtPeriodEnd = true;
             sub.cancellationReason = reason;
             await sub.save();
 
-            // We log that it was scheduled to be cancelled
+            // Log scheduled cancellation
             await SubscriptionEvent.create({
                 subscriptionId: sub._id,
                 companyId,
@@ -277,6 +512,16 @@ export class SubscriptionService {
                 effectiveAt: sub.currentPeriodEnd,
                 performedBy: adminId,
                 metadata: { immediate: false, reason },
+            });
+
+            await SubscriptionEntitlementSyncService.sync({
+                companyId,
+                toPlanId: sub.planId,
+                actorId: adminId,
+                action: AuditAction.SUBSCRIPTION_CANCELLED,
+                reason,
+                effectiveDate: sub.currentPeriodEnd,
+                metadata: { scheduled: true, effectiveAt: sub.currentPeriodEnd },
             });
         }
 
@@ -291,15 +536,34 @@ export class SubscriptionService {
      * Returns null if no subscription exists (not an error).
      */
     static async getCompanySubscription(companyId: string) {
-        const sub = await Subscription.findOne({ companyId })
+        // If scheduled rollover has arrived, perform durable transition first
+        try {
+            await this.reconcileScheduledSubscription(companyId);
+        } catch {
+            // Non-blocking
+        }
+
+        let sub = await Subscription.findOne({
+            companyId: new Types.ObjectId(companyId),
+            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE, SubscriptionStatus.PAUSED] },
+        })
+            .sort({ currentPeriodEnd: -1, createdAt: -1 })
             .populate('planId', 'name price billingCycle description isActive')
             .populate('scheduledPlanId', 'name price billingCycle description isActive')
             .lean();
 
+        if (!sub) {
+            sub = await Subscription.findOne({ companyId: new Types.ObjectId(companyId) })
+                .sort({ createdAt: -1 })
+                .populate('planId', 'name price billingCycle description isActive')
+                .populate('scheduledPlanId', 'name price billingCycle description isActive')
+                .lean();
+        }
+
         if (!sub) return null;
 
         // Fetch recent subscription events for this company
-        const events = await SubscriptionEvent.find({ companyId })
+        const events = await SubscriptionEvent.find({ companyId: new Types.ObjectId(companyId) })
             .sort({ createdAt: -1 })
             .limit(20)
             .populate('fromPlanId', 'name price billingCycle')

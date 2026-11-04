@@ -12,6 +12,7 @@ export enum SubscriptionEventType {
     PLAN_RENEWED = 'PLAN_RENEWED',
     PAYMENT_SUCCEEDED = 'PAYMENT_SUCCEEDED',
     PAYMENT_FAILED = 'PAYMENT_FAILED',
+    COMPLIMENTARY_PLAN_GRANTED = 'COMPLIMENTARY_PLAN_GRANTED',
 }
 
 export interface ISubscriptionEvent {

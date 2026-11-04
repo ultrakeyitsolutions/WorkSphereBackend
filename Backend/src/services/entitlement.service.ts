@@ -1,7 +1,9 @@
 import { PlanFeature } from '../modules/super-admin/plan-features/plan-features.model';
 import { Feature } from '../modules/super-admin/features/features.model';
 import { Subscription } from '../modules/super-admin/subscriptions/subscription.model';
+import { SubscriptionStatus } from '../modules/super-admin/subscriptions/subscription.types';
 import { getRedisClient } from '../config/redis';
+import { FeatureAccessService } from '../modules/companyadmin/settings/feature-access.service';
 
 /**
  * EntitlementService
@@ -59,6 +61,7 @@ interface EntitlementsCacheEntry {
 const featureCache = new Map<string, FeatureCacheEntry>();
 const effectiveEntitlementsCache = new Map<string, EntitlementsCacheEntry>();
 const CACHE_TTL_MS = 30 * 1000;
+const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000; // 3-day grace period for renewals and UTC timing skew
 
 export const ENTITLEMENT_INVALIDATION_REDIS_CHANNEL = 'worksphere:entitlements_invalidated';
 
@@ -97,10 +100,12 @@ export class EntitlementService {
         if (!companyId) {
             featureCache.clear();
             effectiveEntitlementsCache.clear();
+            FeatureAccessService.clearAllCache();
             return;
         }
         const norm = String(companyId);
         effectiveEntitlementsCache.delete(norm);
+        FeatureAccessService.invalidateCache(norm);
         const prefix = `${norm}:`;
         for (const key of featureCache.keys()) {
             if (key.startsWith(prefix)) {
@@ -145,30 +150,59 @@ export class EntitlementService {
 
     /**
      * Resolves active or trialing plan ID for the given company.
-     * Expired, past due, paused, or cancelled subscriptions return null.
+     * Supports yearly plans with UTC timestamps and grace period.
      */
     private static async getPlanIdForCompany(_companyId: string): Promise<string | null> {
         try {
             if (!_companyId) return null;
-            const sub: any = await withTimeout(
-                Promise.resolve(Subscription.findOne({ companyId: _companyId }).sort({ createdAt: -1 }).lean()),
+            // Search first for an active, trialing, or past_due subscription with latest period end
+            let sub: any = await withTimeout(
+                Promise.resolve(
+                    Subscription.findOne({
+                        companyId: _companyId,
+                        status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
+                    })
+                        .sort({ currentPeriodEnd: -1, createdAt: -1 })
+                        .lean()
+                ),
                 3000,
                 null
             );
-            if (sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING')) {
-                // If subscription has expired by date, return null
-                if (sub.currentPeriodEnd && new Date(sub.currentPeriodEnd) < new Date()) {
-                    return null;
-                }
 
-                // If scheduled plan transition has arrived, return scheduledPlanId
-                if (sub.scheduledPlanId && sub.currentPeriodEnd && new Date() >= new Date(sub.currentPeriodEnd)) {
-                    const scheduledId = sub.scheduledPlanId?._id || sub.scheduledPlanId;
-                    return String(scheduledId);
-                }
+            if (!sub) {
+                sub = await withTimeout(
+                    Promise.resolve(Subscription.findOne({ companyId: _companyId }).sort({ createdAt: -1 }).lean()),
+                    3000,
+                    null
+                );
+            }
 
-                const planId = sub.planId?._id || sub.planId;
-                return String(planId);
+            if (sub) {
+                const nowMs = Date.now();
+                const periodEndMs = sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).getTime() : Infinity;
+                const isNotExpired = !sub.currentPeriodEnd || (periodEndMs + GRACE_PERIOD_MS) >= nowMs;
+                const isValidStatus = sub.status === 'ACTIVE' || sub.status === 'TRIALING' || (sub.status === 'PAST_DUE' && isNotExpired);
+
+                if (isValidStatus && isNotExpired) {
+                    // If scheduled plan transition has arrived, return scheduledPlanId and trigger durable rollover
+                    if (sub.scheduledPlanId && sub.currentPeriodEnd && nowMs >= new Date(sub.currentPeriodEnd).getTime()) {
+                        const scheduledId = sub.scheduledPlanId?._id || sub.scheduledPlanId;
+                        Subscription.updateOne(
+                            { _id: sub._id, scheduledPlanId: { $ne: null } },
+                            {
+                                $set: {
+                                    planId: scheduledId,
+                                    currentPeriodStart: sub.currentPeriodEnd,
+                                },
+                                $unset: { scheduledPlanId: 1 },
+                            }
+                        ).catch(() => {});
+                        return String(scheduledId);
+                    }
+
+                    const planId = sub.planId?._id || sub.planId;
+                    return String(planId);
+                }
             }
         } catch {
             return null;
@@ -344,7 +378,7 @@ export class EntitlementService {
 
     /**
      * Resolves all effective entitlements for a company.
-     * Evaluates subscription validity, expiration date, assigned plan, and configured PlanFeature records.
+     * Evaluates subscription validity, expiration date with grace period, assigned plan, and configured PlanFeature records.
      * Fail-closed: unconfigured or missing features are strictly enabled: false.
      */
     static async getEffectiveEntitlements(companyId: string): Promise<EffectiveEntitlementsResponse> {
@@ -362,10 +396,14 @@ export class EntitlementService {
         };
 
         try {
-            const sub: any = await withTimeout(
+            // Find valid active or past_due subscription prioritizing latest period end
+            let sub: any = await withTimeout(
                 Promise.resolve(
-                    Subscription.findOne({ companyId: normalizedCompanyId })
-                        .sort({ createdAt: -1 })
+                    Subscription.findOne({
+                        companyId: normalizedCompanyId,
+                        status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
+                    })
+                        .sort({ currentPeriodEnd: -1, createdAt: -1 })
                         .populate('planId')
                         .populate('scheduledPlanId')
                         .lean()
@@ -374,11 +412,26 @@ export class EntitlementService {
                 null
             );
 
+            if (!sub) {
+                sub = await withTimeout(
+                    Promise.resolve(
+                        Subscription.findOne({ companyId: normalizedCompanyId })
+                            .sort({ createdAt: -1 })
+                            .populate('planId')
+                            .populate('scheduledPlanId')
+                            .lean()
+                    ),
+                    3000,
+                    null
+                );
+            }
+
             const allFeatures: any[] = (await Feature.find({ isActive: true }).lean()) || [];
 
-            const nowDate = new Date();
-            const isActiveStatus = sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING');
-            const isNotExpired = sub && (!sub.currentPeriodEnd || new Date(sub.currentPeriodEnd) >= nowDate);
+            const nowMs = Date.now();
+            const periodEndMs = sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).getTime() : Infinity;
+            const isNotExpired = !sub?.currentPeriodEnd || (periodEndMs + GRACE_PERIOD_MS) >= nowMs;
+            const isActiveStatus = sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING' || (sub.status === 'PAST_DUE' && isNotExpired));
 
             if (!sub || !isActiveStatus || !isNotExpired) {
                 // Inactive, expired, or non-existent subscription
@@ -421,7 +474,7 @@ export class EntitlementService {
 
             // Subscription is ACTIVE and VALID
             let effectivePlan = sub.planId;
-            if (sub.scheduledPlanId && sub.currentPeriodEnd && nowDate >= new Date(sub.currentPeriodEnd)) {
+            if (sub.scheduledPlanId && sub.currentPeriodEnd && nowMs >= new Date(sub.currentPeriodEnd).getTime()) {
                 effectivePlan = sub.scheduledPlanId;
             }
 
@@ -658,17 +711,29 @@ export class EntitlementService {
         billingCycle: string;
         planName: string;
     }> {
-        const sub: any = await Subscription.findOne({ companyId })
-            .sort({ createdAt: -1 })
+        let sub: any = await Subscription.findOne({
+            companyId,
+            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
+        })
+            .sort({ currentPeriodEnd: -1, createdAt: -1 })
             .populate('planId')
             .lean();
+
+        if (!sub) {
+            sub = await Subscription.findOne({ companyId })
+                .sort({ createdAt: -1 })
+                .populate('planId')
+                .lean();
+        }
 
         const plan = sub?.planId;
         const billingCycle: string = plan?.billingCycle || (sub ? 'MONTHLY' : 'FREE');
         const planName: string = plan?.name || (sub ? 'Subscription Plan' : 'Free Trial');
 
-        const isActive = sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING') &&
-            (!sub.currentPeriodEnd || new Date(sub.currentPeriodEnd) >= new Date());
+        const nowMs = Date.now();
+        const periodEndMs = sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).getTime() : Infinity;
+        const isNotExpired = !sub?.currentPeriodEnd || (periodEndMs + GRACE_PERIOD_MS) >= nowMs;
+        const isActive = sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING' || (sub.status === 'PAST_DUE' && isNotExpired)) && isNotExpired;
 
         if (!isActive) {
             return {
@@ -716,10 +781,11 @@ export class EntitlementService {
         let monthlyLimit = 7;
         let isUnlimited = false;
 
-        if (billingCycle === 'YEARLY' || billingCycle === 'ANNUAL') {
+        const cycle = billingCycle.trim().toUpperCase();
+        if (cycle === 'YEARLY' || cycle === 'ANNUAL' || cycle === '1_YEAR') {
             monthlyLimit = -1;
             isUnlimited = true;
-        } else if (billingCycle === 'SEMI_ANNUAL') {
+        } else if (cycle === 'SEMI_ANNUAL' || cycle === '6_MONTHS') {
             monthlyLimit = 60;
             isUnlimited = false;
         }
@@ -733,4 +799,3 @@ export class EntitlementService {
         };
     }
 }
-

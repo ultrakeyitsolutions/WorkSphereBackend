@@ -7,6 +7,9 @@ export interface TokenPayload {
     role: string;
     /** Set for company-member users so controllers can always derive it from the token */
     companyId?: string;
+    /** Multi-tenant identifiers for white labeling and tenant isolation */
+    tenantId?: string;
+    tenantSlug?: string;
 
     // JWT standard & Impersonation specific
     sub?: string;

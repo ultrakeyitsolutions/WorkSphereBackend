@@ -3,6 +3,8 @@ import { Document, Types } from 'mongoose';
 export interface IUser {
     name: string;
     email: string;
+    phoneNumber?: string | null;
+    avatar?: string | null;
     password?: string; // Opt out when resolving user details if not needed, but required in doc
     role: Types.ObjectId; // Reference to Role model
     companyId?: Types.ObjectId; // Reference to Company model (null for SUPER_ADMIN)

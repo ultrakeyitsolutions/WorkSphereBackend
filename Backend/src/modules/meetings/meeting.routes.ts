@@ -14,13 +14,23 @@ router.use(requireModuleAccess('meetings'));
 // ── Sub-routes ───────────────────────────────────────────────────────────────
 router.use('/requests', meetingRequestRoutes);
 
+// ── Instant Video Room Creation ───────────────────────────────────────────────
+router.post('/instant', MeetingController.createInstantMeeting);
+
+// ── Summary Metrics ───────────────────────────────────────────────────────────
+router.get('/summary-metrics', MeetingController.getSummaryMetrics);
+
 // ── List & Queries ────────────────────────────────────────────────────────────
 router.get('/my', MeetingController.getMyMeetings);
 router.get('/assigned', MeetingController.getAssignedMeetings);
 router.get('/company', authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN', 'MANAGER'), MeetingController.getCompanyMeetings);
+router.get('/team', authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN', 'MANAGER'), MeetingController.getTeamMeetings);
 router.get('/upcoming', MeetingController.getUpcomingMeetings);
 router.get('/history', MeetingController.getMeetingHistory);
 router.get('/availability', MeetingController.getAvailability);
+
+// ── Consolidated Reports ──────────────────────────────────────────────────────
+router.get('/reports', MeetingController.getMeetingReports);
 
 // ── Single Meeting Lifecycle Actions ──────────────────────────────────────────
 router.get('/:meetingId', MeetingController.getMeetingById);

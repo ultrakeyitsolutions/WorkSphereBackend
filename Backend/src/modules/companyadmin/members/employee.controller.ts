@@ -49,3 +49,21 @@ export const deleteEmployee = catchAsync(async (req: AuthenticatedRequest, res: 
     const result = await MemberService.deleteMember(companyId, memberId as string);
     return sendSuccess(res, 'Employee deleted', result);
 });
+
+export const searchAllUsers = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+    const companyId = req.user?.companyId as string;
+    const search = req.query.search as string;
+
+    const users = await MemberService.searchAllUsers(companyId, search);
+    return sendSuccess(res, 'Company users fetched successfully', users);
+});
+
+export const changeUserRole = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+    const companyId = req.user?.companyId as string;
+    const actorId = req.user?.userId as string;
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    const result = await MemberService.changeUserRole(companyId, userId as string, role, actorId);
+    return sendSuccess(res, result.message, result);
+});

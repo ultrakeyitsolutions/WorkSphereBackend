@@ -20,6 +20,7 @@ export interface IFile {
     mimeType: string;
     extension: string;
     size: number;
+    provider?: string;
     contextType: FileContextType;
     contextId?: Types.ObjectId | string;
     deletedAt?: Date | null;

@@ -5,6 +5,9 @@ import { NOTIFICATION_TYPES, NotificationEventPayload } from './notification.typ
 // ─── Notification Event Handler ───────────────────────────────────────────
 // Listens to domain events on the NotificationEventBus and forwards them to NotificationService.
 
+import { SUPERADMIN_CATEGORIES } from '../super-admin/notifications/super-admin-notification.types';
+import { SuperAdminNotificationService } from '../super-admin/notifications/super-admin-notification.service';
+
 export class NotificationEventHandler {
     private static instance: NotificationEventHandler;
     private service = new NotificationService();
@@ -31,9 +34,35 @@ export class NotificationEventHandler {
             bus.on(type, (payload: NotificationEventPayload) => {
                 // Fire and forget via setImmediate to decouple caller completely
                 setImmediate(() => {
-                    this.service.publish(payload).catch((err) => {
-                        console.error(`[NotificationEventHandler] Failed handling event ${type}:`, err);
-                    });
+                    const typeDef = NOTIFICATION_TYPES[type];
+                    if (!typeDef) return;
+
+                    const isSuperAdminCategory = SUPERADMIN_CATEGORIES.includes(typeDef.category as any);
+
+                    // 1. Dispatch to SuperAdmin notification system
+                    if (isSuperAdminCategory) {
+                        SuperAdminNotificationService.dispatch({
+                            type: payload.type,
+                            category: typeDef.category,
+                            priority: payload.priority || typeDef.defaultPriority,
+                            companyId: payload.companyId || null,
+                            actorId: payload.actorId || null,
+                            entityId: payload.entityId || null,
+                            entityType: payload.entityType,
+                            actionUrl: payload.actionUrl,
+                            metadata: payload.metadata,
+                            eventId: payload.eventId,
+                        }).catch((err) => {
+                            console.error(`[NotificationEventHandler] SuperAdmin dispatch failed for ${type}:`, err);
+                        });
+                    }
+
+                    // 2. Dispatch to company/member service if companyId is present
+                    if (payload.companyId) {
+                        this.service.publish(payload).catch((err) => {
+                            console.error(`[NotificationEventHandler] Failed handling event ${type}:`, err);
+                        });
+                    }
                 });
             });
         }
@@ -42,6 +71,7 @@ export class NotificationEventHandler {
         console.log('[NotificationEventHandler] Event handler initialized for all notification types.');
     }
 }
+
 
 // Auto-initialize on import
 NotificationEventHandler.getInstance().initialize();

@@ -10,7 +10,20 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
     email: z.string().email({ message: 'Invalid email address' }),
     password: z.string().min(1, { message: 'Password is required' }),
+    workspace: z.string().trim().optional(),
+    tenantSlug: z.string().trim().optional(),
+    tenantId: z.string().trim().optional(),
+    domain: z.string().trim().optional(),
 });
+
+export const switchTenantSchema = z.object({
+    targetTenantId: z.string().trim().optional(),
+    targetCompanyId: z.string().trim().optional(),
+    targetSlug: z.string().trim().optional(),
+}).refine(
+    (data) => Boolean(data.targetTenantId || data.targetCompanyId || data.targetSlug),
+    { message: 'Must provide targetTenantId, targetCompanyId, or targetSlug' }
+);
 
 export const refreshSchema = z.object({
     refreshToken: z.string().min(1, { message: 'Refresh token is required' }),

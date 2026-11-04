@@ -34,6 +34,71 @@ export const createCompanySchema = z.object({
         .optional()
         .or(z.literal('')),
 
+    // ── Optional identifier and profile fields ─────────────────────────────
+    tenantId: z.string().trim().max(100).optional(),
+    slug: z.string().trim().max(100).optional(),
+    companyEmail: z.string().trim().email({ message: 'Invalid company email address' }).toLowerCase().optional(),
+    companyPhone: z.string().trim().max(30).optional(),
+    contactNumber: z.string().trim().max(30).optional(),
+    website: z.string().trim().url({ message: 'Invalid website URL' }).optional(),
+    address: z.string().trim().max(250).optional(),
+    city: z.string().trim().max(100).optional(),
+    state: z.string().trim().max(100).optional(),
+    country: z.string().trim().max(100).optional(),
+    postalCode: z.string().trim().max(30).optional(),
+    timezone: z.string().trim().optional(),
+    currency: z.string().trim().optional(),
+
+    // ── Subscription plan ───────────────────────────────────────────────────
+    subscriptionPlan: z.string().trim().optional(),
+    planId: z.string().trim().optional(),
+
+    // ── Company status ──────────────────────────────────────────────────────
+    status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED'] as const).optional(),
+
+    // ── White label configuration (flat or nested) ──────────────────────────
+    whiteLabelEnabled: z.boolean().optional(),
+    displayName: z.string().trim().max(100).optional(),
+    faviconUrl: z.string().trim().url({ message: 'Favicon URL must be a valid URL' }).nullable().optional().or(z.literal('')),
+    primaryColor: z.string().trim().optional(),
+    secondaryColor: z.string().trim().optional(),
+    backgroundColor: z.string().trim().optional(),
+    textColor: z.string().trim().optional(),
+    accentColor: z.string().trim().optional(),
+    appTitle: z.string().trim().max(100).optional(),
+    customDomain: z.string().trim().toLowerCase().optional(),
+    emailSenderName: z.string().trim().max(100).optional(),
+
+    whiteLabel: z.object({
+        enabled: z.boolean().optional(),
+        displayName: z.string().trim().max(100).optional(),
+        logoUrl: z.string().trim().url().nullable().optional().or(z.literal('')),
+        faviconUrl: z.string().trim().url().nullable().optional().or(z.literal('')),
+        appTitle: z.string().trim().max(100).optional(),
+        primaryColor: z.string().trim().optional(),
+        secondaryColor: z.string().trim().optional(),
+        backgroundColor: z.string().trim().optional(),
+        textColor: z.string().trim().optional(),
+        accentColor: z.string().trim().optional(),
+        sidebarBackground: z.string().trim().optional(),
+        sidebarText: z.string().trim().optional(),
+        customDomain: z.string().trim().toLowerCase().optional(),
+        loginPage: z.object({
+            heading: z.string().trim().max(120).optional(),
+            subtitle: z.string().trim().max(250).optional(),
+            bannerImageUrl: z.string().trim().url().nullable().optional().or(z.literal('')),
+            backgroundImageUrl: z.string().trim().url().nullable().optional().or(z.literal('')),
+            hideWorkSphereBranding: z.boolean().optional(),
+            customCss: z.string().max(10000).optional(),
+        }).optional(),
+        emailBranding: z.object({
+            senderName: z.string().trim().max(100).optional(),
+            senderEmail: z.string().trim().email().optional(),
+            replyTo: z.string().trim().email().optional(),
+            footerText: z.string().trim().max(500).optional(),
+        }).optional(),
+    }).optional(),
+
     // ── Admin user fields ───────────────────────────────────────────────────
     adminName: z
         .string()

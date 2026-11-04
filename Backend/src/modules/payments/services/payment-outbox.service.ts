@@ -76,6 +76,24 @@ export class PaymentOutboxService {
 
             if (job.attempts >= job.maxAttempts) {
                 job.status = 'DEAD_LETTER';
+                import('../../super-admin/notifications/super-admin-notification.service.js')
+                    .then(({ SuperAdminNotificationService }) => {
+                        SuperAdminNotificationService.dispatchNotification({
+                            type: 'BACKGROUND_JOB_FAILED',
+                            category: 'SYSTEM_HEALTH',
+                            title: 'Background Outbox Job Failed',
+                            message: `Payment outbox job (${job._id}) permanently failed after ${job.attempts} attempts: ${job.lastError}`,
+                            priority: 'HIGH',
+                            companyId: job.companyId ? String(job.companyId) : null,
+                            metadata: {
+                                jobId: String(job._id),
+                                jobType: job.type,
+                                attempts: job.attempts,
+                                error: job.lastError,
+                            },
+                        }).catch((e: any) => console.error('[PaymentOutbox] Failed to dispatch failure notification:', e));
+                    })
+                    .catch(() => {});
             } else {
                 job.status = 'FAILED';
                 // Exponential backoff with jitter: 2s, 8s, 32s, 128s...

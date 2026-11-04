@@ -1,3 +1,5 @@
+import { requireModuleAccess } from '../middleware/module-access.middleware';
+import { authenticate } from '../middleware/auth.middleware';
 import { Router, Request, Response } from 'express';
 import authRoutes from '../modules/auth/auth.routes';
 import superAdminRoutes from '../modules/super-admin/super-admin.routes';
@@ -55,6 +57,23 @@ router.use('/super-admin', superAdminAccountRecoveryRouter);
 // POST /api/v1/invitations/accept
 // POST /api/v1/invitations/register
 router.use('/v1/invitations', publicInvitationRoutes);
+router.use('/invitations', publicInvitationRoutes);
+
+// ── Public Multi-Tenant White-Label Branding Routes (no auth) ────────────────
+// GET  /api/v1/public/branding/resolve
+// GET  /api/v1/public/branding
+import publicBrandingRoutes from '../modules/super-admin/white-label/public-branding.routes';
+import { companyBrandingRouter } from '../modules/super-admin/white-label/white-label.routes';
+import { WhiteLabelController } from '../modules/super-admin/white-label/white-label.controller';
+
+router.use('/v1/public/branding', publicBrandingRoutes);
+router.use('/public/branding', publicBrandingRoutes);
+router.use('/v1/branding', publicBrandingRoutes);
+router.use('/branding', publicBrandingRoutes);
+router.use('/v1/company/branding', companyBrandingRouter);
+router.use('/company/branding', companyBrandingRouter);
+router.get('/v1/tenant/config', authenticate, WhiteLabelController.getTenantConfig);
+router.get('/tenant/config', authenticate, WhiteLabelController.getTenantConfig);
 
 // ── Permissions Route (auth required) ─────────────────────────────────────────
 router.use('/v1/permissions', permissionRoutes);
@@ -87,21 +106,30 @@ router.use('/company/attendance', companyAttendanceRoutes);
 router.use('/company-admin/attendance', companyAttendanceRoutes);
 
 // ── Member Attendance Routes ──────────────────────────────────────────────────
-router.use('/v1/member/attendance', memberAttendanceRoutes);
-router.use('/v1/members/attendance', memberAttendanceRoutes);
-router.use('/member/attendance', memberAttendanceRoutes);
+router.use('/v1/member/attendance', authenticate, requireModuleAccess('attendance'), memberAttendanceRoutes);
+router.use('/v1/members/attendance', authenticate, requireModuleAccess('attendance'), memberAttendanceRoutes);
+router.use('/member/attendance', authenticate, requireModuleAccess('attendance'), memberAttendanceRoutes);
 
 // ── Company & Member Routes (auth required) ──────────────────────────────────
 router.use('/company', companyAdminRoutes);
 router.use('/company-admin', companyAdminRoutes);
+router.use('/companyadmin', companyAdminRoutes);
 router.use('/v1/company', companyAdminRoutes);
 router.use('/v1/company-admin', companyAdminRoutes);
+router.use('/v1/companyadmin', companyAdminRoutes);
 router.use('/v1/member', companyAdminRoutes);
 router.use('/v1/members', companyAdminRoutes);
 
+// ── User / Member Profile Routes (auth required) ─────────────────────────────
+import userProfileRoutes from '../modules/users/user-profile.routes';
+router.use('/v1/user/profile', userProfileRoutes);
+router.use('/user/profile', userProfileRoutes);
+router.use('/v1/member/profile', userProfileRoutes);
+router.use('/member/profile', userProfileRoutes);
+
 
 // ── Communication & Global Media Modules ──────────────────────────────────────
-router.use('/projects', projectMemberRoutes);
+router.use('/projects', authenticate, requireModuleAccess('projects'), projectMemberRoutes);
 router.use('/conversations', chatRoutes);
 router.use('/messages', messageRoutes);
 router.use('/files', fileRoutes);
@@ -120,7 +148,7 @@ router.use('/sticky-notes', stickyNoteRoutes);
 router.use('/v1/sticky-notes', stickyNoteRoutes);
 
 // Also alias under /v1 for flexibility
-router.use('/v1/projects', projectMemberRoutes);
+router.use('/v1/projects', authenticate, requireModuleAccess('projects'), projectMemberRoutes);
 router.use('/v1/conversations', chatRoutes);
 router.use('/v1/messages', messageRoutes);
 router.use('/v1/files', fileRoutes);
@@ -131,8 +159,8 @@ router.use('/v1/company/notification-preferences', notificationPreferenceRoutes)
 import attendanceRoutes from '../modules/attendance/attendance.routes';
 
 // ── Attendance Module (auth required) ─────────────────────────────────────────
-router.use('/attendance', attendanceRoutes);
-router.use('/v1/attendance', attendanceRoutes);
+router.use('/attendance', authenticate, requireModuleAccess('attendance'), attendanceRoutes);
+router.use('/v1/attendance', authenticate, requireModuleAccess('attendance'), attendanceRoutes);
 router.use('/admin/attendance', attendanceRoutes);
 router.use('/v1/admin/attendance', attendanceRoutes);
 
@@ -164,6 +192,29 @@ router.use('/v1/global-search', globalSearchRoutes);
 import { paymentRoutes } from '../modules/payments';
 router.use('/v1/payments', paymentRoutes);
 router.use('/payments', paymentRoutes);
+
+// ── Escalation & Workforce Compliance Routes ───────────────────────────────
+import escalationRoutes from '../modules/escalation/routes/escalation.routes';
+router.use('/escalations', escalationRoutes);
+router.use('/v1/escalations', escalationRoutes);
+
+// ── Manager Workspace & Team Access Routes ──────────────────────────────────
+import managerRoutes from '../modules/manager/routes/manager.routes';
+import managerAdminRoutes from '../modules/manager/routes/manager-admin.routes';
+import teamRoutes from '../modules/teams/team.routes';
+
+router.use('/manager', managerRoutes);
+router.use('/v1/manager', managerRoutes);
+
+router.use('/teams', teamRoutes);
+router.use('/v1/teams', teamRoutes);
+
+router.use('/superadmin/managers', managerAdminRoutes);
+router.use('/v1/superadmin/managers', managerAdminRoutes);
+router.use('/super-admin/managers', managerAdminRoutes);
+router.use('/v1/super-admin/managers', managerAdminRoutes);
+router.use('/companyadmin/managers', managerAdminRoutes);
+router.use('/v1/companyadmin/managers', managerAdminRoutes);
 
 // ── Legacy / Plan / Storage Super Admin Routes ────────────────────────────────
 router.use('/super-admin', superAdminRoutes);

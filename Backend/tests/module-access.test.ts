@@ -16,6 +16,8 @@ vi.mock('../src/services/entitlement.service');
 vi.mock('../src/modules/companyadmin/settings/feature-revocation.service', () => ({
     FeatureRevocationService: {
         revokeCompanyFeature: vi.fn().mockResolvedValue(undefined),
+        revokeEmployeeModules: vi.fn().mockResolvedValue(undefined),
+        revokeEmployeePermissions: vi.fn().mockResolvedValue(undefined),
     },
 }));
 vi.mock('../src/config/redis', () => ({

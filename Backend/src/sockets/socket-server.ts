@@ -116,9 +116,31 @@ export const initSocketServer = (httpServer: HttpServer): Server => {
         // Join personal notification room (delivers calls & unread count across all user's devices)
         socket.join(`user:${userId}`);
 
-        // Join company room (for company-wide presence)
+        // Join dedicated SuperAdmin rooms (never shared with company or employee rooms)
+        if (user.role === 'SUPER_ADMIN') {
+            socket.join('superadmin');
+            socket.join('superadmins');
+
+            socket.on('superadmin:notification:mark_read', async (data: { notificationId?: string }) => {
+                if (data?.notificationId) {
+                    try {
+                        const { SuperAdminNotificationService } = await import(
+                            '../modules/super-admin/notifications/super-admin-notification.service.js'
+                        );
+                        await SuperAdminNotificationService.markAsRead(data.notificationId, userId);
+                    } catch (err: any) {
+                        console.warn('[Socket] Failed marking superadmin notification as read:', err?.message);
+                    }
+                }
+            });
+        }
+
+        // Join company room and tenant room (for company and tenant-wide presence)
         if (companyId) {
             socket.join(`company:${companyId}`);
+        }
+        if (user.tenantId) {
+            socket.join(`tenant:${user.tenantId}`);
         }
 
         // Track multi-device presence
@@ -158,6 +180,13 @@ export const initSocketServer = (httpServer: HttpServer): Server => {
 
     FeatureRevocationService.initCrossWorkerSubscriber(io);
     CompanyThemeRealtimeService.initCrossWorkerSubscriber(io);
+
+    // Initialize SuperAdmin Notification Redis Pub/Sub cross-worker subscriber
+    import('../modules/super-admin/notifications/super-admin-notification-redis.service.js').then(
+        ({ SuperAdminNotificationRedisService }) => {
+            SuperAdminNotificationRedisService.initRedisSubscriber();
+        }
+    ).catch(() => {});
 
     ioInstance = io;
     return io;

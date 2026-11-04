@@ -6,7 +6,8 @@ import {
     changePlanSchema,
     pauseSubscriptionSchema,
     resumeSubscriptionSchema,
-    cancelSubscriptionSchema
+    cancelSubscriptionSchema,
+    complimentarySubscriptionSchema,
 } from './subscription.schema';
 import { authorizePermissions } from '../../../middleware/authorization.middleware';
 
@@ -37,6 +38,13 @@ router.post(
     authorizePermissions('SUBSCRIPTION_UPDATE'),
     validateRequest(changePlanSchema),
     SubscriptionController.downgradePlan
+);
+
+router.post(
+    '/complimentary',
+    authorizePermissions('SUBSCRIPTION_UPDATE'),
+    validateRequest(complimentarySubscriptionSchema),
+    SubscriptionController.grantComplimentaryPlan
 );
 
 router.post(

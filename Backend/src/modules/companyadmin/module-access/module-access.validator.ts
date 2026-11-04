@@ -24,6 +24,7 @@ export const moduleKeyEnum = z.preprocess((val) => {
     'status-updates',
     'calendar',
     'shifts',
+    'manager',
 ]));
 
 export const overrideStateEnum = z.preprocess((val) => {

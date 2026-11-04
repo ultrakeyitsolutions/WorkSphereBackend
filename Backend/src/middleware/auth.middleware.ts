@@ -149,6 +149,8 @@ export const authenticate = async (
             userId: decoded.userId,
             email: decoded.email,
             role: decoded.role,
+            tenantId: decoded.tenantId,
+            tenantSlug: decoded.tenantSlug,
         };
 
         req.currentUser = {
@@ -156,8 +158,12 @@ export const authenticate = async (
             email: decoded.email,
             role: decoded.role,
             companyId: decoded.companyId,
+            tenantId: decoded.tenantId,
+            tenantSlug: decoded.tenantSlug,
         };
 
+        req.tenantId = decoded.tenantId || decoded.companyId;
+        req.tenantSlug = decoded.tenantSlug;
         req.isImpersonating = false;
 
         // Perform backend check on company & user status for non-SUPER_ADMIN users

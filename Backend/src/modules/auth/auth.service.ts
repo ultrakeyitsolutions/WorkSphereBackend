@@ -23,8 +23,12 @@ import { AppError } from '../../utils/AppError';
 import CompanyMember from '../companyadmin/invitations/company-member.model';
 import { getRedisClient } from '../../config/redis';
 import { getSocketServer } from '../../sockets/socket-server';
+import { SuperAdminNotificationService } from '../super-admin/notifications/super-admin-notification.service';
+import { WhiteLabelService } from '../super-admin/white-label/white-label.service';
+import { TenantMembership } from '../super-admin/white-label/tenant-membership.model';
 
 export class AuthService {
+    private static failedLoginAttempts = new Map<string, { count: number; firstAttempt: number }>();
     static async register(data: any) {
         const existingUser = await UserService.findByEmail(data.email);
         if (existingUser) {
@@ -99,6 +103,21 @@ export class AuthService {
                         : `Failed login — account deactivated for: ${user.email}`,
                 req,
             });
+
+            // SuperAdmin Security Alert for suspicious login attempts
+            SuperAdminNotificationService.dispatch({
+                type: 'SUSPICIOUS_LOGIN_ACTIVITY',
+                priority: 'CRITICAL',
+                companyId: user.companyId ? String(user.companyId) : null,
+                actorId: String(user._id),
+                eventId: `susp_login_${user._id}_${Date.now()}`,
+                metadata: {
+                    userEmail: user.email,
+                    ip: req?.ip || (req?.socket as any)?.remoteAddress || 'Unknown IP',
+                    reason: isSuspended ? 'Account suspended' : 'Account deleted or inactive',
+                    device: (req?.headers?.['user-agent'] as string) || 'Unknown Device',
+                },
+            }).catch(() => {});
             console.log(
                 `[LOGIN] auditLog (deactivated/suspended/deleted): ${(performance.now() - auditStart).toFixed(2)}ms`
             );
@@ -128,73 +147,119 @@ export class AuthService {
             });
         }
 
-        // ─── Company Status Check ────────────────────────────────────────────────
+        // ─── Multi-Tenant Workspace Resolution & Membership Verification ─────────
         let companyDoc: any = null;
-        if (user.companyId) {
-            const companyStart = performance.now();
-            const company = await Company.findById(user.companyId);
-            console.log(
-                `[LOGIN] findCompany: ${(performance.now() - companyStart).toFixed(2)}ms`
-            );
+        const requestedWorkspace = (data.workspace || data.tenantSlug || req?.headers?.['x-tenant-slug'] || req?.headers?.['x-workspace']) as string | undefined;
+        const requestedTenantId = (data.tenantId || req?.headers?.['x-tenant-id']) as string | undefined;
+        const requestedDomain = data.domain as string | undefined;
 
-            if (!company) {
-                await AuditLogService.log({
-                    action: AuditAction.USER_LOGIN_FAILED,
-                    actorId: String(user._id),
-                    actorEmail: user.email,
-                    success: false,
-                    description: `Failed login — organization not found for: ${user.email}`,
-                    req,
-                });
-                console.log(
-                    `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
-                );
-                throw new AppError('Your organization account is not found.', 401);
+        let targetCompany: any = null;
+        if (requestedWorkspace) {
+            targetCompany = await Company.findOne({
+                slug: requestedWorkspace.toLowerCase().trim(),
+                status: { $ne: 'DELETED' },
+            });
+            if (!targetCompany) {
+                throw new AppError(`Workspace "${requestedWorkspace}" was not found.`, 404, { code: 'WORKSPACE_NOT_FOUND' });
             }
-            if (company.status === 'SUSPENDED') {
+        } else if (requestedTenantId) {
+            targetCompany = await Company.findOne({
+                tenantId: requestedTenantId.trim(),
+                status: { $ne: 'DELETED' },
+            });
+            if (!targetCompany) {
+                throw new AppError(`Workspace "${requestedTenantId}" was not found.`, 404, { code: 'WORKSPACE_NOT_FOUND' });
+            }
+        } else if (requestedDomain) {
+            targetCompany = await Company.findOne({
+                domain: requestedDomain.toLowerCase().trim(),
+                status: { $ne: 'DELETED' },
+            });
+        }
+
+        const roleName = (user.role as any)?.name ?? '';
+
+        if (targetCompany) {
+            // Validate user's membership in the target company
+            if (roleName !== 'SUPER_ADMIN') {
+                const isDirectCompany = user.companyId && String(user.companyId) === String(targetCompany._id);
+                let isMember = isDirectCompany;
+
+                if (!isMember) {
+                    const tm = await TenantMembership.findOne({
+                        companyId: targetCompany._id,
+                        userId: user._id,
+                        status: 'ACTIVE',
+                    });
+                    if (tm) isMember = true;
+                }
+
+                if (!isMember) {
+                    const cm = await CompanyMember.findOne({
+                        companyId: targetCompany._id,
+                        userId: user._id,
+                        status: 'ACTIVE',
+                    });
+                    if (cm) isMember = true;
+                }
+
+                if (!isMember) {
+                    await AuditLogService.log({
+                        action: AuditAction.USER_LOGIN_FAILED,
+                        actorId: String(user._id),
+                        actorEmail: user.email,
+                        companyId: String(targetCompany._id),
+                        companyName: targetCompany.name,
+                        success: false,
+                        description: `Cross-tenant login blocked — ${user.email} does not have access to ${targetCompany.name}`,
+                        req,
+                    });
+                    throw new AppError('You do not belong to this organization workspace.', 403, { code: 'CROSS_TENANT_ACCESS_DENIED' });
+                }
+            }
+
+            companyDoc = targetCompany;
+        } else if (user.companyId) {
+            companyDoc = await Company.findById(user.companyId);
+        }
+
+        if (companyDoc) {
+            if (companyDoc.status === 'SUSPENDED') {
                 await AuditLogService.log({
                     action: AuditAction.USER_LOGIN_FAILED,
                     actorId: String(user._id),
                     actorEmail: user.email,
-                    companyId: String(company._id),
-                    companyName: company.name,
+                    companyId: String(companyDoc._id),
+                    companyName: companyDoc.name,
                     success: false,
                     description: `Failed login — organization suspended for: ${user.email}`,
                     req,
                 });
-                console.log(
-                    `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
-                );
-                throw new AppError('Your organization account is currently suspended.', 403);
+                throw new AppError('Your organization account is currently suspended.', 403, { code: 'ORGANIZATION_SUSPENDED' });
             }
-            if (company.status === 'DELETED' || !company.isActive) {
+            if (companyDoc.status === 'DELETED' || !companyDoc.isActive) {
                 await AuditLogService.log({
                     action: AuditAction.USER_LOGIN_FAILED,
                     actorId: String(user._id),
                     actorEmail: user.email,
-                    companyId: String(company._id),
-                    companyName: company.name,
+                    companyId: String(companyDoc._id),
+                    companyName: companyDoc.name,
                     success: false,
                     description: `Failed login — organization inactive for: ${user.email}`,
                     req,
                 });
-                console.log(
-                    `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
-                );
-                throw new AppError('Your organization account is no longer active.', 403);
+                throw new AppError('Your organization account is no longer active.', 403, { code: 'ORGANIZATION_INACTIVE' });
             }
-            companyDoc = company;
 
             // ─── Company Member Status Check for non-admin members ─────────────────
-            const roleName = (user.role as any)?.name ?? '';
             if (roleName !== 'SUPER_ADMIN' && roleName !== 'COMPANY_ADMIN' && roleName !== 'Admin') {
-                const member = await CompanyMember.findOne({ userId: user._id, companyId: user.companyId });
+                const member = await CompanyMember.findOne({ userId: user._id, companyId: companyDoc._id });
                 if (member && (member.status === 'SUSPENDED' || member.status === 'INACTIVE')) {
                     await AuditLogService.log({
                         action: AuditAction.USER_LOGIN_FAILED,
                         actorId: String(user._id),
                         actorEmail: user.email,
-                        companyId: String(user.companyId),
+                        companyId: String(companyDoc._id),
                         success: false,
                         description: `Failed login — employee ${member.status.toLowerCase()} for: ${user.email}`,
                         req,
@@ -228,11 +293,42 @@ export class AuthService {
             console.log(
                 `[LOGIN] auditLog (wrong password): ${(performance.now() - auditStart).toFixed(2)}ms`
             );
+
+            // Track failed login attempts and dispatch alert upon threshold breach
+            const now = Date.now();
+            const emailKey = user.email.toLowerCase();
+            const record = this.failedLoginAttempts.get(emailKey) || { count: 0, firstAttempt: now };
+            if (now - record.firstAttempt > 15 * 60 * 1000) {
+                record.count = 0;
+                record.firstAttempt = now;
+            }
+            record.count += 1;
+            this.failedLoginAttempts.set(emailKey, record);
+
+            if (record.count >= 5) {
+                SuperAdminNotificationService.dispatch({
+                    type: 'MULTIPLE_FAILED_LOGIN_ATTEMPTS',
+                    priority: 'HIGH',
+                    companyId: user.companyId ? String(user.companyId) : null,
+                    actorId: String(user._id),
+                    eventId: `fail_login_${user._id}_${Math.floor(now / (5 * 60 * 1000))}`,
+                    metadata: {
+                        userEmail: user.email,
+                        failedCount: record.count,
+                        ip: req?.ip || (req?.socket as any)?.remoteAddress || 'Unknown IP',
+                        timeWindow: '15 minutes',
+                    },
+                }).catch(() => {});
+            }
+
             console.log(
                 `[LOGIN] TOTAL: ${(performance.now() - totalStart).toFixed(2)}ms`
             );
             throw new Error('Invalid email or password');
         }
+
+        // Reset failed login counter on successful password verification
+        this.failedLoginAttempts.delete(user.email.toLowerCase());
 
         // ─── MFA Gate ────────────────────────────────────────────────────────────
         if (user.mfaEnabled) {
@@ -286,11 +382,17 @@ export class AuthService {
         revokedPermissions.forEach((p: string) => effectivePermissionsSet.delete(p));
         const finalPermissions = Array.from(effectivePermissionsSet);
 
+        const effectiveCompanyId = companyDoc ? String(companyDoc._id) : (user.companyId ? String(user.companyId) : undefined);
+        const effectiveTenantId = companyDoc?.tenantId || (user.companyId ? String(user.companyId) : undefined);
+        const effectiveTenantSlug = companyDoc?.slug;
+
         const payload = {
             userId: String(user._id),
             email: user.email,
             role: userRole,
-            companyId: user.companyId ? String(user.companyId) : undefined,
+            companyId: effectiveCompanyId,
+            tenantId: effectiveTenantId,
+            tenantSlug: effectiveTenantSlug,
         };
 
         const tokenStart = performance.now();
@@ -336,6 +438,16 @@ export class AuthService {
             `[LOGIN] subscription: ${(performance.now() - subStart).toFixed(2)}ms`
         );
 
+        let whiteLabelBranding: any = null;
+        if (companyDoc) {
+            try {
+                whiteLabelBranding = await WhiteLabelService.getPublicBranding({
+                    tenantId: companyDoc.tenantId,
+                    workspace: companyDoc.slug,
+                });
+            } catch {}
+        }
+
         return {
             user: {
                 id: user._id,
@@ -343,12 +455,15 @@ export class AuthService {
                 email: user.email,
                 role: userRole,
                 permissions: finalPermissions,
-                companyId: user.companyId,
+                companyId: effectiveCompanyId,
+                tenantId: effectiveTenantId,
+                tenantSlug: effectiveTenantSlug,
                 mfaEnabled: !!user.mfaEnabled,
             },
             company: companyDoc
                 ? {
                     id: String(companyDoc._id),
+                    tenantId: companyDoc.tenantId || String(companyDoc._id),
                     name: companyDoc.name,
                     slug: companyDoc.slug,
                     domain: companyDoc.domain || null,
@@ -372,9 +487,94 @@ export class AuthService {
                     updatedAt: (companyDoc as any).updatedAt,
                 }
                 : null,
+            whiteLabel: whiteLabelBranding,
             accessToken,
             refreshToken,
         };
+    }
+
+    /**
+     * Explicit, authorized tenant switching for multi-company users
+     */
+    static async switchTenant(
+        userId: string,
+        target: { targetTenantId?: string; targetCompanyId?: string; targetSlug?: string },
+        req?: Request
+    ) {
+        const user = await (User.findById(userId) as any).populate('role');
+        if (!user || !user.isActive || user.isDeleted || user.status === 'SUSPENDED') {
+            throw new AppError('User account is suspended or inactive', 403);
+        }
+
+        let targetCompany: any = null;
+        if (target.targetTenantId) {
+            targetCompany = await Company.findOne({ tenantId: target.targetTenantId, status: { $ne: 'DELETED' } });
+        }
+        if (!targetCompany && target.targetCompanyId) {
+            targetCompany = await Company.findOne({ _id: target.targetCompanyId, status: { $ne: 'DELETED' } });
+        }
+        if (!targetCompany && target.targetSlug) {
+            targetCompany = await Company.findOne({ slug: target.targetSlug.toLowerCase().trim(), status: { $ne: 'DELETED' } });
+        }
+
+        if (!targetCompany) {
+            throw new AppError('Target workspace was not found', 404);
+        }
+
+        if (targetCompany.status === 'SUSPENDED') {
+            throw new AppError('Target organization workspace is currently suspended', 403);
+        }
+
+        const roleName = (user.role as any)?.name ?? '';
+        if (roleName !== 'SUPER_ADMIN') {
+            const isDirect = user.companyId && String(user.companyId) === String(targetCompany._id);
+            let authorized = isDirect;
+
+            if (!authorized) {
+                const tm = await TenantMembership.findOne({
+                    companyId: targetCompany._id,
+                    userId: user._id,
+                    status: 'ACTIVE',
+                });
+                if (tm) authorized = true;
+            }
+
+            if (!authorized) {
+                const cm = await CompanyMember.findOne({
+                    companyId: targetCompany._id,
+                    userId: user._id,
+                    status: 'ACTIVE',
+                });
+                if (cm) authorized = true;
+            }
+
+            if (!authorized) {
+                await AuditLogService.log({
+                    action: AuditAction.USER_LOGIN_FAILED,
+                    actorId: String(user._id),
+                    actorEmail: user.email,
+                    companyId: String(targetCompany._id),
+                    companyName: targetCompany.name,
+                    success: false,
+                    description: `Unauthorized tenant switch attempt by ${user.email} to ${targetCompany.name}`,
+                    req,
+                });
+                throw new AppError('Unauthorized: You are not a verified member of the requested workspace.', 403);
+            }
+        }
+
+        await AuditLogService.log({
+            action: AuditAction.USER_LOGIN,
+            actorId: String(user._id),
+            actorEmail: user.email,
+            companyId: String(targetCompany._id),
+            companyName: targetCompany.name,
+            success: true,
+            description: `User switched active workspace to: ${targetCompany.name}`,
+            req,
+        });
+
+        return await this.generateAuthSessionResponse(user, req, null, targetCompany);
     }
 
     static async refresh(token: string, req?: Request) {

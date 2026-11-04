@@ -1,0 +1,13 @@
+export * from './constants/escalation.constants';
+export * from './types/escalation.types';
+export * from './models';
+export * from './services/EscalationEngine';
+export * from './services/EscalationProcessor';
+export * from './services/EscalationRuleService';
+export * from './services/EscalationNotificationService';
+export * from './services/EscalationAuditService';
+export * from './jobs/escalationScheduler';
+export * from './controllers/escalation.controller';
+export * from './controllers/escalationRule.controller';
+export * from './controllers/escalationReport.controller';
+export { default as escalationRoutes } from './routes/escalation.routes';

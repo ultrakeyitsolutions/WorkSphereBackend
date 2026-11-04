@@ -41,6 +41,7 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<MeetingStatus, MeetingStatus[]> 
     [MeetingStatus.CANCELLED]: [],
     [MeetingStatus.COMPLETED]: [],
     [MeetingStatus.EXPIRED]: [],
+    [MeetingStatus.PENDING_LINK]: [MeetingStatus.ACCEPTED, MeetingStatus.CANCELLED, MeetingStatus.PENDING],
 };
 
 // ─── Join Window Configuration ────────────────────────────────────────────────

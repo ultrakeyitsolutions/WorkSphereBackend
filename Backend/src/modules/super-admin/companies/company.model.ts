@@ -1,8 +1,16 @@
 import { Schema, model } from 'mongoose';
 import { ICompanyDocument } from './company.types';
+import { CloudinaryStorageProvider } from '../../../infrastructure/storage/providers/cloudinary-storage.provider';
 
 const companySchema = new Schema<ICompanyDocument>(
     {
+        tenantId: {
+            type: String,
+            unique: true,
+            sparse: true,
+            trim: true,
+            index: true,
+        },
         name: {
             type: String,
             required: true,
@@ -31,10 +39,26 @@ const companySchema = new Schema<ICompanyDocument>(
         logoUrl: {
             type: String,
             trim: true,
+            set: (val: string | null | undefined) => {
+                if (typeof val === 'string' && val.startsWith('cloudinary://')) {
+                    return CloudinaryStorageProvider.toHttpsDeliveryUrl(val);
+                }
+                return val;
+            },
+            get: (val: string | null | undefined) => {
+                if (typeof val === 'string' && val.startsWith('cloudinary://')) {
+                    return CloudinaryStorageProvider.toHttpsDeliveryUrl(val);
+                }
+                return val;
+            },
         },
         adminId: {
             type: Schema.Types.ObjectId,
             ref: 'User',
+        },
+        subscriptionId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Subscription',
         },
         status: {
             type: String,
@@ -125,6 +149,8 @@ const companySchema = new Schema<ICompanyDocument>(
     },
     {
         timestamps: true,
+        toJSON: { getters: true },
+        toObject: { getters: true },
     }
 );
 

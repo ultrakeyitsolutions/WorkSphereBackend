@@ -1,3 +1,4 @@
+import { FeatureRevocationService } from './settings/feature-revocation.service';
 import { Response } from 'express';
 import { sendSuccess, sendError } from '../../utils/response';
 import { AuthenticatedRequest } from '../auth/auth.types';
@@ -124,6 +125,19 @@ export class PermissionsController {
             }
 
             // Log Audit
+            
+            if (revokes.length > 0) {
+                try {
+                    await FeatureRevocationService.revokeEmployeePermissions(
+                        String(requester.companyId),
+                        userIds,
+                        finalRevokes
+                    );
+                } catch (revErr: any) {
+                    console.warn('[PermissionsController] Revocation broadcast error:', revErr?.message);
+                }
+            }
+
             await AuditLogService.log({
                 action: AuditAction.USER_PERMISSIONS_UPDATED,
                 actorId: requester.userId as any,

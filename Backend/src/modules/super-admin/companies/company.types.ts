@@ -5,6 +5,7 @@ export type CompanyStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'DELETED';
 
 // ─── Core Interface ───────────────────────────────────────────────────────────
 export interface ICompany {
+    tenantId?: string;                   // System-generated unique tenant identifier
     name: string;
     slug: string;                        // URL-safe unique identifier
     domain?: string;                     // Optional custom domain
@@ -12,6 +13,7 @@ export interface ICompany {
     size?: 'STARTUP' | 'SME' | 'ENTERPRISE';
     logoUrl?: string;
     adminId?: Schema.Types.ObjectId;     // Back-reference to Company Admin user
+    subscriptionId?: Schema.Types.ObjectId;
     status: CompanyStatus;
     isActive: boolean;
 

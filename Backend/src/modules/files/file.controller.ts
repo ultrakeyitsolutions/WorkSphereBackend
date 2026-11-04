@@ -15,12 +15,12 @@ export class FileController {
                 return sendError(res, 'No file provided for upload', 400);
             }
 
-            const userId = req.user?.userId;
-            const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
-            const companyId = req.user?.companyId || (isSuperAdmin ? req.body?.companyId : undefined);
+            const userId = req.user?.userId || req.currentUser?.userId;
+            const isSuperAdmin = (req.user?.role || req.currentUser?.role) === 'SUPER_ADMIN';
+            const companyId = req.user?.companyId || req.currentUser?.companyId || req.body?.companyId;
 
-            if (!userId || (!companyId && !isSuperAdmin)) {
-                return sendError(res, 'Authentication and company context required', 401);
+            if (!userId) {
+                return sendError(res, 'Authentication required', 401);
             }
 
             const contextType = (req.body.contextType || 'OTHER').toUpperCase() as FileContextType;

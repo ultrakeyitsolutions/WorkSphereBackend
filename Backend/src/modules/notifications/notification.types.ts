@@ -6,7 +6,31 @@
 //   - Admin Preferences UI (rendered dynamically)
 
 export type NotificationStyle = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'SYSTEM';
-export type NotificationCategory = 'PROJECT' | 'TASK' | 'MEETING' | 'CHAT' | 'ATTENDANCE' | 'TRACKING' | 'SYSTEM' | 'TIMESHEET' | 'ANNOUNCEMENT' | 'REMINDER' | 'SPRINT' | 'RELEASE' | 'WISHLIST' | 'SHIFT' | 'LEAVE' | 'SUBSCRIPTION';
+export type NotificationPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+export type NotificationCategory =
+    | 'PROJECT'
+    | 'TASK'
+    | 'MEETING'
+    | 'CHAT'
+    | 'ATTENDANCE'
+    | 'TRACKING'
+    | 'SYSTEM'
+    | 'TIMESHEET'
+    | 'ANNOUNCEMENT'
+    | 'REMINDER'
+    | 'SPRINT'
+    | 'RELEASE'
+    | 'WISHLIST'
+    | 'SHIFT'
+    | 'LEAVE'
+    | 'SUBSCRIPTION'
+    | 'COMPANY_MANAGEMENT'
+    | 'SUBSCRIPTION_PAYMENTS'
+    | 'SECURITY_ACCESS'
+    | 'SYSTEM_HEALTH'
+    | 'EMPLOYEE_WORKFORCE'
+    | 'SUPPORT_COMPLAINTS'
+    | 'ESCALATION';
 export type NotificationChannel = 'inApp' | 'push' | 'email';
 
 export interface NotificationTypeDefinition {
@@ -16,6 +40,7 @@ export interface NotificationTypeDefinition {
     defaultTitle: string;
     defaultMessage: string;
     defaultStyle: NotificationStyle;
+    defaultPriority?: NotificationPriority;
     icon: string;
     defaultIcon?: string;
     defaultChannels?: { inApp: boolean; push: boolean; email: boolean };
@@ -787,6 +812,33 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         allowedVariables: ['recipientName', 'companyName', 'planName', 'periodEnd', 'daysRemaining'],
         defaultEnabled: true,
     },
+    PAYMENT_REFUNDED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Payment Refund Completed',
+        defaultMessage: 'Refund of {{currency}} {{formattedAmount}} for {{planName}} has been processed.',
+        defaultStyle: 'INFO',
+        icon: 'rotate-ccw',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'amount', 'formattedAmount', 'currency', 'refundId', 'reason'],
+        defaultEnabled: true,
+    },
+    COMPLIMENTARY_PLAN_GRANTED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Complimentary Plan Assigned',
+        defaultMessage: 'Complimentary access to {{planName}} has been granted by WorkSphere Administration.',
+        defaultStyle: 'SUCCESS',
+        icon: 'gift',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'actorName', 'reason', 'periodEnd'],
+        defaultEnabled: true,
+    },
+    PLAN_UPGRADE_REQUESTED: {
+        category: 'SUBSCRIPTION',
+        defaultTitle: 'Plan Upgrade Requested',
+        defaultMessage: '{{actorName}} has requested a plan upgrade to {{planName}} for {{companyName}}.',
+        defaultStyle: 'INFO',
+        icon: 'arrow-up-circle',
+        allowedVariables: ['recipientName', 'companyName', 'planName', 'actorName', 'billingCycle'],
+        defaultEnabled: true,
+    },
 
     // ── CONVENIENCE ALIASES & COMPATIBILITY TYPES ─────────────────────────────
     TASK_ASSIGNED: {
@@ -843,6 +895,551 @@ export const NOTIFICATION_TYPES: Record<string, NotificationTypeDefinition> = {
         allowedVariables: ['recipientName', 'meetingName', 'minutesUntilStart', 'meetingLink'],
         defaultEnabled: true,
     },
+
+    // ── SUPERADMIN: COMPANY MANAGEMENT ─────────────────────────────────────────
+    COMPANY_REGISTERED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'New Company Registered',
+        defaultMessage: 'Company "{{companyName}}" has been registered.',
+        defaultStyle: 'SUCCESS',
+        defaultPriority: 'HIGH',
+        icon: 'briefcase',
+        allowedVariables: ['companyName', 'adminEmail', 'companyDomain', 'companySize', 'actorName'],
+        defaultEnabled: true,
+    },
+    COMPANY_ACTIVATION_REQUESTED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Company Activation Requested',
+        defaultMessage: 'Company "{{companyName}}" requested account activation.',
+        defaultStyle: 'INFO',
+        defaultPriority: 'HIGH',
+        icon: 'user-check',
+        allowedVariables: ['companyName', 'adminEmail', 'requestedAt'],
+        defaultEnabled: true,
+    },
+    COMPANY_ACTIVATED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Company Activated',
+        defaultMessage: 'Company "{{companyName}}" has been activated by {{actorName}}.',
+        defaultStyle: 'SUCCESS',
+        defaultPriority: 'MEDIUM',
+        icon: 'check-circle',
+        allowedVariables: ['companyName', 'actorName', 'activatedAt'],
+        defaultEnabled: true,
+    },
+    COMPANY_SUSPENDED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Company Suspended',
+        defaultMessage: 'Company "{{companyName}}" was suspended by {{actorName}}. Reason: {{reason}}',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'alert-triangle',
+        allowedVariables: ['companyName', 'actorName', 'reason', 'suspendedAt'],
+        defaultEnabled: true,
+    },
+    COMPANY_DEACTIVATED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Company Deactivated',
+        defaultMessage: 'Company "{{companyName}}" has been deactivated.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'slash',
+        allowedVariables: ['companyName', 'actorName', 'reason'],
+        defaultEnabled: true,
+    },
+    COMPANY_DELETED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Company Deleted',
+        defaultMessage: 'Company "{{companyName}}" was deleted by {{actorName}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'trash-2',
+        allowedVariables: ['companyName', 'actorName', 'deletedAt'],
+        defaultEnabled: true,
+    },
+    COMPANY_ADMIN_CREATED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Company Admin Created',
+        defaultMessage: 'Company administrator {{adminEmail}} created for "{{companyName}}".',
+        defaultStyle: 'INFO',
+        defaultPriority: 'MEDIUM',
+        icon: 'user-plus',
+        allowedVariables: ['companyName', 'adminEmail', 'adminName', 'actorName'],
+        defaultEnabled: true,
+    },
+    COMPANY_ADMIN_DEACTIVATED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Company Admin Deactivated',
+        defaultMessage: 'Company administrator {{adminEmail}} of "{{companyName}}" was deactivated.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'user-x',
+        allowedVariables: ['companyName', 'adminEmail', 'actorName', 'reason'],
+        defaultEnabled: true,
+    },
+    COMPANY_ACCOUNT_DELETION_REQUESTED: {
+        category: 'COMPANY_MANAGEMENT',
+        defaultTitle: 'Account Deletion Requested',
+        defaultMessage: 'Organization "{{companyName}}" submitted an account deletion request.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'CRITICAL',
+        icon: 'alert-octagon',
+        allowedVariables: ['companyName', 'adminEmail', 'requestId', 'reason'],
+        defaultEnabled: true,
+    },
+
+    // ── SUPERADMIN: SUBSCRIPTION & PAYMENTS ────────────────────────────────────
+    SUBSCRIPTION_PURCHASED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'New Subscription Purchased',
+        defaultMessage: 'Company "{{companyName}}" purchased {{planName}} ({{billingCycle}}).',
+        defaultStyle: 'SUCCESS',
+        defaultPriority: 'HIGH',
+        icon: 'credit-card',
+        allowedVariables: ['companyName', 'planName', 'billingCycle', 'amount', 'currency'],
+        defaultEnabled: true,
+    },
+    SUPERADMIN_SUBSCRIPTION_RENEWED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Subscription Renewed',
+        defaultMessage: 'Subscription for "{{companyName}}" has been renewed ({{planName}}).',
+        defaultStyle: 'SUCCESS',
+        defaultPriority: 'MEDIUM',
+        icon: 'repeat',
+        allowedVariables: ['companyName', 'planName', 'nextBillingDate', 'amount', 'currency'],
+        defaultEnabled: true,
+    },
+    SUBSCRIPTION_EXPIRED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Subscription Expired',
+        defaultMessage: 'Subscription for "{{companyName}}" expired on {{expiryDate}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'clock',
+        allowedVariables: ['companyName', 'planName', 'expiryDate'],
+        defaultEnabled: true,
+    },
+    SUPERADMIN_PAYMENT_SUCCESS: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Payment Received',
+        defaultMessage: 'Payment of {{currency}} {{amount}} succeeded for "{{companyName}}".',
+        defaultStyle: 'SUCCESS',
+        defaultPriority: 'MEDIUM',
+        icon: 'dollar-sign',
+        allowedVariables: ['companyName', 'amount', 'currency', 'paymentAttemptId', 'planName'],
+        defaultEnabled: true,
+    },
+    SUPERADMIN_PAYMENT_FAILED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Payment Failed',
+        defaultMessage: 'Payment of {{currency}} {{amount}} failed for "{{companyName}}". Reason: {{errorMessage}}',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'alert-circle',
+        allowedVariables: ['companyName', 'amount', 'currency', 'errorMessage', 'paymentAttemptId', 'planName'],
+        defaultEnabled: true,
+    },
+    AUTOPAY_MANDATE_FAILED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Autopay Mandate Failed',
+        defaultMessage: 'Autopay recurring mandate execution failed for "{{companyName}}".',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'HIGH',
+        icon: 'x-circle',
+        allowedVariables: ['companyName', 'amount', 'currency', 'reason'],
+        defaultEnabled: true,
+    },
+    SUPERADMIN_AUTOPAY_CANCELLED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Autopay Mandate Cancelled',
+        defaultMessage: 'Autopay mandate was cancelled for "{{companyName}}".',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'MEDIUM',
+        icon: 'slash',
+        allowedVariables: ['companyName', 'cancelledBy', 'cancelledAt'],
+        defaultEnabled: true,
+    },
+    REFUND_REQUESTED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Refund Requested',
+        defaultMessage: 'Refund of {{currency}} {{amount}} requested for "{{companyName}}".',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'corner-down-left',
+        allowedVariables: ['companyName', 'amount', 'currency', 'paymentAttemptId', 'reason'],
+        defaultEnabled: true,
+    },
+    RAZORPAY_WEBHOOK_FAILED: {
+        category: 'SUBSCRIPTION_PAYMENTS',
+        defaultTitle: 'Payment Webhook Processing Failed',
+        defaultMessage: 'Razorpay webhook processing failed for event {{webhookEventId}}: {{errorMessage}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'webhook',
+        allowedVariables: ['webhookEventId', 'eventType', 'errorMessage', 'retryCount'],
+        defaultEnabled: true,
+    },
+
+    // ── SUPERADMIN: SECURITY & ACCESS CONTROL ──────────────────────────────────
+    MULTIPLE_FAILED_LOGIN_ATTEMPTS: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'Multiple Failed Logins Detected',
+        defaultMessage: 'Account "{{userEmail}}" had {{failedCount}} consecutive failed login attempts from IP {{ip}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'shield-alert',
+        allowedVariables: ['userEmail', 'failedCount', 'ip', 'timeWindow'],
+        defaultEnabled: true,
+    },
+    SUSPICIOUS_LOGIN_ACTIVITY: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'Suspicious Login Activity',
+        defaultMessage: 'Suspicious login activity flagged for {{userEmail}} from IP {{ip}} ({{location}}).',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'shield-off',
+        allowedVariables: ['userEmail', 'ip', 'location', 'reason', 'device'],
+        defaultEnabled: true,
+    },
+    UNAUTHORIZED_ACCESS_ATTEMPT: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'Unauthorized SuperAdmin Access Attempt',
+        defaultMessage: 'User "{{userEmail}}" (Role: {{role}}) attempted unauthorized access to {{endpoint}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'lock',
+        allowedVariables: ['userEmail', 'role', 'endpoint', 'ip', 'method'],
+        defaultEnabled: true,
+    },
+    PRIVILEGE_ESCALATION_ATTEMPT: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'Privilege Escalation Attempt',
+        defaultMessage: 'Unauthorized attempt to assign high privileges detected: {{details}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'trending-up',
+        allowedVariables: ['actorName', 'targetUser', 'requestedRole', 'details', 'ip'],
+        defaultEnabled: true,
+    },
+    SUPERADMIN_ROLE_CHANGED: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'SuperAdmin Role Modified',
+        defaultMessage: 'SuperAdmin status for {{targetEmail}} was modified by {{actorName}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'CRITICAL',
+        icon: 'key',
+        allowedVariables: ['targetEmail', 'actorName', 'action', 'updatedAt'],
+        defaultEnabled: true,
+    },
+    SECURITY_POLICY_VIOLATION: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'Security Policy Violation',
+        defaultMessage: 'Security policy violation detected: {{policyDetails}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'alert-octagon',
+        allowedVariables: ['policyDetails', 'actorEmail', 'ip', 'severity'],
+        defaultEnabled: true,
+    },
+
+    // ── SUPERADMIN: SYSTEM HEALTH ──────────────────────────────────────────────
+    BACKEND_SERVICE_DOWN: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'Backend Service Outage Alert',
+        defaultMessage: 'Backend service component "{{serviceName}}" is down or unreachable.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'server',
+        allowedVariables: ['serviceName', 'status', 'errorDetails', 'timestamp'],
+        defaultEnabled: true,
+    },
+    MONGODB_CONNECTION_FAILED: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'MongoDB Connection Failure',
+        defaultMessage: 'MongoDB connection lost or failing health check: {{errorMessage}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'database',
+        allowedVariables: ['errorMessage', 'state', 'timestamp'],
+        defaultEnabled: true,
+    },
+    REDIS_CONNECTION_FAILED: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'Redis Connection Failure',
+        defaultMessage: 'Redis connection failed: {{errorMessage}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'HIGH',
+        icon: 'layers',
+        allowedVariables: ['errorMessage', 'host', 'port', 'timestamp'],
+        defaultEnabled: true,
+    },
+    HIGH_API_ERROR_RATE: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'High API Error Rate Alert',
+        defaultMessage: 'API error rate spiked to {{errorRate}}% over {{timeWindow}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'HIGH',
+        icon: 'activity',
+        allowedVariables: ['errorRate', 'threshold', 'timeWindow', 'sampleCount'],
+        defaultEnabled: true,
+    },
+    HIGH_CPU_USAGE: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'High CPU Usage Warning',
+        defaultMessage: 'Server CPU usage sustained at {{cpuPercent}}% on host {{host}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'cpu',
+        allowedVariables: ['cpuPercent', 'threshold', 'host', 'loadAvg'],
+        defaultEnabled: true,
+    },
+    HIGH_MEMORY_USAGE: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'High Memory Usage Warning',
+        defaultMessage: 'Backend process memory reached {{memoryMb}}MB (Heap: {{heapUsedMb}}MB).',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'hard-drive',
+        allowedVariables: ['memoryMb', 'heapUsedMb', 'heapTotalMb', 'rssMb', 'thresholdMb'],
+        defaultEnabled: true,
+    },
+    DATABASE_STORAGE_WARNING: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'Database Storage Threshold Warning',
+        defaultMessage: 'Database storage consumption has reached {{storagePercent}}% ({{storageUsed}} of {{storageLimit}}).',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'database',
+        allowedVariables: ['storagePercent', 'storageUsed', 'storageLimit'],
+        defaultEnabled: true,
+    },
+    BACKGROUND_JOB_FAILED: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'Background Job Failure',
+        defaultMessage: 'Background job {{jobId}} (Type: {{jobType}}) dead-lettered after {{attempts}} attempts. Error: {{errorMessage}}.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'HIGH',
+        icon: 'alert-circle',
+        allowedVariables: ['jobId', 'jobType', 'attempts', 'errorMessage'],
+        defaultEnabled: true,
+    },
+    SOCKET_CONNECTION_FAILURE: {
+        category: 'SYSTEM_HEALTH',
+        defaultTitle: 'Socket Connection Cluster Failure',
+        defaultMessage: 'Socket.IO gateway encountered connection or adapter failures: {{errorDetails}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'MEDIUM',
+        icon: 'radio',
+        allowedVariables: ['errorDetails', 'connectedSockets', 'timestamp'],
+        defaultEnabled: true,
+    },
+
+    // ── SUPERADMIN: EMPLOYEE & WORKFORCE ───────────────────────────────────────
+    COMPANY_EMPLOYEE_LIMIT_REACHED: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'Company Employee Limit Reached',
+        defaultMessage: 'Company "{{companyName}}" reached its maximum active employee limit of {{userLimit}}.',
+        defaultStyle: 'INFO',
+        defaultPriority: 'MEDIUM',
+        icon: 'users',
+        allowedVariables: ['companyName', 'userLimit', 'planName'],
+        defaultEnabled: true,
+    },
+    EMPLOYEE_LIMIT_EXCEEDED: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'Employee Quota Exceeded Attempt',
+        defaultMessage: 'Company "{{companyName}}" attempted to add employees beyond limit ({{currentCount}}/{{userLimit}}).',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'user-x',
+        allowedVariables: ['companyName', 'currentCount', 'userLimit', 'planName'],
+        defaultEnabled: true,
+    },
+    BULK_EMPLOYEE_DEACTIVATION: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'Bulk Employee Deactivation',
+        defaultMessage: '{{count}} employees deactivated simultaneously in company "{{companyName}}" by {{actorName}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'user-minus',
+        allowedVariables: ['companyName', 'count', 'actorName', 'timestamp'],
+        defaultEnabled: true,
+    },
+    COMPANY_WITHOUT_ACTIVE_ADMIN: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'Company Without Active Administrator',
+        defaultMessage: 'Company "{{companyName}}" currently has zero active administrators.',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'user-x',
+        allowedVariables: ['companyName', 'companyId', 'reason'],
+        defaultEnabled: true,
+    },
+    UNUSUAL_EMPLOYEE_CREATION_ACTIVITY: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'Unusual Employee Creation Activity',
+        defaultMessage: 'Spike detected: {{count}} employees created in "{{companyName}}" within {{timeWindow}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'trending-up',
+        allowedVariables: ['companyName', 'count', 'timeWindow', 'actorName'],
+        defaultEnabled: true,
+    },
+
+    // ── SUPERADMIN: SUPPORT & COMPLAINTS ───────────────────────────────────────
+    NEW_SUPPORT_TICKET: {
+        category: 'SUPPORT_COMPLAINTS',
+        defaultTitle: 'New Support Ticket Created',
+        defaultMessage: 'New ticket #{{ticketNumber}} submitted by "{{companyName}}": "{{subject}}".',
+        defaultStyle: 'INFO',
+        defaultPriority: 'MEDIUM',
+        icon: 'help-circle',
+        allowedVariables: ['ticketNumber', 'companyName', 'subject', 'priority', 'ticketId'],
+        defaultEnabled: true,
+    },
+    CRITICAL_SUPPORT_TICKET: {
+        category: 'SUPPORT_COMPLAINTS',
+        defaultTitle: 'CRITICAL Support Ticket Submitted',
+        defaultMessage: 'Urgent priority ticket #{{ticketNumber}} submitted by "{{companyName}}": "{{subject}}".',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'alert-circle',
+        allowedVariables: ['ticketNumber', 'companyName', 'subject', 'ticketId'],
+        defaultEnabled: true,
+    },
+    PAYMENT_DISPUTE: {
+        category: 'SUPPORT_COMPLAINTS',
+        defaultTitle: 'Payment Dispute Raised',
+        defaultMessage: 'Payment dispute filed by "{{companyName}}" for transaction {{transactionId}} ({{currency}} {{amount}}).',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'dollar-sign',
+        allowedVariables: ['companyName', 'transactionId', 'amount', 'currency', 'reason'],
+        defaultEnabled: true,
+    },
+    SUPPORT_TICKET_SLA_BREACHED: {
+        category: 'SUPPORT_COMPLAINTS',
+        defaultTitle: 'Support Ticket SLA Breached',
+        defaultMessage: 'Support ticket #{{ticketNumber}} for "{{companyName}}" has breached SLA resolution deadline.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'clock',
+        allowedVariables: ['ticketNumber', 'companyName', 'breachedAt', 'assigneeName'],
+        defaultEnabled: true,
+    },
+
+    // ── ESCALATION & WORKFORCE COMPLIANCE ──────────────────────────────────────
+    ESCALATION_CREATED: {
+        category: 'ESCALATION',
+        defaultTitle: 'New Escalation Case Opened',
+        defaultMessage: 'Compliance escalation (Level {{escalationLevel}}) triggered for {{actorName}} due to {{category}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'alert-triangle',
+        allowedVariables: ['actorName', 'recipientName', 'companyName', 'category', 'escalationLevel', 'status', 'dueAt'],
+        defaultEnabled: true,
+    },
+    ESCALATION_LEVEL_UP: {
+        category: 'ESCALATION',
+        defaultTitle: 'Escalation Level Increased',
+        defaultMessage: 'Escalation case for {{actorName}} has progressed to Level {{escalationLevel}} ({{category}}).',
+        defaultStyle: 'ERROR',
+        defaultPriority: 'CRITICAL',
+        icon: 'trending-up',
+        allowedVariables: ['actorName', 'recipientName', 'companyName', 'category', 'escalationLevel', 'status', 'dueAt'],
+        defaultEnabled: true,
+    },
+    ESCALATION_EXPLANATION_REQUESTED: {
+        category: 'ESCALATION',
+        defaultTitle: 'Explanation Requested for Compliance Event',
+        defaultMessage: 'Please provide an explanation for your recent {{category}} escalation.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'help-circle',
+        allowedVariables: ['actorName', 'recipientName', 'category', 'dueAt'],
+        defaultEnabled: true,
+    },
+    ESCALATION_RESOLVED: {
+        category: 'ESCALATION',
+        defaultTitle: 'Escalation Case Resolved',
+        defaultMessage: 'Escalation case for {{actorName}} regarding {{category}} has been marked as resolved.',
+        defaultStyle: 'SUCCESS',
+        defaultPriority: 'MEDIUM',
+        icon: 'check-circle',
+        allowedVariables: ['actorName', 'recipientName', 'companyName', 'category', 'resolutionReason'],
+        defaultEnabled: true,
+    },
+    ESCALATION_REMINDER: {
+        category: 'ESCALATION',
+        defaultTitle: 'Urgent: Escalation Resolution Deadline Approaching',
+        defaultMessage: 'Escalation case for {{actorName}} ({{category}}) requires resolution by {{dueAt}}.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'CRITICAL',
+        icon: 'clock',
+        allowedVariables: ['actorName', 'recipientName', 'companyName', 'category', 'dueAt'],
+        defaultEnabled: true,
+    },
+    // ── MANAGER WORKSPACE & ASSIGNMENTS ──────────────────────────────────────
+    MANAGER_PROMOTED: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'Promoted to Manager',
+        defaultMessage: 'You have been promoted to Manager with management workspace access.',
+        defaultStyle: 'SUCCESS',
+        defaultPriority: 'HIGH',
+        icon: 'user-check',
+        allowedVariables: ['actorName', 'recipientName', 'companyName'],
+        defaultEnabled: true,
+    },
+    MANAGER_DEMOTED: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'Manager Privileges Revoked',
+        defaultMessage: 'Your manager privileges have been revoked. Normal employee access is retained.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'user-x',
+        allowedVariables: ['actorName', 'recipientName', 'companyName', 'reason'],
+        defaultEnabled: true,
+    },
+    MANAGER_TEAM_ASSIGNED: {
+        category: 'EMPLOYEE_WORKFORCE',
+        defaultTitle: 'New Team Assigned',
+        defaultMessage: 'You have been assigned as Manager for team {{teamName}}.',
+        defaultStyle: 'INFO',
+        defaultPriority: 'HIGH',
+        icon: 'users',
+        allowedVariables: ['actorName', 'recipientName', 'teamName', 'assignmentType'],
+        defaultEnabled: true,
+    },
+    MANAGER_ACCESS_REVOKED: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'Team or Resource Access Revoked',
+        defaultMessage: 'Your manager access to {{resourceName}} has been revoked.',
+        defaultStyle: 'WARNING',
+        defaultPriority: 'HIGH',
+        icon: 'shield-off',
+        allowedVariables: ['actorName', 'recipientName', 'resourceName', 'reason'],
+        defaultEnabled: true,
+    },
+    MANAGER_PERMISSIONS_UPDATED: {
+        category: 'SECURITY_ACCESS',
+        defaultTitle: 'Manager Permissions Updated',
+        defaultMessage: 'Your manager workspace permissions have been updated.',
+        defaultStyle: 'INFO',
+        defaultPriority: 'MEDIUM',
+        icon: 'lock',
+        allowedVariables: ['actorName', 'recipientName'],
+        defaultEnabled: true,
+    },
+    MANAGER_TASK_REASSIGNED: {
+        category: 'TASK',
+        defaultTitle: 'Task Reassigned by Manager',
+        defaultMessage: 'Task {{taskTitle}} has been reassigned to {{recipientName}} by {{actorName}}.',
+        defaultStyle: 'INFO',
+        defaultPriority: 'MEDIUM',
+        icon: 'check-square',
+        allowedVariables: ['actorName', 'recipientName', 'taskTitle'],
+        defaultEnabled: true,
+    },
 } as const;
 
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
@@ -858,8 +1455,10 @@ export function isValidNotificationType(type: string): type is NotificationType 
 /** Payload published by any business module to the event bus */
 export interface NotificationEventPayload {
     type: NotificationType;
-    companyId: string;
-    actorId: string;
+    companyId?: string | null;
+    actorId?: string;
+    priority?: NotificationPriority;
+    recipientRole?: string;
     /** Optional idempotency key — prevents duplicate notifications on retries */
     eventId?: string;
     entityId?: string;
@@ -875,3 +1474,4 @@ export interface NotificationEventPayload {
     recipientIds?: string[];
     actionUrl?: string;
 }
+

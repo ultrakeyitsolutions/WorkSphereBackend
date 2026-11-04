@@ -17,7 +17,8 @@ export type ModuleKey =
     | 'user-reviews'
     | 'status-updates'
     | 'calendar'
-    | 'shifts';
+    | 'shifts'
+    | 'manager';
 
 export type OverrideState = 'INHERIT' | 'ENABLED' | 'DISABLED';
 
@@ -134,4 +135,6 @@ export interface BulkUpdateResult {
 export interface MemberEffectiveModuleAccessResponse {
     effectiveModules: Record<ModuleKey, boolean>;
     modulesMetadata: IModuleDefinition[];
+    denialReasons?: Partial<Record<ModuleKey, string>>;
+    restrictions?: Partial<Record<ModuleKey, { code: string; message: string }>>;
 }

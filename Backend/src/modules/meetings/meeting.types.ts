@@ -12,6 +12,7 @@ export enum MeetingStatus {
     IN_PROGRESS = 'IN_PROGRESS',
     COMPLETED = 'COMPLETED',
     EXPIRED = 'EXPIRED',
+    PENDING_LINK = 'PENDING_LINK',
 }
 
 // ─── Participant Roles & Statuses ─────────────────────────────────────────────
@@ -127,7 +128,17 @@ export interface CreateMeetingRequestDTO {
     description?: string | null;
     meetingType?: MeetingType;
     meetingLink?: string | null;
+    provider?: 'google_meet' | 'ms_teams' | 'manual' | 'none';
     timezone?: string;
+}
+
+export interface CreateInstantMeetingDTO {
+    title?: string;
+    provider: 'google_meet' | 'ms_teams';
+    durationMinutes?: number;
+    projectId?: string | null;
+    description?: string | null;
+    participantIds?: string[];
 }
 
 export interface AcceptMeetingDTO {
@@ -163,10 +174,47 @@ export interface MeetingListQuery {
     projectId?: string;
     taskId?: string;
     search?: string;
+    teamId?: string;
+    userId?: string;
 }
 
 export interface AvailabilityQuery {
     userId?: string;
     date: string;
     durationMinutes?: number;
+}
+
+export interface MeetingSummaryMetrics {
+    totalMeetings: number;
+    upcomingMeetings: number;
+    pendingInvitations: number;
+    completedMeetings: number;
+    totalMeetingHours: number;
+}
+
+export interface MeetingReportsQuery {
+    type?: 'individual' | 'team' | 'project' | 'organization';
+    dateFrom?: string;
+    dateTo?: string;
+    projectId?: string;
+    userId?: string;
+    provider?: string;
+    status?: string;
+}
+
+export interface MeetingReportResponse {
+    type: string;
+    dateRange: { from: string; to: string };
+    summary: {
+        totalMeetings: number;
+        totalHours: number;
+        avgDurationMinutes: number;
+        completedRate: number;
+    };
+    breakdowns?: {
+        byProvider?: Record<string, number>;
+        byStatus?: Record<string, number>;
+        byType?: Record<string, number>;
+    };
+    items?: any[];
 }

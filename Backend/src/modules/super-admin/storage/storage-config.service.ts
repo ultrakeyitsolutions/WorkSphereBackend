@@ -6,16 +6,19 @@ import {
     StorageProviderEnum,
 } from './storage-config.types';
 import { StorageProviderFactory } from '../../../infrastructure/storage/storage-provider.factory';
+import { CloudinaryStorageProvider } from '../../../infrastructure/storage/providers/cloudinary-storage.provider';
 import { env } from '../../../config/env';
+import { getRedisClient } from '../../../config/redis';
 
 export class StorageConfigurationService {
     // In-memory cache for ultra-fast access on file uploads
     private static cachedConfig: IStorageConfigurationDocument | null = null;
     private static cacheTimestamp = 0;
     private static readonly CACHE_TTL_MS = 60 * 1000; // 1 minute TTL fallback
+    private static isSubscriberInitialized = false;
 
     /**
-     * Invalidate cached storage configuration.
+     * Invalidate cached storage configuration locally.
      */
     static invalidateCache(): void {
         this.cachedConfig = null;
@@ -23,10 +26,64 @@ export class StorageConfigurationService {
     }
 
     /**
+     * Initialize Redis pub/sub subscriber to invalidate cache across all backend worker instances.
+     */
+    static initRedisSubscriber(): void {
+        if (this.isSubscriberInitialized) return;
+        try {
+            const redis = getRedisClient();
+            if (redis) {
+                const sub = redis.duplicate();
+                sub.subscribe('worksphere:storage_config_invalidated', (err) => {
+                    if (err) {
+                        console.warn('[StorageConfig] Failed to subscribe to Redis storage invalidation channel:', err.message);
+                    } else {
+                        console.log('[StorageConfig] Multi-worker Redis subscriber initialized for worksphere:storage_config_invalidated');
+                        this.isSubscriberInitialized = true;
+                    }
+                });
+
+                sub.on('message', (channel) => {
+                    if (channel === 'worksphere:storage_config_invalidated') {
+                        console.log('[StorageConfig] Invalidation received from Redis — clearing local storage cache.');
+                        this.invalidateCache();
+                    }
+                });
+            }
+        } catch (err: any) {
+            console.warn('[StorageConfig] Redis subscriber init warning:', err.message);
+        }
+    }
+
+    /**
+     * Broadcast cache invalidation across all backend cluster workers via Redis.
+     */
+    static async broadcastInvalidation(): Promise<void> {
+        this.invalidateCache();
+        try {
+            const redis = getRedisClient();
+            if (redis && redis.status === 'ready') {
+                await redis.publish('worksphere:storage_config_invalidated', JSON.stringify({ timestamp: Date.now() }));
+            }
+        } catch {
+            // Non-fatal if Redis is unreachable; local cache is already invalidated
+        }
+    }
+
+    /**
      * Sign a storage key or CDN URL with active token authentication security.
      */
     static async signUrl(urlOrKey: string, expiresInSeconds = 3600): Promise<string> {
         if (!urlOrKey || !urlOrKey.trim()) return urlOrKey;
+        // If it's a legacy or credentials-bearing Cloudinary URL, sanitize it immediately
+        if (urlOrKey.startsWith('cloudinary://')) {
+            const active = await this.getActiveConfiguration();
+            return CloudinaryStorageProvider.toHttpsDeliveryUrl(
+                urlOrKey,
+                active?.configuration?.cloudName,
+                active?.configuration?.deliveryUrl
+            );
+        }
         try {
             const active = await this.getActiveConfiguration();
             if (active && active.enabled) {
@@ -61,6 +118,16 @@ export class StorageConfigurationService {
             try {
                 const config = await StorageConfiguration.findOne().sort({ updatedAt: -1 });
                 if (config) {
+                    // Sanitize any legacy cloudinary:// URLs stored in configuration
+                    if (config.provider === 'CLOUDINARY' && config.configuration) {
+                        const confObj = config.configuration as any;
+                        if (confObj.deliveryUrl && String(confObj.deliveryUrl).startsWith('cloudinary://')) {
+                            confObj.deliveryUrl = CloudinaryStorageProvider.toHttpsDeliveryUrl(confObj.deliveryUrl, confObj.cloudName);
+                        }
+                        if (confObj.pullZoneUrl && String(confObj.pullZoneUrl).startsWith('cloudinary://')) {
+                            confObj.pullZoneUrl = confObj.deliveryUrl || (confObj.cloudName ? `https://res.cloudinary.com/${confObj.cloudName}` : '');
+                        }
+                    }
                     this.cachedConfig = config;
                     this.cacheTimestamp = now;
                     return config;
@@ -70,7 +137,7 @@ export class StorageConfigurationService {
             }
         }
 
-        // Fallback to environment variables if MongoDB record does not exist yet
+        // Environment fallback
         const fallbackConfig: any = {
             provider: 'BUNNY' as StorageProviderEnum,
             enabled: Boolean(env.BUNNY_STORAGE_ZONE && env.BUNNY_STORAGE_ACCESS_KEY),
@@ -103,21 +170,61 @@ export class StorageConfigurationService {
      */
     static toSafeResponse(config: any): any {
         const plain = config.toObject ? config.toObject() : { ...config };
-        const rawKey = plain.configuration?.accessKey || '';
-        const rawTokenKey = plain.configuration?.tokenSecurityKey || '';
+        const provider = (plain.provider || 'BUNNY').toUpperCase();
+        const conf = plain.configuration || {};
+
+        let safeConfiguration: Record<string, any> = {};
+
+        if (provider === 'CLOUDINARY') {
+            const rawApiKey = String(conf.apiKey || '').trim();
+            const rawApiSecret = String(conf.apiSecret || '').trim();
+            let safeDeliveryUrl = String(conf.deliveryUrl || conf.pullZoneUrl || '').trim();
+            if (safeDeliveryUrl.startsWith('cloudinary://')) {
+                safeDeliveryUrl = CloudinaryStorageProvider.toHttpsDeliveryUrl(safeDeliveryUrl, conf.cloudName);
+            }
+            safeConfiguration = {
+                cloudName: conf.cloudName || '',
+                apiKey: rawApiKey ? (rawApiKey.length > 5 ? `${rawApiKey.slice(0, 3)}****${rawApiKey.slice(-2)}` : '****') : '',
+                apiKeyConfigured: Boolean(rawApiKey.length > 0),
+                apiSecretConfigured: Boolean(rawApiSecret.length > 0),
+                deliveryUrl: safeDeliveryUrl,
+                pullZoneUrl: safeDeliveryUrl,
+                basePath: conf.basePath || 'worksphere',
+            };
+        } else if (provider === 'CLOUDFLARE_R2') {
+            const rawKeyId = String(conf.accessKeyId || '').trim();
+            const rawSecretKey = String(conf.secretAccessKey || '').trim();
+            safeConfiguration = {
+                accountId: conf.accountId || '',
+                bucketName: conf.bucketName || conf.storageZone || '',
+                accessKeyId: rawKeyId ? (rawKeyId.length > 6 ? `${rawKeyId.slice(0, 4)}****${rawKeyId.slice(-3)}` : '****') : '',
+                accessKeyIdConfigured: Boolean(rawKeyId.length > 0),
+                secretAccessKeyConfigured: Boolean(rawSecretKey.length > 0),
+                publicDeliveryUrl: conf.publicDeliveryUrl || conf.pullZoneUrl || '',
+                pullZoneUrl: conf.pullZoneUrl || conf.publicDeliveryUrl || '',
+                endpoint: conf.endpoint || '',
+                basePath: conf.basePath || 'worksphere',
+            };
+        } else {
+            // BUNNY
+            const rawKey = String(conf.accessKey || '').trim();
+            const rawTokenKey = String(conf.tokenSecurityKey || '').trim();
+            safeConfiguration = {
+                storageZone: conf.storageZone || '',
+                region: conf.region || '',
+                pullZoneUrl: conf.pullZoneUrl || '',
+                basePath: conf.basePath || 'worksphere',
+                accessKeyConfigured: Boolean(rawKey.length > 0),
+                tokenSecurityKeyConfigured: Boolean(rawTokenKey.length > 0),
+                tokenExpirySeconds: conf.tokenExpirySeconds || 3600,
+            };
+        }
+
         return {
             _id: plain._id,
-            provider: plain.provider,
+            provider,
             enabled: plain.enabled,
-            configuration: {
-                storageZone: plain.configuration?.storageZone || '',
-                region: plain.configuration?.region || '',
-                pullZoneUrl: plain.configuration?.pullZoneUrl || '',
-                basePath: plain.configuration?.basePath || 'worksphere',
-                accessKeyConfigured: Boolean(rawKey && rawKey.trim().length > 0),
-                tokenSecurityKeyConfigured: Boolean(rawTokenKey && rawTokenKey.trim().length > 0),
-                tokenExpirySeconds: plain.configuration?.tokenExpirySeconds || 3600,
-            },
+            configuration: safeConfiguration,
             limits: plain.limits,
             allowedTypes: plain.allowedTypes,
             updatedAt: plain.updatedAt,
@@ -132,72 +239,118 @@ export class StorageConfigurationService {
         providerType: string,
         configuration: Record<string, any>
     ): Promise<{ success: boolean; message: string; details?: string }> {
+        const provider = (providerType || 'BUNNY').toUpperCase().trim();
+        const conf = { ...configuration };
+
         try {
-            // If accessKey is omitted in test payload, attempt to use active saved accessKey from DB
-            if (!configuration.accessKey || (typeof configuration.accessKey === 'string' && configuration.accessKey.trim().length === 0)) {
-                const existing = await StorageConfiguration.findOne().sort({ updatedAt: -1 });
-                if (existing?.configuration?.accessKey) {
-                    configuration.accessKey = existing.configuration.accessKey;
+            // Fetch existing stored configuration to backfill omitted secrets
+            let existing: any = null;
+            try {
+                existing = await StorageConfiguration.findOne().sort({ updatedAt: -1 });
+            } catch {
+                // Ignore DB error during test if running in memory
+            }
+            const existingConf = existing?.configuration || {};
+
+            if (provider === 'CLOUDINARY') {
+                if (!conf.cloudName) {
+                    return { success: false, message: 'Cloud Name is required for Cloudinary.' };
                 }
+                // Backfill omitted credentials from saved DB config
+                if (!conf.apiKey || String(conf.apiKey).includes('*')) {
+                    conf.apiKey = existingConf.apiKey;
+                }
+                if (!conf.apiSecret || String(conf.apiSecret).includes('*')) {
+                    conf.apiSecret = existingConf.apiSecret;
+                }
+                if (!conf.apiKey || !conf.apiSecret) {
+                    return { success: false, message: 'Cloudinary API Key and API Secret are required to test the configuration.' };
+                }
+            } else if (provider === 'CLOUDFLARE_R2') {
+                const bucket = conf.bucketName || conf.storageZone;
+                if (!conf.accountId || !bucket) {
+                    return { success: false, message: 'Cloudflare Account ID and Bucket Name are required for Cloudflare R2.' };
+                }
+                conf.bucketName = bucket;
+                // Backfill omitted credentials from saved DB config
+                if (!conf.accessKeyId || String(conf.accessKeyId).includes('*')) {
+                    conf.accessKeyId = existingConf.accessKeyId;
+                }
+                if (!conf.secretAccessKey || String(conf.secretAccessKey).includes('*')) {
+                    conf.secretAccessKey = existingConf.secretAccessKey;
+                }
+                if (!conf.accessKeyId || !conf.secretAccessKey) {
+                    return { success: false, message: 'Cloudflare R2 Access Key ID and Secret Access Key are required to test the configuration.' };
+                }
+            } else if (provider === 'BUNNY') {
+                if (!conf.storageZone) {
+                    return { success: false, message: 'Storage Zone name is required for BunnyCDN.' };
+                }
+                if (!conf.accessKey || String(conf.accessKey).includes('*')) {
+                    conf.accessKey = existingConf.accessKey;
+                }
+                if (!conf.accessKey) {
+                    return { success: false, message: 'BunnyCDN Access Key (Password) is required to test the configuration.' };
+                }
+                const rawKey = String(conf.accessKey || '').trim();
+                if (rawKey.includes('•') || /^[•*]+$/.test(rawKey)) {
+                    return {
+                        success: false,
+                        message: 'The Access Key entered is masked bullet dots ("••••"). In Bunny.net, please copy the actual password string.',
+                    };
+                }
+            } else {
+                return { success: false, message: `Unsupported storage provider "${provider}". Supported providers: BUNNY, CLOUDINARY, CLOUDFLARE_R2.` };
             }
 
-            if (!configuration.accessKey || (typeof configuration.accessKey === 'string' && configuration.accessKey.trim().length === 0)) {
-                return {
-                    success: false,
-                    message: 'Storage access key is required to test the configuration.',
-                };
-            }
+            console.log(`[StorageTest] Testing ${provider} storage connectivity...`);
 
-            const rawKey = String(configuration.accessKey || '').trim();
-            if (rawKey.includes('•') || /^[•*]+$/.test(rawKey)) {
-                return {
-                    success: false,
-                    message: 'The Access Key entered is masked bullet dots ("••••"). In Bunny.net, please click the Copy icon next to the Password (or click the Eye icon to reveal it) to copy the actual password string.',
-                };
-            }
-
-            console.log(`[StorageTest] Testing ${providerType}: zone=${configuration.storageZone}, keyLength=${rawKey.length}`);
-
-            const provider = StorageProviderFactory.createProvider(providerType, configuration);
-            const basePath = (configuration.basePath || 'worksphere').replace(/^\/+|\/+$/g, '');
+            const providerInstance = StorageProviderFactory.createProvider(provider, conf);
+            const basePath = (conf.basePath || 'worksphere').replace(/^\/+|\/+$/g, '');
             const testKey = `${basePath}/temporary/test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.txt`;
             const testPayload = Buffer.from(`WorkSphere Storage Connectivity Test @ ${new Date().toISOString()}`);
 
             // 1. Upload test file
-            const uploadResult = await provider.uploadFile(testPayload, testKey, 'text/plain');
+            const uploadResult = await providerInstance.uploadFile(testPayload, testKey, 'text/plain');
             if (!uploadResult || !uploadResult.storageKey) {
                 return {
                     success: false,
-                    message: 'Upload verification failed: no storageKey returned.',
+                    message: `Upload verification failed for ${provider}: no storageKey returned.`,
                 };
             }
 
             // 2. Check file exists
-            const exists = await provider.fileExists(testKey);
+            let exists = await providerInstance.fileExists(uploadResult.storageKey);
+            if (!exists && uploadResult.storageKey !== testKey) {
+                exists = await providerInstance.fileExists(testKey);
+            }
             if (!exists) {
-                // Attempt cleanup before returning error
-                await provider.deleteFile(testKey).catch(() => {});
+                await providerInstance.deleteFile(uploadResult.storageKey).catch(() => {});
+                await providerInstance.deleteFile(testKey).catch(() => {});
                 return {
                     success: false,
-                    message: 'File existence verification failed after upload.',
+                    message: `File existence verification failed for ${provider} after upload.`,
                 };
             }
 
             // 3. Delete test file
-            await provider.deleteFile(testKey);
+            await providerInstance.deleteFile(uploadResult.storageKey).catch(() => {});
+            if (uploadResult.storageKey !== testKey) {
+                await providerInstance.deleteFile(testKey).catch(() => {});
+            }
 
-            if (typeof (provider as any).getResolvedRegion === 'function') {
-                configuration.region = (provider as any).getResolvedRegion();
+            if (provider === 'BUNNY' && typeof (providerInstance as any).getResolvedRegion === 'function') {
+                configuration.region = (providerInstance as any).getResolvedRegion();
             }
 
             return {
                 success: true,
-                message: `${providerType} storage connection tested and verified successfully.`,
+                message: `${provider} storage connection tested and verified successfully.`,
             };
         } catch (error: any) {
-            let message = `Connection test failed: ${error.message || 'Unknown error'}`;
+            let message = `Connection test failed for ${provider}: ${error.message || 'Unknown error'}`;
             if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
-                message += ' (HTTP 401 Unauthorized: Please verify you are using the Storage Zone Read/Write Password from Bunny.net dashboard -> Storage -> [Zone] -> "FTP & API Access", NOT your Account API Key. Also ensure the Region matches your Storage Zone location).';
+                message += ' (HTTP 401 Unauthorized: Please check your credentials).';
             }
             return {
                 success: false,
@@ -213,25 +366,84 @@ export class StorageConfigurationService {
     static async updateConfiguration(userId: string, data: any): Promise<any> {
         const existing = await StorageConfiguration.findOne().sort({ updatedAt: -1 });
 
-        const provider = (data.provider || existing?.provider || 'BUNNY').toUpperCase();
+        const provider = (data.provider || existing?.provider || 'BUNNY').toUpperCase().trim();
         const enabled = data.enabled !== undefined ? data.enabled : (existing?.enabled ?? true);
 
         // Merge configuration
         const existingConf: Record<string, any> = (existing?.configuration as any) || {};
         const newConf: Record<string, any> = data.configuration || {};
+
         const mergedConf: Record<string, any> = {
             ...existingConf,
             ...newConf,
-            // Retain existing access key if not provided in the update payload
-            accessKey: newConf.accessKey && newConf.accessKey.trim().length > 0
-                ? newConf.accessKey.trim()
-                : existingConf.accessKey || '',
-            // Retain existing tokenSecurityKey if not provided in update payload
-            tokenSecurityKey: newConf.tokenSecurityKey !== undefined
-                ? (newConf.tokenSecurityKey && newConf.tokenSecurityKey.trim().length > 0 ? newConf.tokenSecurityKey.trim() : undefined)
-                : existingConf.tokenSecurityKey,
-            tokenExpirySeconds: newConf.tokenExpirySeconds || existingConf.tokenExpirySeconds || 3600,
+            basePath: (newConf.basePath || existingConf.basePath || 'worksphere').replace(/^\/+|\/+$/g, ''),
         };
+
+        if (provider === 'CLOUDINARY') {
+            let extractedKey = '';
+            let extractedSecret = '';
+            let extractedCloud = '';
+
+            const candidates = [newConf.cloudName, newConf.deliveryUrl, newConf.pullZoneUrl].filter(Boolean);
+            for (const str of candidates) {
+                const m = String(str).trim().match(/^cloudinary:\/\/(?:([^:]+):([^@]+)@)?([^/]+)/);
+                if (m) {
+                    if (m[1]) extractedKey = m[1];
+                    if (m[2]) extractedSecret = m[2];
+                    if (m[3]) extractedCloud = m[3];
+                    break;
+                }
+            }
+
+            const rawCloud = (newConf.cloudName ? newConf.cloudName.trim() : (existingConf.cloudName || extractedCloud || '')).replace(/^['"]|['"]$/g, '');
+            mergedConf.cloudName = rawCloud.startsWith('cloudinary://')
+                ? (extractedCloud || rawCloud.replace(/^cloudinary:\/\/(?:[^@]+@)?/, '').split('/')[0])
+                : rawCloud;
+
+            mergedConf.apiKey = (newConf.apiKey && !newConf.apiKey.includes('*'))
+                ? newConf.apiKey.trim()
+                : (extractedKey || existingConf.apiKey || '');
+
+            mergedConf.apiSecret = (newConf.apiSecret && !newConf.apiSecret.includes('*'))
+                ? newConf.apiSecret.trim()
+                : (extractedSecret || existingConf.apiSecret || '');
+
+            // Delivery URL must strictly be an HTTPS / HTTP URL, never cloudinary://
+            let inputDelivery = (newConf.deliveryUrl !== undefined ? newConf.deliveryUrl : existingConf.deliveryUrl) || '';
+            if (typeof inputDelivery === 'string' && inputDelivery.startsWith('cloudinary://')) {
+                inputDelivery = '';
+            }
+            mergedConf.deliveryUrl = inputDelivery && /^https?:\/\//i.test(inputDelivery.trim())
+                ? inputDelivery.trim().replace(/\/+$/, '')
+                : undefined;
+            mergedConf.pullZoneUrl = mergedConf.deliveryUrl || undefined;
+        } else if (provider === 'CLOUDFLARE_R2') {
+            mergedConf.accountId = newConf.accountId ? newConf.accountId.trim() : (existingConf.accountId || '');
+            mergedConf.bucketName = (newConf.bucketName || newConf.storageZone) ? (newConf.bucketName || newConf.storageZone).trim() : (existingConf.bucketName || existingConf.storageZone || '');
+            mergedConf.accessKeyId = (newConf.accessKeyId && !newConf.accessKeyId.includes('*'))
+                ? newConf.accessKeyId.trim()
+                : (existingConf.accessKeyId || '');
+            mergedConf.secretAccessKey = (newConf.secretAccessKey && !newConf.secretAccessKey.includes('*'))
+                ? newConf.secretAccessKey.trim()
+                : (existingConf.secretAccessKey || '');
+            mergedConf.publicDeliveryUrl = newConf.publicDeliveryUrl !== undefined
+                ? (newConf.publicDeliveryUrl ? newConf.publicDeliveryUrl.trim() : undefined)
+                : existingConf.publicDeliveryUrl;
+            mergedConf.pullZoneUrl = newConf.pullZoneUrl || mergedConf.publicDeliveryUrl || existingConf.pullZoneUrl;
+            mergedConf.endpoint = newConf.endpoint || existingConf.endpoint;
+        } else {
+            // BUNNY
+            mergedConf.storageZone = newConf.storageZone ? newConf.storageZone.trim() : (existingConf.storageZone || '');
+            mergedConf.accessKey = (newConf.accessKey && !newConf.accessKey.includes('*'))
+                ? newConf.accessKey.trim()
+                : (existingConf.accessKey || '');
+            mergedConf.pullZoneUrl = newConf.pullZoneUrl ? newConf.pullZoneUrl.trim() : (existingConf.pullZoneUrl || '');
+            mergedConf.region = newConf.region !== undefined ? newConf.region.trim() : existingConf.region;
+            mergedConf.tokenSecurityKey = newConf.tokenSecurityKey !== undefined
+                ? (newConf.tokenSecurityKey && newConf.tokenSecurityKey.trim().length > 0 ? newConf.tokenSecurityKey.trim() : undefined)
+                : existingConf.tokenSecurityKey;
+            mergedConf.tokenExpirySeconds = newConf.tokenExpirySeconds || existingConf.tokenExpirySeconds || 3600;
+        }
 
         // Merge limits
         const mergedLimits = {
@@ -247,10 +459,20 @@ export class StorageConfigurationService {
 
         // Test configuration before activating if storage is enabled
         if (enabled) {
-            if (!mergedConf.storageZone || !mergedConf.accessKey) {
-                throw new Error(
-                    'Cannot enable storage: Please enter your Storage Zone Name, Access Key (Password), and Pull Zone URL in the form below and click Save Configuration.'
-                );
+            if (provider === 'CLOUDINARY') {
+                if (!mergedConf.cloudName || !mergedConf.apiKey || !mergedConf.apiSecret) {
+                    throw new Error('Cannot enable Cloudinary: Cloud Name, API Key, and API Secret are required.');
+                }
+            } else if (provider === 'CLOUDFLARE_R2') {
+                if (!mergedConf.accountId || !mergedConf.bucketName || !mergedConf.accessKeyId || !mergedConf.secretAccessKey) {
+                    throw new Error('Cannot enable Cloudflare R2: Account ID, Bucket Name, Access Key ID, and Secret Access Key are required.');
+                }
+            } else if (provider === 'BUNNY') {
+                if (!mergedConf.storageZone || !mergedConf.accessKey) {
+                    throw new Error('Cannot enable BunnyCDN: Storage Zone Name and Access Key (Password) are required.');
+                }
+            } else {
+                throw new Error(`Unsupported storage provider "${provider}". Supported providers: BUNNY, CLOUDINARY, CLOUDFLARE_R2.`);
             }
 
             const testResult = await this.testConfiguration(provider, mergedConf);
@@ -266,13 +488,7 @@ export class StorageConfigurationService {
         if (existing) {
             if (existing.provider !== provider) changedFields.push('provider');
             if (existing.enabled !== enabled) changedFields.push('enabled');
-            if (newConf.storageZone && newConf.storageZone !== existingConf.storageZone) changedFields.push('configuration.storageZone');
-            if (newConf.accessKey && newConf.accessKey !== existingConf.accessKey) changedFields.push('configuration.accessKey');
-            if (newConf.region && newConf.region !== existingConf.region) changedFields.push('configuration.region');
-            if (newConf.pullZoneUrl && newConf.pullZoneUrl !== existingConf.pullZoneUrl) changedFields.push('configuration.pullZoneUrl');
-            if (newConf.basePath && newConf.basePath !== existingConf.basePath) changedFields.push('configuration.basePath');
-            if (newConf.tokenSecurityKey !== undefined && newConf.tokenSecurityKey !== existingConf.tokenSecurityKey) changedFields.push('configuration.tokenSecurityKey');
-            if (newConf.tokenExpirySeconds && newConf.tokenExpirySeconds !== existingConf.tokenExpirySeconds) changedFields.push('configuration.tokenExpirySeconds');
+            changedFields.push('configuration');
             if (data.limits) changedFields.push('limits');
             if (data.allowedTypes) changedFields.push('allowedTypes');
         } else {
@@ -290,7 +506,7 @@ export class StorageConfigurationService {
             savedDoc = await existing.save();
         } else {
             savedDoc = await StorageConfiguration.create({
-                provider,
+                provider: provider as StorageProviderEnum,
                 enabled,
                 configuration: mergedConf as any,
                 limits: mergedLimits,
@@ -300,8 +516,8 @@ export class StorageConfigurationService {
             });
         }
 
-        // Invalidate cache immediately
-        this.invalidateCache();
+        // Invalidate cache immediately and broadcast across workers
+        await this.broadcastInvalidation();
 
         // Save audit history snapshot (safe snapshot without plaintext secrets)
         const safeSnapshot = this.toSafeResponse(savedDoc);
@@ -332,7 +548,7 @@ export class StorageConfigurationService {
         if (!config || !config.enabled) {
             return {
                 provider: config?.provider || 'NONE',
-                configured: Boolean(config?.configuration?.storageZone),
+                configured: Boolean(config?.configuration?.storageZone || config?.configuration?.cloudName || config?.configuration?.accountId),
                 connected: false,
                 lastCheckedAt: new Date().toISOString(),
                 status: 'DISABLED',
@@ -371,14 +587,22 @@ export class StorageConfigurationService {
             throw new Error('History record not found');
         }
 
-        // The snapshot does not contain plaintext accessKey, so restore other fields while retaining current key
         const activeConfig = await this.getActiveConfiguration();
+        const existingConf = activeConfig?.configuration || {};
+        const snapshotConf = historyItem.snapshot.configuration || {};
+
+        // Merge snapshot with existing secrets if snapshot had masked values
         const restoredConfigData = {
             provider: historyItem.snapshot.provider,
             enabled: historyItem.snapshot.enabled,
             configuration: {
-                ...historyItem.snapshot.configuration,
-                accessKey: activeConfig?.configuration?.accessKey || '',
+                ...snapshotConf,
+                accessKey: existingConf.accessKey || '',
+                tokenSecurityKey: existingConf.tokenSecurityKey,
+                apiKey: existingConf.apiKey || '',
+                apiSecret: existingConf.apiSecret || '',
+                accessKeyId: existingConf.accessKeyId || '',
+                secretAccessKey: existingConf.secretAccessKey || '',
             },
             limits: historyItem.snapshot.limits,
             allowedTypes: historyItem.snapshot.allowedTypes,

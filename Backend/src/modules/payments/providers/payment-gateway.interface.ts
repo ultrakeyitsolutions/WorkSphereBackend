@@ -30,6 +30,9 @@ export interface GatewayPaymentResult {
     method?: string;
     errorCode?: string | null;
     errorDescription?: string | null;
+    errorSource?: string | null;
+    errorStep?: string | null;
+    errorReason?: string | null;
     raw: Record<string, any>;
 }
 

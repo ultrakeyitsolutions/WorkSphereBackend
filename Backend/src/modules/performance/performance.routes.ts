@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
+import { requireModuleAccess } from '../../middleware/module-access.middleware';
 import { validateRequest } from '../../middleware/validateRequest';
 import { performanceQuerySchema } from './performance.validator';
 import {
@@ -14,6 +15,7 @@ const router = Router({ mergeParams: true });
 
 // Require authentication for all performance endpoints
 router.use(authenticate);
+router.use(requireModuleAccess('user-reviews'));
 
 // ── GET /api/v1/company/users/:userId/performance ─────────────────────────────
 router.get('/:userId/performance', validateRequest(performanceQuerySchema), getPerformanceSummary);

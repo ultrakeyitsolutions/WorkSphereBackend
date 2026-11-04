@@ -428,8 +428,28 @@ export class SubscriptionQuotaService {
                 unitSuffix = `${check.unit} storage`;
             }
 
-            const message = `Your plan allows up to ${check.limit} ${unitSuffix}. Your company currently has ${check.currentUsage} ${unitSuffix}.`;
+            // Notify SuperAdmin if employee limit reached or exceeded
+            if (resource === 'users') {
+                import('../modules/super-admin/notifications/super-admin-notification.service.js')
+                    .then(({ SuperAdminNotificationService }) => {
+                        SuperAdminNotificationService.dispatchNotification({
+                            type: check.currentUsage >= check.limit ? 'EMPLOYEE_LIMIT_EXCEEDED' : 'COMPANY_EMPLOYEE_LIMIT_REACHED',
+                            category: 'EMPLOYEE_WORKFORCE',
+                            title: 'Company Employee Limit Reached',
+                            message: `Company (${companyId}) reached or exceeded its employee limit (${check.limit}). Current usage: ${check.currentUsage}.`,
+                            priority: 'HIGH',
+                            companyId,
+                            metadata: {
+                                limit: check.limit,
+                                currentUsage: check.currentUsage,
+                                resource,
+                            },
+                        }).catch((err: any) => console.error('[QuotaNotification] Failed to dispatch limit notification:', err));
+                    })
+                    .catch(() => {});
+            }
 
+            const message = `You have reached the maximum limit of ${check.limit} ${unitSuffix} for your plan. Please upgrade your plan to increase limits.`;
             throw new AppError(message, 403, {
                 code: 'PLAN_LIMIT_REACHED',
                 resource,

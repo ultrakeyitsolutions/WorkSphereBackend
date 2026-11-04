@@ -126,6 +126,7 @@ export const SUPPORTED_MODULES: IModuleDefinition[] = [
         description: 'Employee performance reviews, appraisal links, and feedback history',
         category: 'Management',
         defaultEnabled: true,
+        entitlement: 'USER_REVIEW_LINKS',
         route: '/main/user-reviews',
         iconName: 'Star',
     },
@@ -155,6 +156,15 @@ export const SUPPORTED_MODULES: IModuleDefinition[] = [
         defaultEnabled: true,
         route: '/main/shifts',
         iconName: 'Clock',
+    },
+    {
+        key: 'manager',
+        name: 'Manager Workspace',
+        description: 'Team oversight, manager dashboard, assigned employee performance and approvals',
+        category: 'Management',
+        defaultEnabled: true,
+        route: '/main/manager',
+        iconName: 'Users',
     },
 ];
 
@@ -201,6 +211,12 @@ export const MODULE_KEY_ALIASES: Record<string, ModuleKey> = {
     calendar: 'calendar',
     shifts: 'shifts',
     shift: 'shifts',
+    manager: 'manager',
+    'manager-workspace': 'manager',
+    managerworkspace: 'manager',
+    manager_workspace: 'manager',
+    'manager-dashboard': 'manager',
+    managerdashboard: 'manager',
 };
 
 export function normalizeModuleKey(rawKey: string): ModuleKey | null {
@@ -231,4 +247,5 @@ export const DEFAULT_GLOBAL_MODULE_SETTINGS: Record<ModuleKey, boolean> = {
     'status-updates': true,
     calendar: true,
     shifts: true,
+    manager: true,
 };

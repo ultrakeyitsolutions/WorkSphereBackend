@@ -13,6 +13,42 @@ try {
 export const connectDatabase = async (): Promise<void> => {
     const start = performance.now();
     try {
+        mongoose.connection.on('error', (err) => {
+            console.error('[DB] Connection error:', err.message);
+            import('../modules/super-admin/notifications/super-admin-notification.service.js').then(
+                ({ SuperAdminNotificationService }) => {
+                    SuperAdminNotificationService.dispatch({
+                        type: 'MONGODB_CONNECTION_FAILED',
+                        priority: 'CRITICAL',
+                        eventId: `mongo_err_${Date.now()}`,
+                        metadata: {
+                            errorMessage: err.message,
+                            state: 'error',
+                            timestamp: new Date().toISOString(),
+                        },
+                    }).catch(() => {});
+                }
+            ).catch(() => {});
+        });
+
+        mongoose.connection.on('disconnected', () => {
+            console.warn('[DB] Connection lost.');
+            import('../modules/super-admin/notifications/super-admin-notification.service.js').then(
+                ({ SuperAdminNotificationService }) => {
+                    SuperAdminNotificationService.dispatch({
+                        type: 'MONGODB_CONNECTION_FAILED',
+                        priority: 'CRITICAL',
+                        eventId: `mongo_disc_${Date.now()}`,
+                        metadata: {
+                            errorMessage: 'MongoDB connection lost or disconnected',
+                            state: 'disconnected',
+                            timestamp: new Date().toISOString(),
+                        },
+                    }).catch(() => {});
+                }
+            ).catch(() => {});
+        });
+
         await mongoose.connect(env.MONGODB_URI);
 
         console.log(
@@ -26,8 +62,22 @@ export const connectDatabase = async (): Promise<void> => {
         console.log(
             `[DB] ping: ${(performance.now() - pingStart).toFixed(2)}ms`
         );
-    } catch (error) {
+    } catch (error: any) {
         console.error('Database connection failed:', error);
+        import('../modules/super-admin/notifications/super-admin-notification.service.js').then(
+            ({ SuperAdminNotificationService }) => {
+                SuperAdminNotificationService.dispatch({
+                    type: 'MONGODB_CONNECTION_FAILED',
+                    priority: 'CRITICAL',
+                    eventId: `mongo_init_fail_${Date.now()}`,
+                    metadata: {
+                        errorMessage: error?.message || 'Database initial connection failed',
+                        state: 'failed',
+                        timestamp: new Date().toISOString(),
+                    },
+                }).catch(() => {});
+            }
+        ).catch(() => {});
         process.exit(1);
     }
 };

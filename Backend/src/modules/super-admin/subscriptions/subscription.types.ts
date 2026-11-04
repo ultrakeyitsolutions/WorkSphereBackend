@@ -28,6 +28,12 @@ export interface ISubscription {
     pauseReason?: string;
 
     cancellationReason?: string;
+
+    isComplimentary?: boolean;
+    complimentaryReason?: string | null;
+    complimentaryGrantedBy?: Types.ObjectId | null;
+    complimentaryGrantedAt?: Date | null;
+    pricingOverride?: number | null;
 }
 
 export interface ISubscriptionDocument extends ISubscription, Document {

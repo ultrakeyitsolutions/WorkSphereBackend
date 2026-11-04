@@ -4,6 +4,7 @@ import { FileModel } from './file.model';
 import { IFileDocument, FileContextType } from './file.types';
 import { StorageConfigurationService } from '../super-admin/storage/storage-config.service';
 import { StorageProviderFactory } from '../../infrastructure/storage/storage-provider.factory';
+import { CloudinaryStorageProvider } from '../../infrastructure/storage/providers/cloudinary-storage.provider';
 import { validateUploadedFile } from './file.validator';
 import { ChatService } from '../chat/chat.service';
 import { ProjectService } from '../companyadmin/projects/project.service';
@@ -103,6 +104,7 @@ export class FileService {
                     mimeType: file.mimetype,
                     extension,
                     size: file.size,
+                    provider: activeConfig.provider,
                     contextType,
                     contextId: (contextId ? (Types.ObjectId.isValid(contextId) ? new Types.ObjectId(contextId) : contextId) : undefined) as any,
                 });
@@ -223,7 +225,11 @@ export class FileService {
             // Fallback to stored URL
         }
 
-        return fileDoc.storageUrl;
+        let fallbackUrl = fileDoc.storageUrl;
+        if (fallbackUrl && fallbackUrl.startsWith('cloudinary://')) {
+            fallbackUrl = CloudinaryStorageProvider.toHttpsDeliveryUrl(fallbackUrl);
+        }
+        return fallbackUrl;
     }
 }
 export default FileService;

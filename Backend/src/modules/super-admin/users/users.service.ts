@@ -14,6 +14,7 @@ import { SessionService } from '../../auth/session/session.service';
 import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../shared/pagination.util';
 import { UserStatisticsData, UserEffectivePermissionsData } from './users.types';
 import { AppError } from '../../../utils/AppError';
+import { SuperAdminNotificationService } from '../notifications/super-admin-notification.service';
 
 export class SuperAdminUsersService {
     /**
@@ -382,6 +383,45 @@ export class SuperAdminUsersService {
             success: true,
             description: `Super Admin updated user ${user.email} status to ${normalized}`,
         });
+
+        // Dispatch SuperAdmin notification if a SuperAdmin was modified
+        if (roleName === 'SUPER_ADMIN') {
+            SuperAdminNotificationService.dispatch({
+                type: 'SUPERADMIN_ROLE_CHANGED',
+                priority: 'CRITICAL',
+                actorId: actorUserId,
+                eventId: `sa_role_change_${user._id}_${Date.now()}`,
+                metadata: {
+                    targetEmail: user.email,
+                    action: normalized === 'ACTIVE' ? 'SuperAdmin activated' : `SuperAdmin ${normalized.toLowerCase()}`,
+                    updatedAt: new Date().toISOString(),
+                },
+            }).catch(() => {});
+        }
+
+        // Check if company has no active administrators remaining
+        if (!isActive && user.companyId && (roleName === 'COMPANY_ADMIN' || roleName === 'Admin')) {
+            User.countDocuments({
+                companyId: user.companyId,
+                role: user.role,
+                isActive: true,
+                status: 'ACTIVE',
+                _id: { $ne: user._id },
+            }).then((activeAdminsCount) => {
+                if (activeAdminsCount === 0) {
+                    SuperAdminNotificationService.dispatch({
+                        type: 'COMPANY_WITHOUT_ACTIVE_ADMIN',
+                        priority: 'CRITICAL',
+                        companyId: String(user.companyId),
+                        actorId: actorUserId,
+                        eventId: `no_admin_${user.companyId}_${Date.now()}`,
+                        metadata: {
+                            reason: `Admin ${user.email} was set to ${normalized}`,
+                        },
+                    }).catch(() => {});
+                }
+            }).catch(() => {});
+        }
 
         return {
             id: user._id,

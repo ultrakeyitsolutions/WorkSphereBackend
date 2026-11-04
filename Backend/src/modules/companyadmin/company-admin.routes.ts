@@ -1,3 +1,4 @@
+import { requireModuleAccess } from '../../middleware/module-access.middleware';
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -5,7 +6,8 @@ import companyRoleRoutes from './invitations/roles/company-role.routes';
 import designationRoutes from './invitations/designation/designation.routes';
 import invitationRoutes from './invitations/invitation.routes';
 import employeeRoutes from './members/employee.routes';
-import managerRoutes from './members/manager.routes';
+import managerAdminRoutes from '../manager/routes/manager-admin.routes';
+import teamRoutes from '../teams/team.routes';
 import clientRoutes from './members/client.routes';
 import memberRoutes from './members/member.routes';
 import projectRoutes from './projects/project.routes';
@@ -22,6 +24,7 @@ import moduleAccessRoutes from './module-access/module-access.routes';
 import leaveAdminRoutes from './leave/leave-admin.routes';
 import memberDashboardRoutes from './members/member-dashboard.routes';
 import performanceRoutes from '../performance/performance.routes';
+import companyBillingRoutes from './billing/company-billing.routes';
 
 const router = Router();
 
@@ -41,6 +44,9 @@ const inviteLimiter = rateLimit({
 // The frontend must NEVER supply companyId directly for these routes.
 router.use(authenticate);
 
+// ── /api/v1/company/billing ───────────────────────────────────────────────────
+router.use('/billing', companyBillingRoutes);
+
 // ── /api/v1/company/impersonation ─────────────────────────────────────────────
 router.use('/impersonation', impersonationRoutes);
 
@@ -48,8 +54,8 @@ router.use('/impersonation', impersonationRoutes);
 router.use('/settings', companySettingsRoutes);
 
 // ── /api/v1/company/leave & /api/v1/company/leaves ────────────────────────────
-router.use('/leave', leaveAdminRoutes);
-router.use('/leaves', leaveAdminRoutes);
+router.use('/leave', requireModuleAccess('leave'), leaveAdminRoutes);
+router.use('/leaves', requireModuleAccess('leave'), leaveAdminRoutes);
 
 // ── /api/v1/company/module-access & /api/v1/company/sidebar-access ───────────
 router.use('/module-access', moduleAccessRoutes);
@@ -74,6 +80,9 @@ router.use('/invitations', inviteLimiter, invitationRoutes);
 router.use('/employees', employeeRoutes);
 
 // ── /api/v1/company/users/permissions & performance ─────────────────────────
+import { searchAllUsers, changeUserRole } from './members/employee.controller';
+router.get('/users/search-all', searchAllUsers);
+router.post('/users/:userId/role', changeUserRole);
 router.use('/users/permissions', permissionsRoutes);
 router.use('/users', performanceRoutes);
 
@@ -81,25 +90,26 @@ router.use('/users', performanceRoutes);
 router.use('/clients', clientRoutes);
 
 // ── /api/v1/company/managers ─────────────────────────────────────────────────
-router.use('/managers', managerRoutes);
+router.use('/managers', managerAdminRoutes);
+router.use('/teams', teamRoutes);
 
 // ── /api/v1/company/members ──────────────────────────────────────────────────
 router.use('/members', memberRoutes);
 
 // ── /api/v1/company/projects ──────────────────────────────────────────────────
-router.use('/projects', projectRoutes);
+router.use('/projects', requireModuleAccess('projects'), projectRoutes);
 
 // ── /api/v1/company/tasks ────────────────────────────────────────────────────
-router.use('/tasks', taskRoutes);
+router.use('/tasks', requireModuleAccess('tasks'), taskRoutes);
 
 // ── /api/v1/company/task-activities ──────────────────────────────────────────
-router.use('/task-activities', taskActivityRootRoutes);
+router.use('/task-activities', requireModuleAccess('tasks'), taskActivityRootRoutes);
 
 // ── /api/v1/company/task-bugs ────────────────────────────────────────────────
-router.use('/task-bugs', taskBugRootRoutes);
+router.use('/task-bugs', requireModuleAccess('tasks'), taskBugRootRoutes);
 
 // ── /api/v1/company/task-attachments ─────────────────────────────────────────
-router.use('/task-attachments', taskAttachmentRootRoutes);
+router.use('/task-attachments', requireModuleAccess('tasks'), taskAttachmentRootRoutes);
 
 import taskTrackingRoutes from '../task-tracking/task-tracking.routes';
 import taskIntelligenceRoutes from '../task-intelligence/task-intelligence.routes';
@@ -110,30 +120,30 @@ import taskExplanationRatingRoutes from '../task-explanation-rating/task-explana
 import calendarRoutes from '../calendar/calendar.routes';
 
 // ── /api/v1/company/calendar ─────────────────────────────────────────────────
-router.use('/calendar', calendarRoutes);
+router.use('/calendar', requireModuleAccess('calendar'), calendarRoutes);
 
 // ── /api/v1/company/attendance ───────────────────────────────────────────────
-router.use('/attendance', attendanceRoutes);
+router.use('/attendance', requireModuleAccess('attendance'), attendanceRoutes);
 
 // ── /api/v1/company/task-tracking ────────────────────────────────────────────
-router.use('/task-tracking', taskTrackingRoutes);
+router.use('/task-tracking', requireModuleAccess('tasks'), taskTrackingRoutes);
 
 // ── /api/v1/company/task-intelligence ────────────────────────────────────────
-router.use('/task-intelligence', taskIntelligenceRoutes);
+router.use('/task-intelligence', requireModuleAccess('tasks'), taskIntelligenceRoutes);
 
 // ── /api/v1/company/task-explanation-ratings ─────────────────────────────────
-router.use('/task-explanation-ratings', taskExplanationRatingRoutes);
+router.use('/task-explanation-ratings', requireModuleAccess('tasks'), taskExplanationRatingRoutes);
 
 // ── /api/v1/company/timesheets ────────────────────────────────────────────────
-router.use('/timesheets', timesheetRoutes);
+router.use('/timesheets', requireModuleAccess('timesheet'), timesheetRoutes);
 
 import { shiftRoutes, shiftAssignmentRoutes } from '../shifts';
 
 // ── /api/v1/company/shifts ────────────────────────────────────────────────────
-router.use('/shifts', shiftRoutes);
+router.use('/shifts', requireModuleAccess('shifts'), shiftRoutes);
 
 // ── /api/v1/company/shift-assignments ─────────────────────────────────────────
-router.use('/shift-assignments', shiftAssignmentRoutes);
+router.use('/shift-assignments', requireModuleAccess('shifts'), shiftAssignmentRoutes);
 
 import liveMonitoringRoutes from './live-monitoring/live-monitoring.routes';
 import detailedMonitoringRoutes from './detailed-monitoring/detailed-monitoring.routes';

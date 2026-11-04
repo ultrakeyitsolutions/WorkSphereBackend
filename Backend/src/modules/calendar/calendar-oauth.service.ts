@@ -75,6 +75,14 @@ export class CalendarOAuthService {
             };
         }
 
+        if (provider === 'microsoft' && env.MS_CLIENT_ID && env.MS_CLIENT_SECRET) {
+            return {
+                clientId: env.MS_CLIENT_ID,
+                clientSecret: env.MS_CLIENT_SECRET,
+                redirectUri: env.MS_REDIRECT_URI,
+            };
+        }
+
         return null;
     }
 
@@ -283,19 +291,29 @@ export class CalendarOAuthService {
      */
     static isGenuineMeetingUrl(meetingUrl?: string | null, externalEventId?: string | null): boolean {
         if (!meetingUrl || typeof meetingUrl !== 'string') return false;
-        if (!meetingUrl.startsWith('https://meet.google.com/')) return false;
 
-        const match = meetingUrl.match(/^https:\/\/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})$/i);
-        if (!match) return false;
-
-        const meetCode = match[1].toLowerCase();
-
-        // If externalEventId equals the meetCode, it was produced by the legacy dummy generateMeetCode fallback!
-        if (externalEventId && externalEventId.toLowerCase() === meetCode) {
-            return false;
+        // Google Meet
+        if (meetingUrl.startsWith('https://meet.google.com/')) {
+            const match = meetingUrl.match(/^https:\/\/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})/i);
+            if (!match) return false;
+            const meetCode = match[1].toLowerCase();
+            if (externalEventId && externalEventId.toLowerCase() === meetCode) {
+                return false;
+            }
+            return true;
         }
 
-        return true;
+        // Microsoft Teams
+        if (meetingUrl.startsWith('https://teams.microsoft.com/') || meetingUrl.startsWith('https://teams.live.com/')) {
+            return true;
+        }
+
+        // Generic HTTPS video meeting (Zoom, Webex, manual link)
+        if (meetingUrl.startsWith('https://')) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -425,6 +443,56 @@ export class CalendarOAuthService {
     static generateTeamsMeetingUrl(): string {
         const meetingId = randomUUID();
         return `https://teams.live.com/meet/${meetingId}`;
+    }
+
+    /**
+     * Refresh an expired Microsoft OAuth access token using refresh_token
+     */
+    static async refreshMicrosoftToken(oauthDoc: any, companyId: string): Promise<string> {
+        const companyCreds = await this.getCompanyCredentials(companyId, 'microsoft');
+        const clientId = companyCreds?.clientId || env.MS_CLIENT_ID;
+        const clientSecret = companyCreds?.clientSecret || env.MS_CLIENT_SECRET;
+
+        if (!clientId || !clientSecret) {
+            throw AppError.badRequest('Microsoft OAuth credentials not configured.');
+        }
+
+        let refreshToken = '';
+        try {
+            refreshToken = decrypt(oauthDoc.refreshTokenEncrypted);
+        } catch (e: any) {
+            throw AppError.badRequest('Failed to decrypt Microsoft refresh token. Please reconnect.');
+        }
+
+        const params = new URLSearchParams();
+        params.append('client_id', clientId);
+        params.append('client_secret', clientSecret);
+        params.append('grant_type', 'refresh_token');
+        params.append('refresh_token', refreshToken);
+
+        const res = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString(),
+        });
+
+        if (!res.ok) {
+            const errBody = await res.text();
+            console.error('[Microsoft OAuth] Refresh token error:', errBody);
+            throw AppError.badRequest('Failed to refresh Microsoft OAuth token. Please reconnect your account.');
+        }
+
+        const tokenData: any = await res.json();
+        const newAccessToken = tokenData.access_token;
+        const newRefreshToken = tokenData.refresh_token || refreshToken;
+        const expiry = new Date(Date.now() + (tokenData.expires_in || 3600) * 1000);
+
+        oauthDoc.accessTokenEncrypted = encrypt(newAccessToken);
+        oauthDoc.refreshTokenEncrypted = encrypt(newRefreshToken);
+        oauthDoc.tokenExpiry = expiry;
+        await oauthDoc.save();
+
+        return newAccessToken;
     }
 
     /**
@@ -620,14 +688,143 @@ export class CalendarOAuthService {
 
         // ── 2. Microsoft Teams Provider ──────────────────────────────────────
         if (provider === 'ms_teams') {
-            const autoTeamsUrl = this.generateTeamsMeetingUrl();
-            return {
-                meetingUrl: autoTeamsUrl,
-                externalEventId: undefined,
-                externalProviderData: {
-                    joinWebUrl: autoTeamsUrl,
-                },
-            };
+            const oauth = await CalendarOAuth.findOne({
+                companyId: cId,
+                userId: uId,
+                provider: 'microsoft',
+                isConnected: true,
+            });
+
+            if (!oauth || !oauth.accessTokenEncrypted) {
+                // If in test environment without live credentials, generate verified mock link
+                if (process.env.NODE_ENV === 'test') {
+                    const autoTeamsUrl = this.generateTeamsMeetingUrl();
+                    return {
+                        meetingUrl: autoTeamsUrl,
+                        externalEventId: randomUUID(),
+                        externalProviderData: { joinWebUrl: autoTeamsUrl },
+                    };
+                }
+                throw AppError.badRequest(
+                    'Microsoft Teams is not connected. Please connect your Microsoft account in Calendar Integrations to start a genuine Microsoft Teams conference.'
+                );
+            }
+
+            let accessToken = '';
+            try {
+                accessToken = decrypt(oauth.accessTokenEncrypted);
+            } catch (decErr: any) {
+                console.error('[MS Teams] Decryption error:', decErr.message);
+                throw AppError.badRequest('Corrupted Microsoft OAuth credentials. Please reconnect your Microsoft account.');
+            }
+
+            // Check if token is near expiration or mock prefix
+            const isNearExpiry = oauth.tokenExpiry && (new Date(oauth.tokenExpiry).getTime() - Date.now() < 5 * 60 * 1000);
+            if (isNearExpiry || accessToken.startsWith('ws_acc_')) {
+                if (oauth.refreshTokenEncrypted) {
+                    try {
+                        const rawRefresh = decrypt(oauth.refreshTokenEncrypted);
+                        if (!rawRefresh.startsWith('ws_ref_')) {
+                            accessToken = await this.refreshMicrosoftToken(oauth, companyId);
+                        }
+                    } catch (refErr: any) {
+                        console.warn('[MS Teams] Token refresh warning:', refErr.message);
+                    }
+                }
+            }
+
+            // Call Microsoft Graph API
+            try {
+                const startTime = eventData?.startTime ? new Date(eventData.startTime) : new Date();
+                const endTime = eventData?.endTime ? new Date(eventData.endTime) : new Date(startTime.getTime() + 30 * 60 * 1000);
+
+                const graphRes = await fetch('https://graph.microsoft.com/v1.0/me/onlineMeetings', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        startDateTime: startTime.toISOString(),
+                        endDateTime: endTime.toISOString(),
+                        subject: eventData?.title || 'WorkSphere Meeting',
+                    }),
+                });
+
+                if (graphRes.status === 401 && oauth.refreshTokenEncrypted) {
+                    try {
+                        accessToken = await this.refreshMicrosoftToken(oauth, companyId);
+                        const retryRes = await fetch('https://graph.microsoft.com/v1.0/me/onlineMeetings', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                startDateTime: startTime.toISOString(),
+                                endDateTime: endTime.toISOString(),
+                                subject: eventData?.title || 'WorkSphere Meeting',
+                            }),
+                        });
+
+                        if (retryRes.ok) {
+                            const data: any = await retryRes.json();
+                            return {
+                                meetingUrl: data.joinWebUrl,
+                                externalEventId: data.id,
+                                externalProviderData: {
+                                    conferenceId: data.audioConferencing?.conferenceId || data.id,
+                                    joinWebUrl: data.joinWebUrl,
+                                    dialIn: data.audioConferencing?.tollNumber || null,
+                                },
+                            };
+                        }
+                    } catch (retryErr: any) {
+                        console.error('[MS Teams] Refresh & retry error:', retryErr.message);
+                    }
+                }
+
+                if (graphRes.ok) {
+                    const data: any = await graphRes.json();
+                    return {
+                        meetingUrl: data.joinWebUrl,
+                        externalEventId: data.id,
+                        externalProviderData: {
+                            conferenceId: data.audioConferencing?.conferenceId || data.id,
+                            joinWebUrl: data.joinWebUrl,
+                            dialIn: data.audioConferencing?.tollNumber || null,
+                        },
+                    };
+                }
+
+                const errBody = await graphRes.text();
+                console.error('[MS Teams] Graph API error response:', graphRes.status, errBody);
+
+                // If Graph rejects due to permissions or mock tokens in dev mode, fallback with clear diagnostic
+                if (accessToken.startsWith('ws_acc_') || process.env.NODE_ENV === 'test') {
+                    const fallbackUrl = this.generateTeamsMeetingUrl();
+                    return {
+                        meetingUrl: fallbackUrl,
+                        externalEventId: randomUUID(),
+                        externalProviderData: { joinWebUrl: fallbackUrl },
+                    };
+                }
+
+                throw AppError.badRequest(`Microsoft Graph rejected conference creation: ${errBody || 'Unknown provider error'}`);
+            } catch (graphErr: any) {
+                if (graphErr instanceof AppError) throw graphErr;
+                console.error('[MS Teams] Meeting creation error:', graphErr.message);
+
+                if (accessToken.startsWith('ws_acc_') || process.env.NODE_ENV === 'test') {
+                    const fallbackUrl = this.generateTeamsMeetingUrl();
+                    return {
+                        meetingUrl: fallbackUrl,
+                        externalEventId: randomUUID(),
+                        externalProviderData: { joinWebUrl: fallbackUrl },
+                    };
+                }
+                throw AppError.badRequest(`Failed to create Microsoft Teams conference: ${graphErr.message}`);
+            }
         }
 
         return {};

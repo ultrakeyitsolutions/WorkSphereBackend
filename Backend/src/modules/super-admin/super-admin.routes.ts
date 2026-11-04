@@ -9,6 +9,7 @@ import featureRouter from './features/features.routes';
 import subscriptionRoutes from './subscriptions/subscription.routes';
 import auditLogRouter from '../audit-logs/audit-log.routes';
 import storageRouter from './storage/storage-config.routes';
+import { superAdminCompanyBrandingRouter } from './white-label/white-label.routes';
 
 const router = Router();
 
@@ -103,7 +104,9 @@ companiesRouter.delete(
 );
 
 companiesRouter.use('/:companyId/subscription', subscriptionRoutes);
+companiesRouter.use('/:companyId/branding', superAdminCompanyBrandingRouter);
 router.use('/companies', companiesRouter);
+router.use('/white-label', superAdminCompanyBrandingRouter);
 
 // ── Plan Management Routes ────────────────────────────────────────────────────
 // GET    /api/super-admin/plans

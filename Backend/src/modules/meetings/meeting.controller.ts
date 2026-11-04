@@ -419,4 +419,107 @@ export class MeetingController {
             return sendError(res, error.message || 'Failed to cancel meeting', error.statusCode || 500);
         }
     }
+
+    /**
+     * POST /api/meetings/instant
+     * 1-Click Instant Video Conference Room Generation
+     */
+    public static async createInstantMeeting(req: AuthenticatedRequest, res: Response) {
+        try {
+            const companyId = req.currentUser?.companyId || req.user?.companyId;
+            const userId = req.currentUser?.userId || req.user?.userId;
+            if (!companyId || !userId) {
+                return sendError(res, 'Authentication context missing', 401);
+            }
+
+            const { title, provider, durationMinutes, projectId, description, participantIds } = req.body;
+            if (!provider || (provider !== 'google_meet' && provider !== 'ms_teams')) {
+                return sendError(res, 'A valid provider (google_meet or ms_teams) is required for instant meetings', 400);
+            }
+
+            const result = await MeetingService.createInstantMeeting(
+                companyId,
+                userId,
+                { title, provider, durationMinutes, projectId, description, participantIds },
+                req
+            );
+
+            return sendSuccess(res, 'Instant meeting created and room generated successfully', result, 201);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to create instant meeting', error.statusCode || 500);
+        }
+    }
+
+    /**
+     * GET /api/meetings/summary-metrics
+     * Header compact summary metrics (Total, Upcoming, Pending, Completed, Total Hours)
+     */
+    public static async getSummaryMetrics(req: AuthenticatedRequest, res: Response) {
+        try {
+            const companyId = req.currentUser?.companyId || req.user?.companyId;
+            const userId = req.currentUser?.userId || req.user?.userId;
+            const userRole = req.currentUser?.role || req.user?.role || '';
+            if (!companyId || !userId) {
+                return sendError(res, 'Authentication context missing', 401);
+            }
+
+            const result = await MeetingService.getSummaryMetrics(companyId, userId, userRole);
+            return sendSuccess(res, 'Meeting summary metrics retrieved successfully', result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to fetch summary metrics', error.statusCode || 500);
+        }
+    }
+
+    /**
+     * GET /api/meetings/team
+     * Team meetings for Managers and Admins with Team-scoped access
+     */
+    public static async getTeamMeetings(req: AuthenticatedRequest, res: Response) {
+        try {
+            const companyId = req.currentUser?.companyId || req.user?.companyId;
+            const userId = req.currentUser?.userId || req.user?.userId;
+            const userRole = req.currentUser?.role || req.user?.role || '';
+            if (!companyId || !userId) {
+                return sendError(res, 'Authentication context missing', 401);
+            }
+
+            const parsedQuery = meetingListQuerySchema.parse(req.query);
+            const result = await MeetingService.getTeamMeetings(companyId, userId, userRole, parsedQuery);
+
+            return sendSuccess(res, 'Team meetings retrieved successfully', result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to fetch team meetings', error.statusCode || 500);
+        }
+    }
+
+    /**
+     * GET /api/meetings/reports
+     * Consolidated Meeting Analytics & Reports (Individual, Team, Project, Organization)
+     */
+    public static async getMeetingReports(req: AuthenticatedRequest, res: Response) {
+        try {
+            const companyId = req.currentUser?.companyId || req.user?.companyId;
+            const userId = req.currentUser?.userId || req.user?.userId;
+            const userRole = req.currentUser?.role || req.user?.role || '';
+            if (!companyId || !userId) {
+                return sendError(res, 'Authentication context missing', 401);
+            }
+
+            const query: any = {
+                type: req.query.type as any,
+                dateFrom: req.query.dateFrom as string,
+                dateTo: req.query.dateTo as string,
+                projectId: req.query.projectId as string,
+                userId: req.query.userId as string,
+                provider: req.query.provider as string,
+                status: req.query.status as string,
+            };
+
+            const result = await MeetingService.getMeetingReports(companyId, userId, userRole, query);
+            return sendSuccess(res, 'Meeting reports retrieved successfully', result);
+        } catch (error: any) {
+            return sendError(res, error.message || 'Failed to fetch meeting reports', error.statusCode || 500);
+        }
+    }
+
 }

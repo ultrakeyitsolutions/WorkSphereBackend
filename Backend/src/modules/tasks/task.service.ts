@@ -18,6 +18,8 @@ import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
 import { AppError } from '../../utils/AppError';
 import { SubscriptionQuotaService } from '../../services/subscription-quota.service';
+import { EscalationEngine } from '../escalation/services/EscalationEngine';
+import { EscalationCategory, EscalationSourceModule } from '../escalation/constants/escalation.constants';
 
 export class TaskService {
 
@@ -1024,6 +1026,30 @@ export class TaskService {
                 .lean();
 
             await quotaReservation.commit();
+
+            // Trigger Reopened Task Compliance Escalation
+            const responsibleEmployeeId = originalTask.assignedToId?.toString() || originalTask.createdBy?.toString();
+            if (responsibleEmployeeId) {
+                EscalationEngine.getInstance().publishEvent({
+                    companyId,
+                    employeeId: responsibleEmployeeId,
+                    category: EscalationCategory.REOPENED_TASK,
+                    sourceModule: EscalationSourceModule.TASKS,
+                    sourceRecordId: originalTask._id.toString(),
+                    eventTimestamp: new Date(),
+                    expectedValue: 'Delivered Task',
+                    actualValue: `Reopened: ${data.reopenReason}`,
+                    violationDuration: 1,
+                    metadata: {
+                        originalTaskId: originalTask._id.toString(),
+                        originalTaskNumber: originalTask.taskNumber,
+                        newTaskId: reopenedTask._id.toString(),
+                        newTaskNumber: reopenedTask.taskNumber,
+                        reopenReason: data.reopenReason,
+                    },
+                    idempotencyKey: `task_reopened_${reopenedTask._id.toString()}`,
+                }).catch(() => {});
+            }
 
             return {
                 id: loadedTask!._id,

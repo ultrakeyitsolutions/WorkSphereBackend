@@ -3,6 +3,7 @@ import { PaymentAttempt } from '../models/payment-attempt.model';
 import { PaymentAttemptState } from '../models/payment-attempt.types';
 import { PaymentService } from '../services/payment.service';
 import { PaymentOutboxService } from '../services/payment-outbox.service';
+import { SuperAdminNotificationService } from '../../super-admin/notifications/super-admin-notification.service';
 
 export class PaymentWebhookWorker {
     private paymentService: PaymentService;
@@ -62,6 +63,14 @@ export class PaymentWebhookWorker {
             switch (eventType) {
                 case 'payment.captured':
                 case 'order.paid': {
+                    const webhookAmount = paymentEntity?.amount || orderEntity?.amount_paid;
+                    if (typeof webhookAmount === 'number' && webhookAmount !== attempt.amount) {
+                        event.status = 'FAILED';
+                        event.processingError = `Webhook amount mismatch: expected ${attempt.amount} paise, received ${webhookAmount} paise`;
+                        await event.save();
+                        return true;
+                    }
+
                     if (attempt.state !== PaymentAttemptState.SUCCEEDED) {
                         await this.paymentService.confirmPaymentSuccess(attempt, {
                             providerPaymentId: providerPaymentId || attempt.providerPaymentId || `pay_${Date.now()}`,
@@ -81,7 +90,14 @@ export class PaymentWebhookWorker {
                         attempt.providerPaymentId = providerPaymentId || attempt.providerPaymentId;
                         attempt.errorCode = paymentEntity?.error_code || 'PAYMENT_FAILED';
                         attempt.errorMessage = paymentEntity?.error_description || 'Payment was declined';
+                        attempt.errorSource = paymentEntity?.error_source || null;
+                        attempt.errorStep = paymentEntity?.error_step || null;
+                        attempt.errorReason = paymentEntity?.error_reason || null;
                         await attempt.save();
+
+                        console.warn(
+                            `[PaymentWebhookWorker] Payment failed: attemptId=${attempt.attemptId}, orderId=${providerOrderId || attempt.providerOrderId}, paymentId=${providerPaymentId || attempt.providerPaymentId}, errorCode=${attempt.errorCode}, errorDesc=${attempt.errorMessage}, errorSource=${attempt.errorSource}, errorStep=${attempt.errorStep}, errorReason=${attempt.errorReason}`
+                        );
 
                         await PaymentOutboxService.enqueueJob({
                             type: 'PAYMENT_NOTIFICATION',
@@ -98,16 +114,71 @@ export class PaymentWebhookWorker {
                                     formattedAmount: (attempt.amount / 100).toFixed(2),
                                     currency: attempt.currency,
                                     errorMessage: attempt.errorMessage,
+                                    errorSource: attempt.errorSource,
+                                    errorStep: attempt.errorStep,
+                                    errorReason: attempt.errorReason,
                                 },
                             },
                         });
+
+                        // SuperAdmin notification for failed payment webhook
+                        SuperAdminNotificationService.dispatch({
+                            type: 'PAYMENT_FAILED',
+                            companyId: String(attempt.companyId),
+                            actorId: String(attempt.actorId),
+                            eventId: `sa_wh_fail_${attempt.attemptId}`,
+                            metadata: {
+                                paymentAttemptId: attempt.attemptId,
+                                amount: (attempt.amount / 100).toFixed(2),
+                                currency: attempt.currency,
+                                errorMessage: attempt.errorMessage,
+                            },
+                        }).catch(() => {});
                     }
                     break;
                 }
 
                 case 'refund.processed': {
+                    const refundEntity = payload?.payload?.refund?.entity || payload?.refund?.entity;
                     attempt.state = PaymentAttemptState.REFUNDED;
+                    if (refundEntity?.id) attempt.refundId = refundEntity.id;
+                    if (refundEntity?.amount) attempt.refundAmount = refundEntity.amount;
+                    attempt.refundedAt = new Date();
                     await attempt.save();
+
+                    // Enqueue durable notification for refund
+                    await PaymentOutboxService.enqueueJob({
+                        type: 'PAYMENT_NOTIFICATION',
+                        companyId: attempt.companyId,
+                        attemptId: attempt.attemptId,
+                        deduplicationKey: `notif_wh_refund_${attempt.attemptId}_${attempt.refundId || Date.now()}`,
+                        payload: {
+                            notificationType: 'PAYMENT_REFUNDED',
+                            companyId: attempt.companyId,
+                            actorId: attempt.actorId,
+                            metadata: {
+                                paymentAttemptId: attempt.attemptId,
+                                amount: ((attempt.refundAmount || attempt.amount) / 100).toFixed(2),
+                                formattedAmount: ((attempt.refundAmount || attempt.amount) / 100).toFixed(2),
+                                currency: attempt.currency,
+                                refundId: attempt.refundId,
+                            },
+                        },
+                    });
+
+                    // SuperAdmin notification for refund
+                    SuperAdminNotificationService.dispatch({
+                        type: 'REFUND_REQUESTED',
+                        companyId: String(attempt.companyId),
+                        actorId: String(attempt.actorId),
+                        eventId: `sa_wh_refund_${attempt.attemptId}_${attempt.refundId || Date.now()}`,
+                        metadata: {
+                            paymentAttemptId: attempt.attemptId,
+                            amount: ((attempt.refundAmount || attempt.amount) / 100).toFixed(2),
+                            currency: attempt.currency,
+                            refundId: attempt.refundId,
+                        },
+                    }).catch(() => {});
                     break;
                 }
 
@@ -126,6 +197,22 @@ export class PaymentWebhookWorker {
             event.processingError = err.message || String(err);
             event.status = event.retryCount >= 5 ? 'FAILED' : 'RECEIVED';
             await event.save();
+
+            // Dispatch SuperAdmin notification if webhook failed permanently
+            if (event.status === 'FAILED') {
+                SuperAdminNotificationService.dispatch({
+                    type: 'RAZORPAY_WEBHOOK_FAILED',
+                    eventId: `sa_wh_failed_${event._id}`,
+                    priority: 'CRITICAL',
+                    metadata: {
+                        webhookEventId: String(event._id),
+                        eventType: event.eventType,
+                        errorMessage: event.processingError,
+                        retryCount: event.retryCount,
+                    },
+                }).catch(() => {});
+            }
+
             return false;
         }
     }

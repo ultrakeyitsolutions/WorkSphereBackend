@@ -45,8 +45,19 @@ export const cancelSubscriptionSchema = z.object({
     }),
 });
 
+// Grant Complimentary subscription
+export const complimentarySubscriptionSchema = z.object({
+    body: z.object({
+        planId: objectIdSchema,
+        reason: z.string().min(1, 'Reason is required for complimentary grants'),
+        durationDays: z.number().int().positive().optional(),
+        periodEnd: z.string().datetime().optional(),
+    }),
+});
+
 export type CreateSubscriptionInput = z.infer<typeof createSubscriptionSchema>['body'];
 export type ChangePlanInput = z.infer<typeof changePlanSchema>['body'];
 export type PauseSubscriptionInput = z.infer<typeof pauseSubscriptionSchema>['body'];
 export type ResumeSubscriptionInput = z.infer<typeof resumeSubscriptionSchema>['body'];
 export type CancelSubscriptionInput = z.infer<typeof cancelSubscriptionSchema>['body'];
+export type ComplimentarySubscriptionInput = z.infer<typeof complimentarySubscriptionSchema>['body'];

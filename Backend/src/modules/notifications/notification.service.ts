@@ -143,7 +143,7 @@ export class NotificationService {
                 } else if (payload.projectId) {
                     effectiveActionUrl = `/projects/${payload.projectId}`;
                 } else if (payload.meetingId) {
-                    effectiveActionUrl = `/companyadmin/quick-meetings?meetingId=${payload.meetingId}`;
+                    effectiveActionUrl = `/main/meetings?tab=inbox&meetingId=${payload.meetingId}`;
                 } else if (payload.conversationId) {
                     effectiveActionUrl = `/chat?conversationId=${payload.conversationId}`;
                 }

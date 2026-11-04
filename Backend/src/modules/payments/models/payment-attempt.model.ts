@@ -127,6 +127,18 @@ const paymentAttemptSchema = new Schema<IPaymentAttemptDocument>(
             type: String,
             default: null,
         },
+        errorSource: {
+            type: String,
+            default: null,
+        },
+        errorStep: {
+            type: String,
+            default: null,
+        },
+        errorReason: {
+            type: String,
+            default: null,
+        },
         rawResponse: {
             type: Schema.Types.Mixed,
             default: null,
@@ -147,6 +159,40 @@ const paymentAttemptSchema = new Schema<IPaymentAttemptDocument>(
         reconciliationCount: {
             type: Number,
             default: 0,
+        },
+        planSnapshot: {
+            type: {
+                name: { type: String },
+                code: { type: String },
+                price: { type: Number },
+                currency: { type: String },
+                billingCycle: { type: String },
+            },
+            default: null,
+        },
+        billingPolicy: {
+            type: String,
+            enum: ['FULL_PRICE', 'PRORATED', 'COMPLIMENTARY', 'NEXT_CYCLE'],
+            default: 'FULL_PRICE',
+        },
+        refundId: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        refundAmount: {
+            type: Number,
+            default: null,
+            min: 0,
+        },
+        refundReason: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        refundedAt: {
+            type: Date,
+            default: null,
         },
         metadata: {
             type: Schema.Types.Mixed,
@@ -190,6 +236,20 @@ paymentAttemptSchema.index(
 // 6. Chronological company history index
 paymentAttemptSchema.index(
     { companyId: 1, createdAt: -1 }
+);
+
+// 7. Provider Refund ID index (sparse)
+paymentAttemptSchema.index(
+    { refundId: 1 },
+    { sparse: true }
+);
+
+// 8. Global chronological index for SuperAdmin reporting & search
+paymentAttemptSchema.index(
+    { createdAt: -1 }
+);
+paymentAttemptSchema.index(
+    { state: 1, createdAt: -1 }
 );
 
 export const PaymentAttempt = model<IPaymentAttemptDocument>('PaymentAttempt', paymentAttemptSchema);

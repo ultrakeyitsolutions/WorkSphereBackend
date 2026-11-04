@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../modules/auth/auth.types';
+import { authenticate } from './auth.middleware';
 import { ModuleAccessService } from '../modules/companyadmin/module-access/module-access.service';
 import { ModuleKey } from '../modules/companyadmin/module-access/module-access.types';
 import { SUPPORTED_MODULES } from '../modules/companyadmin/module-access/module-access.constants';
@@ -15,6 +16,12 @@ import { sendError } from '../utils/response';
 export const requireModuleAccess = (moduleKey: ModuleKey) => {
     return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
         try {
+            if (!req.currentUser && !req.user) {
+                return authenticate(req, res, () => {
+                    return requireModuleAccess(moduleKey)(req, res, next);
+                });
+            }
+
             const role = req.currentUser?.role || req.user?.role;
             if (role === 'SUPER_ADMIN') {
                 return next();

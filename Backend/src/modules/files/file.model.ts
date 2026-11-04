@@ -1,5 +1,6 @@
 import { Schema, model } from 'mongoose';
 import { IFileDocument } from './file.types';
+import { CloudinaryStorageProvider } from '../../infrastructure/storage/providers/cloudinary-storage.provider';
 
 const fileSchema = new Schema<IFileDocument>(
     {
@@ -47,6 +48,11 @@ const fileSchema = new Schema<IFileDocument>(
             type: Number,
             required: true,
         },
+        provider: {
+            type: String,
+            required: false,
+            index: true,
+        },
         contextType: {
             type: String,
             enum: [
@@ -77,6 +83,8 @@ const fileSchema = new Schema<IFileDocument>(
     },
     {
         timestamps: true,
+        toJSON: { getters: true },
+        toObject: { getters: true },
     }
 );
 
@@ -84,6 +92,21 @@ const fileSchema = new Schema<IFileDocument>(
 fileSchema.index({ companyId: 1, contextType: 1, contextId: 1 });
 fileSchema.index({ companyId: 1, uploadedBy: 1 });
 fileSchema.index({ companyId: 1, deletedAt: 1 });
+
+// Ensure any Cloudinary URL references are converted to clean HTTPS delivery URLs
+fileSchema.path('storageUrl').get((val: any) => {
+    if (typeof val === 'string' && val.startsWith('cloudinary://')) {
+        return CloudinaryStorageProvider.toHttpsDeliveryUrl(val);
+    }
+    return val;
+});
+
+fileSchema.path('storageUrl').set((val: any) => {
+    if (typeof val === 'string' && val.startsWith('cloudinary://')) {
+        return CloudinaryStorageProvider.toHttpsDeliveryUrl(val);
+    }
+    return val;
+});
 
 export const FileModel = model<IFileDocument>('File', fileSchema);
 export default FileModel;

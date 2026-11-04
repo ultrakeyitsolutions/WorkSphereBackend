@@ -5,6 +5,8 @@ import { getSocketServer } from '../../../sockets/socket-server';
 import { FeatureAccessService, FeatureFlagKey } from './feature-access.service';
 import { MONITORING_SOCKET_EVENTS } from '../live-monitoring/live-monitoring.types';
 import { getRedisClient } from '../../../config/redis';
+import { ModuleKey } from '../module-access/module-access.types';
+import { VALID_MODULE_KEYS } from '../module-access/module-access.constants';
 
 export const FEATURE_REVOCATION_REDIS_CHANNEL = 'worksphere:feature_revocation';
 
@@ -18,11 +20,51 @@ export const VALID_FEATURE_KEYS = new Set<FeatureFlagKey>([
     'enableTaskAttachments',
 ]);
 
-export interface FeatureRevocationEvent {
+export type RevocationType = 'COMPANY_FEATURES' | 'EMPLOYEE_MODULES' | 'EMPLOYEE_PERMISSIONS' | 'MANAGER_ACCESS';
+
+export interface BaseRevocationEvent {
+    type?: RevocationType;
     companyId: string;
-    disabledFeatures: FeatureFlagKey[];
     timestamp: number;
+    version?: number;
 }
+
+export interface CompanyFeatureRevocationEvent extends BaseRevocationEvent {
+    type?: 'COMPANY_FEATURES';
+    disabledFeatures: FeatureFlagKey[];
+}
+
+export interface EmployeeModuleRevocationEvent extends BaseRevocationEvent {
+    type: 'EMPLOYEE_MODULES';
+    userIds?: string[];
+    revokedModules: ModuleKey[];
+    reason?: string;
+}
+
+export interface EmployeePermissionRevocationEvent extends BaseRevocationEvent {
+    type: 'EMPLOYEE_PERMISSIONS';
+    userIds: string[];
+    revokedPermissions: string[];
+    reason?: string;
+}
+
+export interface ManagerAccessRevocationEvent extends BaseRevocationEvent {
+    type: 'MANAGER_ACCESS';
+    managerId: string;
+    revocationAction: 'REVOKE_TEAM' | 'REVOKE_EMPLOYEE' | 'REVOKE_PROJECT' | 'DEMOTE' | 'SUSPEND' | 'PERMISSIONS_UPDATED';
+    targetId?: string;
+    revokedPermissions?: string[];
+    reason?: string;
+}
+
+export type FeatureRevocationPayload =
+    | CompanyFeatureRevocationEvent
+    | EmployeeModuleRevocationEvent
+    | EmployeePermissionRevocationEvent
+    | ManagerAccessRevocationEvent;
+
+// Backward compatible type alias
+export type FeatureRevocationEvent = FeatureRevocationPayload;
 
 export class FeatureRevocationService {
     private static subscriberClient: Redis | null = null;
@@ -30,17 +72,17 @@ export class FeatureRevocationService {
     private static isInitializing = false;
 
     /**
-     * Validates an incoming feature revocation payload strictly.
+     * Validates an incoming feature/module/permission revocation payload strictly.
      * Returns the validated object or null if malformed.
      */
-    public static validateRevocationEvent(raw: any): FeatureRevocationEvent | null {
+    public static validateRevocationEvent(raw: any): FeatureRevocationPayload | null {
         if (!raw || typeof raw !== 'object') {
             return null;
         }
 
-        const { companyId, disabledFeatures, timestamp } = raw;
+        const { companyId, timestamp } = raw;
 
-        // 1. Validate companyId (must be valid ObjectId format or non-empty string)
+        // 1. Validate companyId
         if (
             typeof companyId !== 'string' ||
             companyId.trim().length === 0 ||
@@ -49,22 +91,7 @@ export class FeatureRevocationService {
             return null;
         }
 
-        // 2. Validate disabledFeatures array
-        if (!Array.isArray(disabledFeatures) || disabledFeatures.length === 0) {
-            return null;
-        }
-
-        const validatedKeys: FeatureFlagKey[] = [];
-        for (const key of disabledFeatures) {
-            if (typeof key === 'string' && VALID_FEATURE_KEYS.has(key as FeatureFlagKey)) {
-                validatedKeys.push(key as FeatureFlagKey);
-            } else {
-                // Unknown or invalid feature key encountered
-                return null;
-            }
-        }
-
-        // 3. Validate timestamp (finite number within reasonable time window)
+        // 2. Validate timestamp (finite number within reasonable time window)
         if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
             return null;
         }
@@ -75,15 +102,98 @@ export class FeatureRevocationService {
             return null;
         }
 
+        const normalizedCompanyId = companyId.trim();
+
+        // 3. Handle EMPLOYEE_MODULES
+        if (raw.type === 'EMPLOYEE_MODULES') {
+            if (!Array.isArray(raw.revokedModules) || raw.revokedModules.length === 0) {
+                return null;
+            }
+            const validatedModules: ModuleKey[] = [];
+            for (const mod of raw.revokedModules) {
+                if (typeof mod === 'string' && VALID_MODULE_KEYS.includes(mod as ModuleKey)) {
+                    validatedModules.push(mod as ModuleKey);
+                }
+            }
+            if (validatedModules.length === 0) return null;
+
+            const userIds = Array.isArray(raw.userIds)
+                ? raw.userIds.filter((id: any) => typeof id === 'string' && Types.ObjectId.isValid(id))
+                : undefined;
+
+            return {
+                type: 'EMPLOYEE_MODULES',
+                companyId: normalizedCompanyId,
+                userIds,
+                revokedModules: Array.from(new Set(validatedModules)),
+                timestamp,
+                reason: raw.reason || 'REVOKED_BY_ADMIN',
+            };
+        }
+
+        // 4. Handle EMPLOYEE_PERMISSIONS
+        if (raw.type === 'EMPLOYEE_PERMISSIONS') {
+            if (!Array.isArray(raw.revokedPermissions) || raw.revokedPermissions.length === 0) {
+                return null;
+            }
+            if (!Array.isArray(raw.userIds) || raw.userIds.length === 0) {
+                return null;
+            }
+            const validatedUserIds = raw.userIds.filter((id: any) => typeof id === 'string' && Types.ObjectId.isValid(id));
+            if (validatedUserIds.length === 0) return null;
+
+            return {
+                type: 'EMPLOYEE_PERMISSIONS',
+                companyId: normalizedCompanyId,
+                userIds: validatedUserIds,
+                revokedPermissions: Array.from(new Set(raw.revokedPermissions.map(String))),
+                timestamp,
+                reason: raw.reason || 'REVOKED_BY_ADMIN',
+            };
+        }
+
+        // 5. Handle MANAGER_ACCESS
+        if (raw.type === 'MANAGER_ACCESS') {
+            if (!raw.managerId || typeof raw.managerId !== 'string' || !Types.ObjectId.isValid(raw.managerId)) {
+                return null;
+            }
+            return {
+                type: 'MANAGER_ACCESS',
+                companyId: normalizedCompanyId,
+                managerId: raw.managerId.trim(),
+                revocationAction: raw.revocationAction || 'PERMISSIONS_UPDATED',
+                targetId: raw.targetId ? String(raw.targetId).trim() : undefined,
+                revokedPermissions: Array.isArray(raw.revokedPermissions) ? raw.revokedPermissions.map(String) : undefined,
+                reason: raw.reason || 'REVOKED_BY_ADMIN',
+                timestamp,
+            };
+        }
+
+        // 6. Default/Legacy: COMPANY_FEATURES
+        const { disabledFeatures } = raw;
+        if (!Array.isArray(disabledFeatures) || disabledFeatures.length === 0) {
+            return null;
+        }
+
+        const validatedKeys: FeatureFlagKey[] = [];
+        for (const key of disabledFeatures) {
+            if (typeof key === 'string' && VALID_FEATURE_KEYS.has(key as FeatureFlagKey)) {
+                validatedKeys.push(key as FeatureFlagKey);
+            } else {
+                return null;
+            }
+        }
+
         return {
-            companyId: companyId.trim(),
+            type: 'COMPANY_FEATURES',
+            companyId: normalizedCompanyId,
             disabledFeatures: Array.from(new Set(validatedKeys)),
             timestamp,
         };
     }
 
     /**
-     * Broadcasts a feature revocation event across workers and evicts local sockets immediately.
+     * Broadcasts a company-wide feature revocation event across workers and evicts local sockets immediately.
      */
     public static async revokeCompanyFeatures(
         companyId: string,
@@ -103,7 +213,7 @@ export class FeatureRevocationService {
         // 1. Invalidate local in-memory feature cache immediately on this process
         FeatureAccessService.invalidateCache(normalizedCompanyId);
 
-        // 2. Perform immediate local socket eviction
+        // 2. Perform immediate local socket eviction and broadcast
         this.evictLocalSockets(normalizedCompanyId, validFeatures);
 
         // 3. Publish to Redis Pub/Sub with bounded retry for cross-worker delivery
@@ -111,7 +221,8 @@ export class FeatureRevocationService {
         try {
             const redis = getRedisClient();
             if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
-                const eventPayload: FeatureRevocationEvent = {
+                const eventPayload: CompanyFeatureRevocationEvent = {
+                    type: 'COMPANY_FEATURES',
                     companyId: normalizedCompanyId,
                     disabledFeatures: validFeatures,
                     timestamp: Date.now(),
@@ -119,7 +230,6 @@ export class FeatureRevocationService {
 
                 const serialized = JSON.stringify(eventPayload);
 
-                // Attempt bounded retry (up to 2 attempts)
                 for (let attempt = 1; attempt <= 2; attempt++) {
                     try {
                         await redis.publish(FEATURE_REVOCATION_REDIS_CHANNEL, serialized);
@@ -135,15 +245,10 @@ export class FeatureRevocationService {
                         }
                     }
                 }
-            } else {
-                // Redis is not connected or in standalone mode — local eviction is authoritative
-                console.info(
-                    `[FeatureRevocationService] Redis client status is '${redis?.status || 'uninitialized'}'. Local socket eviction executed for company ${normalizedCompanyId}.`
-                );
             }
         } catch (err: any) {
             console.warn(
-                `[FeatureRevocationService] Cross-worker publication error (local eviction succeeded): ${err?.message}`
+                `[FeatureRevocationService] Cross-worker publication error: ${err?.message}`
             );
         }
 
@@ -151,7 +256,215 @@ export class FeatureRevocationService {
     }
 
     /**
-     * Evicts connected sockets belonging to the target company from protected feature rooms.
+     * Broadcasts an employee module access revocation event across workers and evicts local sockets immediately.
+     */
+    public static async revokeEmployeeModules(
+        companyId: string,
+        userIds?: string[],
+        revokedModules?: ModuleKey[]
+    ): Promise<{ localEvicted: boolean; publishedToRedis: boolean }> {
+        if (!companyId) {
+            return { localEvicted: false, publishedToRedis: false };
+        }
+
+        const normalizedCompanyId = String(companyId).trim();
+        const validModules = (revokedModules || []).filter((m) => VALID_MODULE_KEYS.includes(m));
+
+        if (validModules.length === 0) {
+            return { localEvicted: false, publishedToRedis: false };
+        }
+
+        // 1. Invalidate Redis cache for affected users
+        try {
+            const redis = getRedisClient();
+            if (redis) {
+                if (userIds && userIds.length > 0) {
+                    const keys = [
+                        `worksphere:cache:module_access:${normalizedCompanyId}:global`,
+                        ...userIds.map((u) => `worksphere:cache:module_access:${normalizedCompanyId}:${u}`),
+                    ];
+                    await redis.del(...keys).catch(() => {});
+                } else {
+                    const pattern = `worksphere:cache:module_access:${normalizedCompanyId}:*`;
+                    const keys = await redis.keys(pattern).catch(() => []);
+                    if (keys.length > 0) {
+                        await redis.del(...keys).catch(() => {});
+                    }
+                }
+            }
+        } catch (err: any) {
+            console.warn('[FeatureRevocationService] Redis cache invalidation error:', err?.message);
+        }
+
+        // 2. Perform immediate local socket eviction and broadcast
+        this.evictLocalEmployeeSockets(normalizedCompanyId, userIds, validModules);
+
+        // 3. Publish to Redis Pub/Sub for cross-worker propagation
+        let publishedToRedis = false;
+        try {
+            const redis = getRedisClient();
+            if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
+                const eventPayload: EmployeeModuleRevocationEvent = {
+                    type: 'EMPLOYEE_MODULES',
+                    companyId: normalizedCompanyId,
+                    userIds: userIds && userIds.length > 0 ? userIds : undefined,
+                    revokedModules: validModules,
+                    timestamp: Date.now(),
+                    reason: 'REVOKED_BY_ADMIN',
+                };
+
+                const serialized = JSON.stringify(eventPayload);
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                        await redis.publish(FEATURE_REVOCATION_REDIS_CHANNEL, serialized);
+                        publishedToRedis = true;
+                        break;
+                    } catch (publishErr: any) {
+                        if (attempt === 2) {
+                            console.warn(`[FeatureRevocationService] Redis publish attempt ${attempt} failed: ${publishErr?.message}`);
+                        } else {
+                            await new Promise((resolve) => setTimeout(resolve, 50));
+                        }
+                    }
+                }
+            }
+        } catch (err: any) {
+            console.warn('[FeatureRevocationService] Cross-worker module revocation publish error:', err?.message);
+        }
+
+        return { localEvicted: true, publishedToRedis };
+    }
+
+    /**
+     * Broadcasts fine-grained employee permission revocation across workers and evicts local sockets immediately.
+     */
+    public static async revokeEmployeePermissions(
+        companyId: string,
+        userIds: string[],
+        revokedPermissions: string[]
+    ): Promise<{ localEvicted: boolean; publishedToRedis: boolean }> {
+        if (!companyId || !userIds || userIds.length === 0 || !revokedPermissions || revokedPermissions.length === 0) {
+            return { localEvicted: false, publishedToRedis: false };
+        }
+
+        const normalizedCompanyId = String(companyId).trim();
+
+        // 1. Invalidate permission cache
+        try {
+            const redis = getRedisClient();
+            if (redis) {
+                const keys = userIds.map((u) => `worksphere:cache:permissions:${u}`);
+                await redis.del(...keys).catch(() => {});
+            }
+        } catch {}
+
+        // 2. Local socket broadcast
+        const io = getSocketServer();
+        if (io) {
+            userIds.forEach((uId) => {
+                io.to(`user:${uId}`).emit('feature:revocation', {
+                    type: 'EMPLOYEE_PERMISSIONS',
+                    companyId: normalizedCompanyId,
+                    userId: uId,
+                    revokedPermissions,
+                    timestamp: Date.now(),
+                    message: 'Your permissions have been updated by your administrator.',
+                });
+                io.to(`user:${uId}`).emit('user:permissions_updated', {
+                    companyId: normalizedCompanyId,
+                    userId: uId,
+                    revokedPermissions,
+                    timestamp: Date.now(),
+                });
+            });
+        }
+
+        // 3. Publish to Redis Pub/Sub
+        let publishedToRedis = false;
+        try {
+            const redis = getRedisClient();
+            if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
+                const payload: EmployeePermissionRevocationEvent = {
+                    type: 'EMPLOYEE_PERMISSIONS',
+                    companyId: normalizedCompanyId,
+                    userIds,
+                    revokedPermissions,
+                    timestamp: Date.now(),
+                    reason: 'REVOKED_BY_ADMIN',
+                };
+                await redis.publish(FEATURE_REVOCATION_REDIS_CHANNEL, JSON.stringify(payload));
+                publishedToRedis = true;
+            }
+        } catch (err: any) {
+            console.warn('[FeatureRevocationService] Cross-worker permission revocation publish error:', err?.message);
+        }
+
+        return { localEvicted: true, publishedToRedis };
+    }
+
+    /**
+     * Broadcasts manager access/scope revocation across workers, invalidates scope cache, and evicts manager sockets.
+     */
+    public static async revokeManagerAccess(
+        companyId: string,
+        managerId: string,
+        revocationAction: 'REVOKE_TEAM' | 'REVOKE_EMPLOYEE' | 'REVOKE_PROJECT' | 'DEMOTE' | 'SUSPEND' | 'PERMISSIONS_UPDATED',
+        targetId?: string,
+        revokedPermissions?: string[],
+        reason?: string
+    ): Promise<{ localEvicted: boolean; publishedToRedis: boolean }> {
+        if (!companyId || !managerId) {
+            return { localEvicted: false, publishedToRedis: false };
+        }
+
+        const normalizedCompanyId = String(companyId).trim();
+        const normalizedManagerId = String(managerId).trim();
+
+        // 1. Invalidate manager scope cache immediately
+        try {
+            const { TeamAccessService } = await import('../../manager/services/team-access.service');
+            await TeamAccessService.invalidateScopeCache(normalizedCompanyId, normalizedManagerId);
+        } catch (err: any) {
+            console.warn('[FeatureRevocationService] Error invalidating manager scope cache:', err?.message);
+        }
+
+        // 2. Perform immediate local socket eviction
+        this.evictLocalManagerSockets(
+            normalizedCompanyId,
+            normalizedManagerId,
+            revocationAction,
+            targetId,
+            revokedPermissions,
+            reason
+        );
+
+        // 3. Publish to Redis Pub/Sub for cross-worker delivery
+        let publishedToRedis = false;
+        try {
+            const redis = getRedisClient();
+            if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
+                const payload: ManagerAccessRevocationEvent = {
+                    type: 'MANAGER_ACCESS',
+                    companyId: normalizedCompanyId,
+                    managerId: normalizedManagerId,
+                    revocationAction,
+                    targetId,
+                    revokedPermissions,
+                    timestamp: Date.now(),
+                    reason: reason || 'REVOKED_BY_ADMIN',
+                };
+                await redis.publish(FEATURE_REVOCATION_REDIS_CHANNEL, JSON.stringify(payload));
+                publishedToRedis = true;
+            }
+        } catch (err: any) {
+            console.warn('[FeatureRevocationService] Cross-worker manager revocation publish error:', err?.message);
+        }
+
+        return { localEvicted: true, publishedToRedis };
+    }
+
+    /**
+     * Evicts connected sockets belonging to the target company from protected company-level feature rooms.
      */
     public static evictLocalSockets(
         companyId: string,
@@ -227,6 +540,178 @@ export class FeatureRevocationService {
                     });
                 }
             }
+
+            // ── C. Deliver structured feature:revocation event ────────────────
+            socket.emit('feature:revocation', {
+                type: 'COMPANY_FEATURES',
+                companyId: normalizedCompanyId,
+                disabledFeatures,
+                timestamp: Date.now(),
+                message: 'One or more organization features have been disabled by administrator.',
+            });
+        }
+
+        // Notify company room
+        io.to(`company:${normalizedCompanyId}`).emit('company:features_updated', {
+            companyId: normalizedCompanyId,
+            disabledFeatures,
+            timestamp: Date.now(),
+        });
+    }
+
+    /**
+     * Evicts connected sockets of specific employees from revoked module rooms and delivers real-time revocation events.
+     */
+    public static evictLocalEmployeeSockets(
+        companyId: string,
+        userIds: string[] | undefined,
+        revokedModules: ModuleKey[]
+    ): void {
+        const io = getSocketServer();
+        if (!io) return;
+
+        const normalizedCompanyId = String(companyId).trim();
+        const targetUserIdSet = userIds && userIds.length > 0 ? new Set(userIds.map(String)) : null;
+        const socketsMap = io.sockets.sockets;
+
+        for (const [, socket] of socketsMap) {
+            const user = (socket as Socket).data?.user;
+            if (!user) continue;
+
+            const socketCompanyId = String(user.companyId || '').trim();
+            if (socketCompanyId !== normalizedCompanyId) continue;
+
+            const socketUserId = String(user.userId || user.id || '').trim();
+            if (targetUserIdSet && !targetUserIdSet.has(socketUserId)) {
+                continue;
+            }
+
+            // ── Room Eviction for Chat ─────────────────────────────────────────
+            if (revokedModules.includes('chat')) {
+                for (const room of Array.from(socket.rooms)) {
+                    if (room.startsWith('conversation:')) {
+                        socket.leave(room);
+                    }
+                }
+                socket.emit('chat:feature_disabled', {
+                    code: 'MODULE_ACCESS_RESTRICTED',
+                    message: 'Access to Chat has been restricted by your administrator.',
+                });
+            }
+
+            // ── Room Eviction for Meetings ─────────────────────────────────────
+            if (revokedModules.includes('meetings')) {
+                for (const room of Array.from(socket.rooms)) {
+                    if (room.startsWith('meeting:')) {
+                        socket.leave(room);
+                    }
+                }
+                socket.emit('meeting:access_revoked', {
+                    code: 'MODULE_ACCESS_RESTRICTED',
+                    message: 'Access to Meetings has been restricted by your administrator.',
+                });
+            }
+
+            // ── Room Eviction for Monitoring ──────────────────────────────────
+            if (revokedModules.includes('live-monitoring') || revokedModules.includes('detailed-monitoring')) {
+                for (const room of Array.from(socket.rooms)) {
+                    if (
+                        room === `company:${normalizedCompanyId}:monitoring` ||
+                        room.startsWith(`company:${normalizedCompanyId}:employee:`)
+                    ) {
+                        socket.leave(room);
+                    }
+                }
+            }
+
+            // Deliver authoritative immediate revocation event
+            socket.emit('feature:revocation', {
+                type: 'EMPLOYEE_MODULES',
+                companyId: normalizedCompanyId,
+                userId: socketUserId,
+                revokedModules,
+                timestamp: Date.now(),
+                message: `Access to ${revokedModules.join(', ')} has been revoked by your administrator.`,
+            });
+
+            socket.emit('member:module_access_updated', {
+                companyId: normalizedCompanyId,
+                userId: socketUserId,
+                revokedModules,
+                timestamp: Date.now(),
+            });
+        }
+
+        // Notify company channel
+        io.to(`company:${normalizedCompanyId}`).emit('company:module_access_updated', {
+            companyId: normalizedCompanyId,
+            affectedUserIds: userIds || [],
+            revokedModules,
+            timestamp: Date.now(),
+        });
+    }
+
+    /**
+     * Evicts connected sockets of a manager upon assignment revocation, demotion, or permission change.
+     */
+    public static evictLocalManagerSockets(
+        companyId: string,
+        managerId: string,
+        revocationAction: 'REVOKE_TEAM' | 'REVOKE_EMPLOYEE' | 'REVOKE_PROJECT' | 'DEMOTE' | 'SUSPEND' | 'PERMISSIONS_UPDATED',
+        targetId?: string,
+        revokedPermissions?: string[],
+        reason?: string
+    ): void {
+        const io = getSocketServer();
+        if (!io) return;
+
+        const normalizedCompanyId = String(companyId).trim();
+        const normalizedManagerId = String(managerId).trim();
+
+        for (const [, socket] of io.sockets.sockets) {
+            const user = socket.data?.user;
+            if (!user) continue;
+
+            const socketUserId = String(user.userId || user.id || '').trim();
+            const socketCompanyId = String(user.companyId || '').trim();
+
+            if (socketUserId !== normalizedManagerId || socketCompanyId !== normalizedCompanyId) {
+                continue;
+            }
+
+            // If a specific team was revoked, leave that team room
+            if (revocationAction === 'REVOKE_TEAM' && targetId) {
+                socket.leave(`manager:team:${targetId}`);
+            }
+
+            // If demoted or suspended, leave all manager rooms
+            if (revocationAction === 'DEMOTE' || revocationAction === 'SUSPEND') {
+                for (const room of Array.from(socket.rooms || [])) {
+                    if (room.startsWith('manager:')) {
+                        socket.leave(room);
+                    }
+                }
+            }
+
+            // Emit instant revocation event directly to the manager's socket
+            socket.emit('manager:access_revoked', {
+                companyId: normalizedCompanyId,
+                managerId: normalizedManagerId,
+                action: revocationAction,
+                targetId,
+                revokedPermissions,
+                reason: reason || 'Access modified by administrator',
+                timestamp: Date.now(),
+            });
+
+            if (revocationAction === 'DEMOTE') {
+                socket.emit('manager:demoted', {
+                    companyId: normalizedCompanyId,
+                    managerId: normalizedManagerId,
+                    reason,
+                    timestamp: Date.now(),
+                });
+            }
         }
     }
 
@@ -248,7 +733,6 @@ export class FeatureRevocationService {
                 return false;
             }
 
-            // Create a dedicated duplicate connection for subscribing
             const subscriber = redis.duplicate({
                 lazyConnect: true,
                 maxRetriesPerRequest: null,
@@ -267,11 +751,11 @@ export class FeatureRevocationService {
             });
 
             subscriber.on('ready', () => {
-                console.info('[FeatureRevocationService] Redis subscriber connection ready. Purging stale local cache entries.');
+                console.info('[FeatureRevocationService] Redis subscriber ready. Purging stale local cache entries.');
                 FeatureAccessService.clearAllCache();
             });
 
-            subscriber.on('message', (channel: string, message: string) => {
+            subscriber.on('message', async (channel: string, message: string) => {
                 if (channel === FEATURE_REVOCATION_REDIS_CHANNEL) {
                     try {
                         const parsed = JSON.parse(message);
@@ -282,23 +766,67 @@ export class FeatureRevocationService {
                             return;
                         }
 
-                        // Apply cache invalidation and local eviction on this worker
-                        FeatureAccessService.invalidateCache(validated.companyId);
-                        FeatureRevocationService.evictLocalSockets(validated.companyId, validated.disabledFeatures);
+                        // Apply appropriate invalidation and local eviction on this worker
+                        if (validated.type === 'EMPLOYEE_MODULES') {
+                            FeatureRevocationService.evictLocalEmployeeSockets(
+                                validated.companyId,
+                                validated.userIds,
+                                validated.revokedModules
+                            );
+                        } else if (validated.type === 'EMPLOYEE_PERMISSIONS') {
+                            const io = getSocketServer();
+                            if (io) {
+                                validated.userIds.forEach((uId) => {
+                                    io.to(`user:${uId}`).emit('feature:revocation', {
+                                        type: 'EMPLOYEE_PERMISSIONS',
+                                        companyId: validated.companyId,
+                                        userId: uId,
+                                        revokedPermissions: validated.revokedPermissions,
+                                        timestamp: validated.timestamp,
+                                    });
+                                    io.to(`user:${uId}`).emit('user:permissions_updated', {
+                                        companyId: validated.companyId,
+                                        userId: uId,
+                                        revokedPermissions: validated.revokedPermissions,
+                                        timestamp: validated.timestamp,
+                                    });
+                                });
+                            }
+                        } else if (validated.type === 'MANAGER_ACCESS') {
+                            const managerEvent = validated as ManagerAccessRevocationEvent;
+                            try {
+                                const { TeamAccessService } = await import('../../manager/services/team-access.service');
+                                await TeamAccessService.invalidateScopeCache(managerEvent.companyId, managerEvent.managerId);
+                            } catch {}
+
+                            FeatureRevocationService.evictLocalManagerSockets(
+                                managerEvent.companyId,
+                                managerEvent.managerId,
+                                managerEvent.revocationAction,
+                                managerEvent.targetId,
+                                managerEvent.revokedPermissions,
+                                managerEvent.reason
+                            );
+                        } else {
+                            // COMPANY_FEATURES
+                            FeatureAccessService.invalidateCache(validated.companyId);
+                            FeatureRevocationService.evictLocalSockets(
+                                validated.companyId,
+                                (validated as CompanyFeatureRevocationEvent).disabledFeatures
+                            );
+                        }
                     } catch (parseErr: any) {
                         console.error('[FeatureRevocationService] Failed to parse Redis message payload:', parseErr?.message);
                     }
                 }
             });
 
-            // Connect if disconnected
             if (subscriber.status === 'wait') {
                 await subscriber.connect().catch((connErr) => {
                     console.warn('[FeatureRevocationService] Lazy connect failed for subscriber:', connErr?.message);
                 });
             }
 
-            // Subscribe to channel
             await subscriber.subscribe(FEATURE_REVOCATION_REDIS_CHANNEL);
 
             this.subscriberClient = subscriber;

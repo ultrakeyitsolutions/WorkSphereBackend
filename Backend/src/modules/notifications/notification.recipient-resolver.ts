@@ -251,6 +251,25 @@ export class RecipientResolver {
                 break;
             }
 
+            case 'SUBSCRIPTION':
+            case 'PAYMENT': {
+                const companyMembers = await db.collection('companymembers').find(
+                    { companyId: new Types.ObjectId(companyId), role: { $in: ['ADMIN', 'COMPANY_ADMIN'] }, status: 'ACTIVE' }
+                ).toArray();
+                for (const cm of companyMembers) {
+                    if (cm.userId) recipients.push(cm.userId.toString());
+                }
+                if (recipients.length === 0) {
+                    const adminUsers = await db.collection('users').find(
+                        { companyId: new Types.ObjectId(companyId), status: 'ACTIVE' }
+                    ).toArray();
+                    for (const u of adminUsers) {
+                        recipients.push(u._id.toString());
+                    }
+                }
+                break;
+            }
+
             default:
                 break;
         }

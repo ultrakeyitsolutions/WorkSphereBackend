@@ -1,3 +1,4 @@
+
 import crypto from 'crypto';
 import mongoose, { Types } from 'mongoose';
 import { env } from '../../../config/env';
@@ -13,6 +14,7 @@ import { EmailService } from './email.service';
 import { hashPassword, comparePassword } from '../../../utils/password';
 import { generateAccessToken, generateRefreshToken } from '../../../utils/tokens';
 import { SubscriptionQuotaService } from '../../../services/subscription-quota.service';
+import { AppError } from '../../../utils/AppError';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -71,7 +73,14 @@ export class InvitationService {
         // ── Enforce Subscription User Limit ──
         const quotaReservation = await SubscriptionQuotaService.reserveQuota(companyId, 'users', members.length);
 
-        const results: Array<{ emailOrPhone: string; status: string; reason?: string; invitationId?: string }> = [];
+        const results: Array<{
+            emailOrPhone: string;
+            status: string;
+            reason?: string;
+            invitationId?: string;
+            deliveryStatus?: 'SENT' | 'FAILED';
+            deliveryError?: string;
+        }> = [];
         let created = 0;
         let failed = 0;
 
@@ -166,6 +175,7 @@ export class InvitationService {
                 });
 
                 // ── Send Email ─────────────────────────────────────────────
+                let emailDeliveryError: string | null = null;
                 if (channel === 'EMAIL' && email) {
                     try {
                         await InvitationDelivery.findByIdAndUpdate(delivery._id, {
@@ -190,12 +200,14 @@ export class InvitationService {
                             sentAt: new Date(),
                         });
                     } catch (emailErr: any) {
+                        emailDeliveryError = emailErr?.message ?? 'Unknown error';
                         await InvitationDelivery.findByIdAndUpdate(delivery._id, {
                             status: 'FAILED',
                             failureReason: emailErr?.message ?? 'Unknown error',
                             failedAt: new Date(),
                         });
                         // Invitation still created — let admin retry manually
+                        console.error(`[InvitationService] Failed to send invitation email to ${email}:`, emailErr);
                     }
                 }
 
@@ -203,6 +215,8 @@ export class InvitationService {
                     emailOrPhone,
                     status: 'INVITED',
                     invitationId: String(invitation._id),
+                    deliveryStatus: emailDeliveryError ? 'FAILED' : 'SENT',
+                    ...(emailDeliveryError ? { deliveryError: emailDeliveryError } : {}),
                 });
                 created++;
 
@@ -234,7 +248,7 @@ export class InvitationService {
 
     static async validateToken(rawToken: string) {
         const tokenHash = hashToken(rawToken);
-        const invitation = await Invitation.findOne({ tokenHash })
+        const invitation = await Invitation.findOne({ $or: [{ tokenHash }, { previousTokenHashes: tokenHash }] })
             .populate<{ roleId: { name: string } }>('roleId', 'name')
             .populate<{ designationId: { name: string } }>('designationId', 'name')
             .populate<{ companyId: { name: string; status: string; isActive: boolean } }>('companyId', 'name status isActive');
@@ -278,7 +292,7 @@ export class InvitationService {
         session.startTransaction();
 
         try {
-            const invitation = await Invitation.findOne({ tokenHash }).session(session)
+            const invitation = await Invitation.findOne({ $or: [{ tokenHash }, { previousTokenHashes: tokenHash }] }).session(session)
                 .populate<{ roleId: { _id: Types.ObjectId; name: string } }>('roleId', '_id name')
                 .populate<{ designationId: { _id: Types.ObjectId; name: string } }>('designationId', '_id name')
                 .populate<{ companyId: { _id: Types.ObjectId; name: string; status: string; isActive: boolean } }>('companyId', '_id name status isActive');
@@ -373,7 +387,7 @@ export class InvitationService {
         session.startTransaction();
 
         try {
-            const invitation = await Invitation.findOne({ tokenHash }).session(session)
+            const invitation = await Invitation.findOne({ $or: [{ tokenHash }, { previousTokenHashes: tokenHash }] }).session(session)
                 .populate<{ roleId: { _id: Types.ObjectId; name: string } }>('roleId', '_id name')
                 .populate<{ designationId: { _id: Types.ObjectId; name: string } }>('designationId', '_id name')
                 .populate<{ companyId: { _id: Types.ObjectId; name: string; status: string; isActive: boolean } }>('companyId', '_id name status isActive');
@@ -495,6 +509,11 @@ export class InvitationService {
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + env.INVITATION_EXPIRES_DAYS);
 
+        const prevHashes = invitation.previousTokenHashes || [];
+        if (invitation.tokenHash && !prevHashes.includes(invitation.tokenHash)) {
+            prevHashes.push(invitation.tokenHash);
+        }
+        invitation.previousTokenHashes = prevHashes;
         invitation.tokenHash = tokenHash;
         invitation.expiresAt = expiresAt;
         invitation.invitedByUserId = new Types.ObjectId(invitedByUserId);
@@ -538,11 +557,13 @@ export class InvitationService {
                         sentAt: new Date(),
                     });
                 } catch (emailErr: any) {
+                    console.error(`[InvitationService] Resend failed for ${invitation.email}:`, emailErr);
                     await InvitationDelivery.findByIdAndUpdate(delivery._id, {
                         status: 'FAILED',
                         failureReason: emailErr?.message ?? 'Unknown error',
                         failedAt: new Date(),
                     });
+                    throw new AppError(`Failed to deliver invitation email: ${emailErr?.message || 'SMTP delivery failed'}`, 502);
                 }
             }
         }

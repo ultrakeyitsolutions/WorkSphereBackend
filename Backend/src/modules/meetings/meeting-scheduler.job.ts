@@ -71,7 +71,7 @@ export class MeetingSchedulerJob {
                         scheduledStartAt: meeting.scheduledStartAt,
                         minutesUntilStart: minutesUntil,
                         meetingLink: meeting.meetingLink || undefined,
-                        actionUrl: `/companyadmin/quick-meetings?meetingId=${meeting._id}`,
+                        actionUrl: `/main/meetings?tab=inbox&meetingId=${meeting._id}`,
                     });
                 }
             }
