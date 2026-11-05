@@ -915,7 +915,7 @@ export class TimesheetService {
                     periodEnd
                 }
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
         );
 
         return approval!;

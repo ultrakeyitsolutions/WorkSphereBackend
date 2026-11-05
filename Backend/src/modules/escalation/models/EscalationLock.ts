@@ -26,7 +26,6 @@ const escalationLockSchema = new Schema<IEscalationLockDocument>(
         expiresAt: {
             type: Date,
             required: true,
-            index: true,
         },
         acquiredAt: {
             type: Date,

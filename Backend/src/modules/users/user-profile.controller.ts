@@ -117,7 +117,7 @@ export class UserProfileController {
         const updatedUser = await User.findByIdAndUpdate(
             userId,
             { $set: updateFields },
-            { new: true, runValidators: true }
+            { returnDocument: 'after', runValidators: true }
         )
             .select('-password')
             .populate('role', 'name description')

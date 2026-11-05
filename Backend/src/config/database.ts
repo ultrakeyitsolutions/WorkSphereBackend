@@ -49,7 +49,13 @@ export const connectDatabase = async (): Promise<void> => {
             ).catch(() => {});
         });
 
-        await mongoose.connect(env.MONGODB_URI);
+        await mongoose.connect(env.MONGODB_URI, {
+            maxPoolSize: 50,
+            minPoolSize: 10,
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 30000,
+            family: 4,
+        });
 
         console.log(
             `[DB] mongoose.connect: ${(performance.now() - start).toFixed(2)}ms`

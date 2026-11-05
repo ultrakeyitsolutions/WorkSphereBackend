@@ -103,13 +103,19 @@ vi.mock('../src/modules/auth/session/session.service', () => {
     };
 });
 
+import { superAdminAccountRecoveryRouter } from '../src/modules/auth/recovery/account-recovery.routes';
+
 // Setup test Express App
 const app = express();
 app.use(express.json());
 
+// Mount recovery routes before impersonation exactly as in production index.ts
+app.use('/api/superadmin', superAdminAccountRecoveryRouter);
+
 // Mount impersonation endpoints
 app.use('/api/superadmin/impersonation', impersonationRoutes);
 app.use('/api/v1/company/impersonation', impersonationRoutes);
+app.use('/api/company/impersonation', impersonationRoutes);
 
 // Protected test endpoints
 app.get('/api/test/super-admin-only', authenticate, authorizeRoles('SUPER_ADMIN'), (req, res) => {

@@ -22,7 +22,37 @@ app.use(hpp());
 
 // Logging
 app.use(pinoHttp({
-    level: env.NODE_ENV === 'test' ? 'silent' : 'info'
+    level: env.NODE_ENV === 'test' ? 'silent' : 'info',
+    redact: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        "req.headers['x-razorpay-signature']",
+        'res.headers.authorization',
+        'res.headers.cookie',
+    ],
+    // Custom serializers to avoid logging sensitive request/response bodies
+    serializers: {
+        req: (req: any) => ({
+            method: req.method,
+            url: req.url,
+            headers: {
+                ...req.headers,
+                authorization: req.headers.authorization ? '[REDACTED]' : undefined,
+                cookie: req.headers.cookie ? '[REDACTED]' : undefined,
+                'x-razorpay-signature': req.headers['x-razorpay-signature'] ? '[REDACTED]' : undefined,
+            },
+            query: req.query,
+            params: req.params,
+            ip: req.ip,
+        }),
+        res: (res: any) => ({
+            statusCode: res.statusCode,
+            headers: {
+                ...res.headers,
+                'set-cookie': res.headers['set-cookie'] ? '[REDACTED]' : undefined,
+            },
+        }),
+    },
 }));
 
 // CORS Configuration

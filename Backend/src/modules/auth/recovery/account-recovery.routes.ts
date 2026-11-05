@@ -53,7 +53,7 @@ publicAccountRecoveryRouter.post(
 export const superAdminAccountRecoveryRouter = Router();
 
 // Enforce authentication & SUPER_ADMIN role on all admin endpoints
-superAdminAccountRecoveryRouter.use(requireSuperAdmin);
+superAdminAccountRecoveryRouter.use('/account-recovery-requests', requireSuperAdmin);
 
 // GET /api/v1/superadmin/account-recovery-requests
 superAdminAccountRecoveryRouter.get(

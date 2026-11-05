@@ -3,6 +3,18 @@ import { AuthenticatedRequest } from '../modules/auth/auth.types';
 import { FeatureAccessService, FeatureFlagKey } from '../modules/companyadmin/settings/feature-access.service';
 import { sendError } from '../utils/response';
 
+const FEATURE_DISPLAY_NAMES: Partial<Record<FeatureFlagKey, string>> = {
+    enableManagerDashboard: 'Manager Dashboard',
+    enableEscalations: 'Escalations',
+    enableLiveMonitoring: 'Live Monitoring',
+    enableDetailedMonitoring: 'Detailed Monitoring',
+    enableQuickMeetings: 'Quick Meetings',
+    enableChat: 'Team Chat',
+    enableAttendanceAdjustments: 'Attendance Adjustments',
+    enableTimesheets: 'Timesheets',
+    enableTaskAttachments: 'Task Attachments',
+};
+
 /**
  * Middleware to enforce Company Feature Flag and Subscription Entitlement.
  * Usage: router.use(requireCompanyFeature('enableLiveMonitoring'));
@@ -24,12 +36,20 @@ export const requireCompanyFeature = (featureKey: FeatureFlagKey) => {
             const result = await FeatureAccessService.checkAccess(companyId, featureKey);
 
             if (!result.allowed) {
-                return sendError(
-                    res,
-                    result.message || `Feature '${featureKey}' is disabled or not entitled`,
-                    403,
-                    { code: result.reason }
-                );
+                const isCompanyDisabled = result.reason === 'FEATURE_DISABLED_BY_COMPANY';
+                const displayName = FEATURE_DISPLAY_NAMES[featureKey] || `Feature '${featureKey}'`;
+                const message = isCompanyDisabled
+                    ? `${displayName} is currently disabled by your organization administrator.`
+                    : result.message || `Feature '${featureKey}' is disabled or not entitled`;
+
+                return res.status(403).json({
+                    success: false,
+                    code: isCompanyDisabled
+                        ? 'FEATURE_DISABLED'
+                        : result.reason || 'FEATURE_ACCESS_DENIED',
+                    message,
+                    errors: { code: result.reason },
+                });
             }
 
             return next();

@@ -110,7 +110,7 @@ export const DEFAULT_LIGHT_PALETTE: ICompanyThemePalette = {
     sidebarIcon: 'rgba(255, 255, 255, 0.70)',
     sidebarHoverBackground: 'rgba(255, 255, 255, 0.10)',
     sidebarHoverForeground: '#FFFFFF',
-    sidebarActiveBackground: 'rgba(255, 255, 255, 0.18)',
+    sidebarActiveBackground: '#2563EB',
     sidebarActiveForeground: '#FFFFFF',
     sidebarBorder: 'rgba(255, 255, 255, 0.12)',
 
@@ -159,8 +159,8 @@ export const DEFAULT_DARK_PALETTE: ICompanyThemePalette = {
     sidebarIcon: 'rgba(248, 250, 252, 0.65)',
     sidebarHoverBackground: 'rgba(255, 255, 255, 0.08)',
     sidebarHoverForeground: '#FFFFFF',
-    sidebarActiveBackground: 'rgba(59, 130, 246, 0.25)',
-    sidebarActiveForeground: '#93C5FD',
+    sidebarActiveBackground: '#3B82F6',
+    sidebarActiveForeground: '#FFFFFF',
     sidebarBorder: 'rgba(255, 255, 255, 0.08)',
 
     // Main App

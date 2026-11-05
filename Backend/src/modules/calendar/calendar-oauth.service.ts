@@ -119,7 +119,7 @@ export class CalendarOAuthService {
         await CompanyCalendarConfig.findOneAndUpdate(
             { companyId: cId, provider },
             updateData,
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
         );
 
         return {
@@ -260,7 +260,7 @@ export class CalendarOAuthService {
                 scopes,
                 isConnected: true,
             },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
+            { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
         );
 
         return {

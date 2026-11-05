@@ -282,7 +282,7 @@ export class CompanyThemeService {
                 $setOnInsert: setOnInsertQuery,
             },
             {
-                new: true,
+                returnDocument: 'after',
                 upsert: true,
                 runValidators: true,
             }
@@ -395,7 +395,7 @@ export class CompanyThemeService {
                 },
             },
             {
-                new: true,
+                returnDocument: 'after',
                 upsert: true,
             }
         );

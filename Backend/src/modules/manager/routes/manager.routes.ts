@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../../middleware/auth.middleware';
+import { requireCompanyFeature } from '../../../middleware/feature-toggle.middleware';
 import {
     requireManagerWorkspace,
     requireManagerPermission,
@@ -15,8 +16,13 @@ import * as ManagerReportController from '../controllers/manager-report.controll
 
 const router = Router();
 
-// All manager routes require authentication and manager workspace authorization
+// All manager routes require authentication.
 router.use(authenticate);
+// Company-level feature toggle: Manager Dashboard must be enabled for the org.
+// Runs before role/module checks so disabled features always return the
+// canonical FEATURE_DISABLED response (403) instead of a generic module denial.
+// Applied at router level so it covers every Manager Dashboard API incl. nested endpoints.
+router.use(requireCompanyFeature('enableManagerDashboard'));
 router.use(requireManagerWorkspace);
 
 // ── Phase 6: Manager Dashboard ────────────────────────────────────────────────

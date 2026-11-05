@@ -242,6 +242,33 @@ describe('WorkSphere Real-Time WebSocket Feature Revocation & Eviction', () => {
             expect(invalid).toBeNull();
         });
 
+        it('should accept a feature snapshot with zero disabled features (re-enable propagation)', () => {
+            const valid = FeatureRevocationService.validateRevocationEvent({
+                companyId: COMPANY_A,
+                disabledFeatures: [],
+                features: { enableManagerDashboard: true, enableChat: false },
+                timestamp: Date.now(),
+            });
+
+            expect(valid).not.toBeNull();
+            expect(valid?.disabledFeatures).toEqual([]);
+            expect((valid as any)?.features).toEqual({
+                enableManagerDashboard: true,
+                enableChat: false,
+            });
+        });
+
+        it('should reject a malformed feature snapshot', () => {
+            const invalid = FeatureRevocationService.validateRevocationEvent({
+                companyId: COMPANY_A,
+                disabledFeatures: [],
+                features: { enableManagerDashboard: 'yes' },
+                timestamp: Date.now(),
+            });
+
+            expect(invalid).toBeNull();
+        });
+
         it('should reject timestamps too far in future or ancient history', () => {
             const future = FeatureRevocationService.validateRevocationEvent({
                 companyId: COMPANY_A,
@@ -307,6 +334,25 @@ describe('WorkSphere Real-Time WebSocket Feature Revocation & Eviction', () => {
             expect(socketCompanyA.rooms.has(`company:${COMPANY_A}:monitoring`)).toBe(false);
             expect(socketCompanyA.rooms.has('conversation:conv_123')).toBe(false);
             expect(socketCompanyA.rooms.has(`company:${COMPANY_A}`)).toBe(true);
+        });
+
+        it('should broadcast a features snapshot when a feature is re-enabled', () => {
+            FeatureRevocationService.evictLocalSockets(COMPANY_A, [], {
+                enableManagerDashboard: true,
+            });
+
+            expect(mockIoServer.to).toHaveBeenCalledWith(`company:${COMPANY_A}`);
+            expect(mockIoServer.emit).toHaveBeenCalledWith(
+                'company:features_updated',
+                expect.objectContaining({
+                    disabledFeatures: [],
+                    features: { enableManagerDashboard: true },
+                })
+            );
+            expect(socketCompanyA.emit).not.toHaveBeenCalledWith(
+                'feature:revocation',
+                expect.anything()
+            );
         });
 
         it('should be idempotent and safe on repeated revocation calls', () => {
@@ -415,6 +461,33 @@ describe('WorkSphere Real-Time WebSocket Feature Revocation & Eviction', () => {
 
             expect(revokeSpy).toHaveBeenCalledWith(COMPANY_A, ['enableLiveMonitoring']);
             expect(socketCompanyA.leave).toHaveBeenCalledWith(`company:${COMPANY_A}:monitoring`);
+        });
+
+        it('should broadcast a feature snapshot when Manager Dashboard is re-enabled', async () => {
+            mocks.companyFindById.mockResolvedValue({ _id: COMPANY_A, name: 'Acme Corp' });
+            mocks.companySettingsFindOneAndUpdate.mockResolvedValue({
+                companyId: COMPANY_A,
+                features: { enableManagerDashboard: true, enableChat: false },
+            });
+
+            const notifySpy = vi.spyOn(
+                FeatureRevocationService,
+                'notifyCompanyFeaturesUpdated'
+            );
+
+            await CompanySettingsService.updateSettings(
+                COMPANY_A,
+                { features: { enableManagerDashboard: true } },
+                USER_A1
+            );
+
+            expect(notifySpy).toHaveBeenCalledWith(
+                COMPANY_A,
+                expect.objectContaining({
+                    enableManagerDashboard: true,
+                    enableChat: false,
+                })
+            );
         });
 
         it('should NOT trigger revocation when general settings like timezone are updated', async () => {

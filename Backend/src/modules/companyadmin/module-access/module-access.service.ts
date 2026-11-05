@@ -49,17 +49,75 @@ export interface GetEmployeesModuleAccessQuery {
  */
 export function resolveOverrideState(raw: any): OverrideState {
     if (raw === undefined || raw === null) return 'INHERIT';
-    if (typeof raw === 'boolean') return raw ? 'ENABLED' : 'DISABLED';
+    if (typeof raw === 'boolean') return raw ? 'ALLOW' : 'DENY';
     if (typeof raw === 'string') {
         const upper = raw.trim().toUpperCase();
-        if (upper === 'ENABLED' || upper === 'TRUE' || upper === '1') return 'ENABLED';
-        if (upper === 'DISABLED' || upper === 'FALSE' || upper === '0') return 'DISABLED';
+        if (upper === 'ALLOW' || upper === 'ENABLED' || upper === 'TRUE' || upper === '1') return 'ALLOW';
+        if (upper === 'DENY' || upper === 'DISABLED' || upper === 'FALSE' || upper === '0') return 'DENY';
         if (upper === 'INHERIT') return 'INHERIT';
     }
     return 'INHERIT';
 }
 
 export class ModuleAccessService {
+    private static isSubscriberInit = false;
+    private static readonly REDIS_CHANNEL = 'worksphere:module_access_updated';
+
+    /**
+     * Cross-instance Redis synchronization listener
+     */
+    public static initRedisSubscriber(): void {
+        if (this.isSubscriberInit) return;
+        try {
+            const redis = getRedisClient();
+            if (!redis) return;
+            const sub = redis.duplicate();
+            sub.subscribe(this.REDIS_CHANNEL, (err) => {
+                if (!err) {
+                    this.isSubscriberInit = true;
+                }
+            });
+            sub.on('message', (channel, message) => {
+                if (channel === this.REDIS_CHANNEL) {
+                    try {
+                        const parsed = JSON.parse(message);
+                        const companyId = parsed?.companyId;
+                        const userIds = parsed?.userIds;
+                        const io = getSocketServer();
+                        if (io && companyId) {
+                            if (userIds && userIds.length > 0) {
+                                userIds.forEach((uId: string) => {
+                                    io.to(`user:${uId}`).emit('member:module_access_updated', {
+                                        companyId,
+                                        userId: uId,
+                                        timestamp: parsed?.timestamp || Date.now(),
+                                    });
+                                    io.to(`user:${uId}`).emit('member:permission_updated', {
+                                        companyId,
+                                        userId: uId,
+                                        timestamp: parsed?.timestamp || Date.now(),
+                                    });
+                                });
+                            } else {
+                                io.to(`company:${companyId}`).emit('company:module_access_updated', {
+                                    companyId,
+                                    affectedUserIds: [],
+                                    timestamp: parsed?.timestamp || Date.now(),
+                                });
+                                io.to(`company:${companyId}`).emit('company:permission_updated', {
+                                    companyId,
+                                    timestamp: parsed?.timestamp || Date.now(),
+                                });
+                            }
+                        }
+                    } catch {}
+                }
+            });
+        } catch {
+            // Redis error fallback
+        }
+    }
+
     /**
      * Retrieve supported sidebar module catalog with metadata
      */
@@ -107,7 +165,7 @@ export class ModuleAccessService {
                     }
                 }
                 await redis.publish(
-                    'worksphere:module_access_updated',
+                    this.REDIS_CHANNEL,
                     JSON.stringify({
                         companyId,
                         userIds: userIds || [],
@@ -129,6 +187,11 @@ export class ModuleAccessService {
                             userId: uId,
                             timestamp: Date.now(),
                         });
+                        io.to(`user:${uId}`).emit('member:permission_updated', {
+                            companyId,
+                            userId: uId,
+                            timestamp: Date.now(),
+                        });
                     });
                 }
                 io.to(`company:${companyId}`).emit('company:module_access_updated', {
@@ -136,11 +199,43 @@ export class ModuleAccessService {
                     affectedUserIds: userIds || [],
                     timestamp: Date.now(),
                 });
+                io.to(`company:${companyId}`).emit('company:permission_updated', {
+                    companyId,
+                    timestamp: Date.now(),
+                });
             }
         } catch {
             // Socket error fallback
         }
     }
+    /**
+     * Ensure every supported module has an explicit entry in globalSettings.
+     * Missing keys are backfilled from the module definition's defaultEnabled
+     * and persisted so a missing setting never silently grants access.
+     */
+    static async backfillGlobalSettings(
+        record: ICompanyModuleAccessDocument
+    ): Promise<ICompanyModuleAccessDocument> {
+        let changed = false;
+        const settings: Record<string, boolean> = { ...(record.globalSettings || {}) };
+
+        for (const mod of SUPPORTED_MODULES) {
+            if (!(mod.key in settings)) {
+                // Missing organization setting must NOT silently grant access.
+                settings[mod.key] = false;
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            record.globalSettings = settings;
+            record.markModified('globalSettings');
+            await record.save().catch(() => {});
+        }
+
+        return record;
+    }
+
     /**
      * Get or initialize the company module access record
      */
@@ -158,8 +253,11 @@ export class ModuleAccessService {
                 auditHistory: [],
                 schemaVersion: 1,
             });
-        } else if (!record.auditHistory) {
-            record.auditHistory = [];
+        } else {
+            if (!record.auditHistory) {
+                record.auditHistory = [];
+            }
+            await this.backfillGlobalSettings(record);
         }
 
         return record;
@@ -180,7 +278,7 @@ export class ModuleAccessService {
 
         const modulesWithStats = await Promise.all(
             SUPPORTED_MODULES.map(async (mod) => {
-                const isGloballyEnabled = record.globalSettings[mod.key] ?? true;
+                const isGloballyEnabled = Boolean(record.globalSettings[mod.key]);
                 let isPermittedByPlan = true;
                 let isPermittedByCompany = true;
 
@@ -212,8 +310,8 @@ export class ModuleAccessService {
                         ? overridesMap.get(mod.key)
                         : overridesMap?.[mod.key];
 
-                    if (state === 'ENABLED') enabledOverrideCount++;
-                    if (state === 'DISABLED') disabledOverrideCount++;
+                    if (state === 'ALLOW' || state === 'ENABLED') enabledOverrideCount++;
+                    if (state === 'DENY' || state === 'DISABLED') disabledOverrideCount++;
                 });
 
                 // Effective status for standard inheriting employee
@@ -457,7 +555,7 @@ export class ModuleAccessService {
                 const isCompanyPermitted = mod.featureFlag
                     ? (companyFeatures[mod.featureFlag] ?? true)
                     : true;
-                const isGloballyEnabled = moduleAccessDoc.globalSettings[mod.key] ?? true;
+                const isGloballyEnabled = Boolean(moduleAccessDoc.globalSettings[mod.key]);
 
                 featureRestrictions[mod.key] = {
                     disabledByPlan: !isPlanPermitted,
@@ -465,15 +563,20 @@ export class ModuleAccessService {
                 };
 
                 // Precedence Rule Execution:
-                // Effective access = (Plan Permitted && Company Permitted) && (Override State === ENABLED || (Override State === INHERIT && Global Enabled))
-                if (!isPlanPermitted || !isCompanyPermitted) {
+                // 1. Subscription Plan restriction (hard deny)
+                // 2. Individual override DENY (overrides org default) -> false
+                // 3. Individual override ALLOW (overrides org default) -> true
+                // 4. INHERIT / No override -> Inherit Organization Default (isGloballyEnabled)
+                if (!isPlanPermitted) {
                     effectiveAccess[mod.key] = false;
-                } else if (overrideState === 'DISABLED') {
+                } else if (!isCompanyPermitted) {
                     effectiveAccess[mod.key] = false;
-                } else if (overrideState === 'ENABLED') {
+                } else if (overrideState === 'DENY' || overrideState === 'DISABLED') {
+                    effectiveAccess[mod.key] = false;
+                } else if (overrideState === 'ALLOW' || overrideState === 'ENABLED') {
                     effectiveAccess[mod.key] = true;
                 } else {
-                    effectiveAccess[mod.key] = isGloballyEnabled;
+                    effectiveAccess[mod.key] = Boolean(isGloballyEnabled);
                 }
             });
 
@@ -587,21 +690,23 @@ export class ModuleAccessService {
             const isCompanyPermitted = mod.featureFlag
                 ? (companyFeatures[mod.featureFlag] ?? true)
                 : true;
-            const isGloballyEnabled = moduleAccessDoc.globalSettings[mod.key] ?? true;
+            const isGloballyEnabled = Boolean(moduleAccessDoc.globalSettings[mod.key]);
 
             featureRestrictions[mod.key] = {
                 disabledByPlan: !isPlanPermitted,
                 disabledByCompany: !isCompanyPermitted,
             };
 
-            if (!isPlanPermitted || !isCompanyPermitted) {
+            if (!isPlanPermitted) {
                 effectiveAccess[mod.key] = false;
-            } else if (overrideState === 'DISABLED') {
+            } else if (!isCompanyPermitted) {
                 effectiveAccess[mod.key] = false;
-            } else if (overrideState === 'ENABLED') {
+            } else if (overrideState === 'DENY' || overrideState === 'DISABLED') {
+                effectiveAccess[mod.key] = false;
+            } else if (overrideState === 'ALLOW' || overrideState === 'ENABLED') {
                 effectiveAccess[mod.key] = true;
             } else {
-                effectiveAccess[mod.key] = isGloballyEnabled;
+                effectiveAccess[mod.key] = Boolean(isGloballyEnabled);
             }
         }
 
@@ -736,21 +841,23 @@ export class ModuleAccessService {
                 const isCompanyPermitted = mod.featureFlag
                     ? (companyFeatures[mod.featureFlag] ?? true)
                     : true;
-                const isGloballyEnabled = moduleAccessDoc.globalSettings[mod.key] ?? true;
+                const isGloballyEnabled = Boolean(moduleAccessDoc.globalSettings[mod.key]);
 
                 featureRestrictions[mod.key] = {
                     disabledByPlan: !isPlanPermitted,
                     disabledByCompany: !isCompanyPermitted,
                 };
 
-                if (!isPlanPermitted || !isCompanyPermitted) {
+                if (!isPlanPermitted) {
                     effectiveAccess[mod.key] = false;
-                } else if (overrideState === 'DISABLED') {
+                } else if (!isCompanyPermitted) {
                     effectiveAccess[mod.key] = false;
-                } else if (overrideState === 'ENABLED') {
+                } else if (overrideState === 'DENY' || overrideState === 'DISABLED') {
+                    effectiveAccess[mod.key] = false;
+                } else if (overrideState === 'ALLOW' || overrideState === 'ENABLED') {
                     effectiveAccess[mod.key] = true;
                 } else {
-                    effectiveAccess[mod.key] = isGloballyEnabled;
+                    effectiveAccess[mod.key] = Boolean(isGloballyEnabled);
                 }
             });
 
@@ -893,15 +1000,7 @@ export class ModuleAccessService {
         for (const [key, state] of Object.entries(sourceMap)) {
             const mKey = normalizeModuleKey(key);
             if (mKey) {
-                let resolvedState: OverrideState = 'INHERIT';
-                if (typeof state === 'boolean') {
-                    resolvedState = state ? 'ENABLED' : 'DISABLED';
-                } else if (typeof state === 'string') {
-                    const upper = state.trim().toUpperCase();
-                    if (['INHERIT', 'ENABLED', 'DISABLED'].includes(upper)) {
-                        resolvedState = upper as OverrideState;
-                    }
-                }
+                const resolvedState: OverrideState = resolveOverrideState(state);
 
                 if (resolvedState === 'INHERIT') {
                     overridesMap.delete(mKey);
@@ -938,7 +1037,7 @@ export class ModuleAccessService {
 
         // Invalidate cache and emit real-time sync event
         await this.invalidateMemberAccessCache(companyId, [canonicalUserId]);
-        const revokedKeys = changedKeys.filter((k) => overridesMap.get(k) === 'DISABLED');
+        const revokedKeys = changedKeys.filter((k) => overridesMap.get(k) === 'DENY' || overridesMap.get(k) === 'DISABLED');
         if (revokedKeys.length > 0) {
             try {
                 await FeatureRevocationService.revokeEmployeeModules(companyId, [canonicalUserId], revokedKeys);
@@ -970,6 +1069,59 @@ export class ModuleAccessService {
             { overrides: { [canonicalKey]: 'INHERIT' } },
             updatedBy
         );
+    }
+
+    /**
+     * Reset all module overrides for an individual employee back to organization defaults (INHERIT)
+     */
+    static async resetAllEmployeeOverrides(
+        companyId: string,
+        employeeId: string,
+        updatedBy?: string
+    ) {
+        const empObjectId = new Types.ObjectId(employeeId);
+        let member = await CompanyMember.findOne({
+            companyId: new Types.ObjectId(companyId),
+            userId: empObjectId,
+        });
+
+        if (!member) {
+            member = await CompanyMember.findOne({
+                companyId: new Types.ObjectId(companyId),
+                _id: empObjectId,
+            });
+        }
+
+        if (!member) {
+            throw AppError.notFound('Employee does not belong to this organization');
+        }
+
+        const canonicalUserId = String((member.userId as any)?._id || member.userId);
+        const record = await this.getOrCreateCompanyModuleAccess(companyId);
+        const userObjectId = new Types.ObjectId(canonicalUserId);
+
+        const beforeCount = record.employeeOverrides.length;
+        record.employeeOverrides = record.employeeOverrides.filter(
+            (o) => String(o.employeeId) !== canonicalUserId
+        );
+
+        if (record.employeeOverrides.length !== beforeCount) {
+            record.markModified('employeeOverrides');
+            record.updatedBy = updatedBy ? new Types.ObjectId(updatedBy) : null;
+            record.auditHistory.push({
+                actorId: updatedBy ? new Types.ObjectId(updatedBy) : new Types.ObjectId(),
+                action: 'OVERRIDE_RESET',
+                affectedModuleKeys: VALID_MODULE_KEYS,
+                affectedEmployeeIds: [userObjectId],
+                details: `Reset all module overrides to inherit for employee ${canonicalUserId}`,
+                timestamp: new Date(),
+            });
+
+            await record.save();
+            await this.invalidateMemberAccessCache(companyId, [canonicalUserId]);
+        }
+
+        return this.getSingleEmployeeModuleAccess(companyId, canonicalUserId);
     }
 
     /**
@@ -1041,16 +1193,16 @@ export class ModuleAccessService {
         const overridesToApply: Record<ModuleKey, OverrideState> = {} as any;
         const { action, moduleKey, overrides, modules } = dto;
 
-        if (action === 'ENABLE' && moduleKey) {
+        if ((action === 'ENABLE' || action === 'ALLOW') && moduleKey) {
             const canonicalKey = normalizeModuleKey(moduleKey);
             if (canonicalKey) {
-                overridesToApply[canonicalKey] = 'ENABLED';
+                overridesToApply[canonicalKey] = 'ALLOW';
                 affectedModuleKeys.add(canonicalKey);
             }
-        } else if (action === 'DISABLE' && moduleKey) {
+        } else if ((action === 'DISABLE' || action === 'DENY') && moduleKey) {
             const canonicalKey = normalizeModuleKey(moduleKey);
             if (canonicalKey) {
-                overridesToApply[canonicalKey] = 'DISABLED';
+                overridesToApply[canonicalKey] = 'DENY';
                 affectedModuleKeys.add(canonicalKey);
             }
         } else if (action === 'RESET' && moduleKey) {
@@ -1064,15 +1216,7 @@ export class ModuleAccessService {
             for (const [k, v] of Object.entries(sourceMap)) {
                 const canonicalKey = normalizeModuleKey(k);
                 if (canonicalKey) {
-                    let state: OverrideState = 'INHERIT';
-                    if (typeof v === 'boolean') {
-                        state = v ? 'ENABLED' : 'DISABLED';
-                    } else if (typeof v === 'string') {
-                        const upper = v.trim().toUpperCase();
-                        if (['ENABLED', 'DISABLED', 'INHERIT'].includes(upper)) {
-                            state = upper as OverrideState;
-                        }
-                    }
+                    const state: OverrideState = resolveOverrideState(v);
                     overridesToApply[canonicalKey] = state;
                     affectedModuleKeys.add(canonicalKey);
                 }
@@ -1136,7 +1280,7 @@ export class ModuleAccessService {
 
         // Invalidate caches and broadcast real-time sync
         await this.invalidateMemberAccessCache(companyId, targetUserIds);
-        const revokedOverrides = Object.entries(overridesToApply).filter(([_, s]) => s === 'DISABLED').map(([k]) => k as ModuleKey);
+        const revokedOverrides = Object.entries(overridesToApply).filter(([_, s]) => s === 'DENY' || s === 'DISABLED').map(([k]) => k as ModuleKey);
         if (revokedOverrides.length > 0) {
             try {
                 await FeatureRevocationService.revokeEmployeeModules(companyId, targetUserIds, revokedOverrides);
@@ -1182,6 +1326,24 @@ export class ModuleAccessService {
         const record = await this.getOrCreateCompanyModuleAccess(companyId);
         const companyFeatures = await FeatureAccessService.getCompanyFeatureFlags(companyId);
 
+        // Resolve all plan entitlements in parallel (instead of sequential per-module).
+        // Each module with an entitlement calls getEntitlementDetails once; running them
+        // concurrently via Promise.all avoids ~21 sequential DB round-trips while keeping
+        // the exact same method signature (so existing mocks and behavior are preserved).
+        const entitlementModules = SUPPORTED_MODULES.filter((m) => Boolean(m.entitlement));
+        const entitlementResults = await Promise.all(
+            entitlementModules.map((m) =>
+                EntitlementService.getEntitlementDetails(companyId, m.entitlement!).then((details) => ({
+                    key: m.entitlement!,
+                    enabled: Boolean(details?.enabled),
+                }))
+            )
+        );
+        const entitlementMap: Record<string, boolean> = {};
+        for (const r of entitlementResults) {
+            entitlementMap[r.key] = r.enabled;
+        }
+
         // Find employee override record (supports matching either user ID or member document ID)
         let empOverride = record.employeeOverrides.find(
             (o) => String(o.employeeId) === String(userId)
@@ -1220,15 +1382,12 @@ export class ModuleAccessService {
         const restrictions: Partial<Record<ModuleKey, { code: string; message: string }>> = {};
 
         for (const mod of SUPPORTED_MODULES) {
-            // Tier 1: Plan / Subscription entitlement
+            // Tier 1: Plan / Subscription entitlement (resolved in batch above)
             let isPermittedByPlan = true;
             if (mod.entitlement) {
                 try {
-                    const entDetails = await EntitlementService.getEntitlementDetails(
-                        companyId,
-                        mod.entitlement
-                    );
-                    if (entDetails && !entDetails.enabled) {
+                    const entDetails = entitlementMap[mod.entitlement];
+                    if (entDetails === false) {
                         isPermittedByPlan = false;
                     }
                 } catch {
@@ -1243,12 +1402,17 @@ export class ModuleAccessService {
             }
 
             // Tier 3: Company Global Module Setting
-            const isGloballyEnabled = record.globalSettings[mod.key] ?? true;
+            // A missing organization setting must NOT silently grant access.
+            const isGloballyEnabled = Boolean(record.globalSettings[mod.key]);
 
             // Tier 4: Employee Override (Safely resolved without falsy coercion)
             const employeeOverride = resolveOverrideState(rawOverrides[mod.key]);
 
-            // Tier 5: Combined Precedence Resolution with Structured Denial Explanations
+            // Precedence Resolution:
+            // 1. Plan Entitlement (hard deny if tenant subscription doesn't include the module)
+            // 2. Individual member override DENY -> Revoke access (overriding organization default)
+            // 3. Individual member override ALLOW -> Grant access (overriding organization default)
+            // 4. No individual override (INHERIT) -> Inherit organization default (isGloballyEnabled)
             if (!isPermittedByPlan) {
                 effectiveModules[mod.key] = false;
                 denialReasons[mod.key] = 'PLAN_NOT_INCLUDED';
@@ -1258,22 +1422,22 @@ export class ModuleAccessService {
                 };
             } else if (!isCompanyPermitted) {
                 effectiveModules[mod.key] = false;
-                denialReasons[mod.key] = 'COMPANY_DISABLED';
+                denialReasons[mod.key] = 'FEATURE_DISABLED_BY_COMPANY';
                 restrictions[mod.key] = {
-                    code: 'COMPANY_DISABLED',
-                    message: 'Module is disabled in organization settings',
+                    code: 'FEATURE_DISABLED_BY_COMPANY',
+                    message: 'Feature has been disabled by your organization administrator',
                 };
-            } else if (employeeOverride === 'DISABLED') {
+            } else if (employeeOverride === 'DENY' || employeeOverride === 'DISABLED') {
                 effectiveModules[mod.key] = false;
                 denialReasons[mod.key] = 'USER_OVERRIDE_DISABLED';
                 restrictions[mod.key] = {
                     code: 'USER_OVERRIDE_DISABLED',
                     message: 'Access explicitly restricted by organization administrator',
                 };
-            } else if (employeeOverride === 'ENABLED') {
+            } else if (employeeOverride === 'ALLOW' || employeeOverride === 'ENABLED') {
                 effectiveModules[mod.key] = true;
             } else {
-                effectiveModules[mod.key] = isGloballyEnabled;
+                effectiveModules[mod.key] = Boolean(isGloballyEnabled);
                 if (!isGloballyEnabled) {
                     denialReasons[mod.key] = 'COMPANY_DISABLED';
                     restrictions[mod.key] = {
@@ -1309,12 +1473,23 @@ export class ModuleAccessService {
         try {
             if (userId) {
                 const access = await this.getEffectiveMemberModuleAccess(companyId, userId);
-                return access.effectiveModules[moduleKey as ModuleKey] ?? true;
+                return Boolean(access.effectiveModules[moduleKey as ModuleKey]);
             }
+
+            const mod = SUPPORTED_MODULES.find((m) => m.key === moduleKey);
+            if (mod?.featureFlag) {
+                const companyFeatures = await FeatureAccessService.getCompanyFeatureFlags(companyId, {
+                    failClosed: mod.featureFlag === 'enableManagerDashboard',
+                });
+                if (companyFeatures[mod.featureFlag] === false) {
+                    return false;
+                }
+            }
+
             const globalAccess = await this.getGlobalModuleAccess(companyId);
-            return (globalAccess as any)?.globalSettings?.[moduleKey] ?? true;
+            return Boolean((globalAccess as any)?.globalSettings?.[moduleKey]);
         } catch {
-            return true;
+            return false;
         }
     }
 }

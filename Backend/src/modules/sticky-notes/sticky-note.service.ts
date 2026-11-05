@@ -379,7 +379,7 @@ export class StickyNoteService {
             {
                 $set: { isPinned },
             },
-            { new: true }
+            { returnDocument: 'after' }
         )
             .populate('projectId', 'name')
             .populate('taskId', 'title taskNumber')
@@ -424,7 +424,7 @@ export class StickyNoteService {
             {
                 $set: updates,
             },
-            { new: true }
+            { returnDocument: 'after' }
         )
             .populate('projectId', 'name')
             .populate('taskId', 'title taskNumber')
@@ -475,7 +475,7 @@ export class StickyNoteService {
                     archivedAt: new Date(),
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         )
             .populate('projectId', 'name')
             .populate('taskId', 'title taskNumber')
@@ -523,7 +523,7 @@ export class StickyNoteService {
                     archivedAt: null,
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         )
             .populate('projectId', 'name')
             .populate('taskId', 'title taskNumber')
@@ -568,7 +568,7 @@ export class StickyNoteService {
             {
                 $set: { deletedAt: new Date() },
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!note) {
@@ -610,7 +610,7 @@ export class StickyNoteService {
             {
                 $set: { deletedAt: null },
             },
-            { new: true }
+            { returnDocument: 'after' }
         )
             .populate('projectId', 'name')
             .populate('taskId', 'title taskNumber')

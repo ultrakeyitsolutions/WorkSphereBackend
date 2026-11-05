@@ -6,6 +6,7 @@ import {
     updateEmployeeOverrideSchema,
     bulkUpdateEmployeeOverridesSchema,
     resetEmployeeOverrideParamsSchema,
+    resetAllEmployeeOverridesParamsSchema,
     selectedMembersQuerySchema,
 } from './module-access.validator';
 import { authorizeRoles } from '../../../middleware/authorization.middleware';
@@ -24,10 +25,32 @@ router.get(
     authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
     ModuleAccessController.getGlobalModuleAccess
 );
+router.get(
+    '/global',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    ModuleAccessController.getGlobalModuleAccess
+);
+router.get(
+    '/organization-defaults',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    ModuleAccessController.getGlobalModuleAccess
+);
 
 // ── PATCH /api/v1/company/module-access/global (Update global toggles) ─────────
 router.patch(
     '/global',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    validateRequest(updateGlobalModuleAccessSchema),
+    ModuleAccessController.updateGlobalModuleAccess
+);
+router.put(
+    '/global',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    validateRequest(updateGlobalModuleAccessSchema),
+    ModuleAccessController.updateGlobalModuleAccess
+);
+router.patch(
+    '/organization-defaults',
     authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
     validateRequest(updateGlobalModuleAccessSchema),
     ModuleAccessController.updateGlobalModuleAccess
@@ -68,12 +91,39 @@ router.patch(
     validateRequest(updateEmployeeOverrideSchema),
     ModuleAccessController.updateEmployeeModuleAccess
 );
+router.put(
+    '/employees/:employeeId',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    validateRequest(updateEmployeeOverrideSchema),
+    ModuleAccessController.updateEmployeeModuleAccess
+);
 
 router.patch(
     '/members/:employeeId',
     authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
     validateRequest(updateEmployeeOverrideSchema),
     ModuleAccessController.updateEmployeeModuleAccess
+);
+router.put(
+    '/members/:employeeId',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    validateRequest(updateEmployeeOverrideSchema),
+    ModuleAccessController.updateEmployeeModuleAccess
+);
+
+// ── DELETE /api/v1/company/module-access/employees/:employeeId/overrides (Reset ALL overrides to INHERIT) ──
+router.delete(
+    '/employees/:employeeId/overrides',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    validateRequest(resetAllEmployeeOverridesParamsSchema),
+    ModuleAccessController.resetAllEmployeeOverrides
+);
+
+router.delete(
+    '/members/:employeeId/overrides',
+    authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'),
+    validateRequest(resetAllEmployeeOverridesParamsSchema),
+    ModuleAccessController.resetAllEmployeeOverrides
 );
 
 // ── DELETE /api/v1/company/module-access/employees/:employeeId/overrides/:moduleKey ──

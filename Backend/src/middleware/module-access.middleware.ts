@@ -22,8 +22,9 @@ export const requireModuleAccess = (moduleKey: ModuleKey) => {
                 });
             }
 
-            const role = req.currentUser?.role || req.user?.role;
-            if (role === 'SUPER_ADMIN') {
+            const rawRole = req.currentUser?.role || req.user?.role;
+            const roleName = typeof rawRole === 'string' ? rawRole : (rawRole as any)?.name || '';
+            if (roleName === 'SUPER_ADMIN') {
                 return next();
             }
 
@@ -49,7 +50,7 @@ export const requireModuleAccess = (moduleKey: ModuleKey) => {
             }
 
             // Company Admin and Admin bypass member-level module restrictions (once subscription check passes)
-            if (role === 'COMPANY_ADMIN' || role === 'Admin') {
+            if (roleName === 'COMPANY_ADMIN' || roleName === 'Admin') {
                 return next();
             }
 
@@ -68,7 +69,7 @@ export const requireModuleAccess = (moduleKey: ModuleKey) => {
                     res,
                     `Access to the '${moduleKey}' module has been restricted for your account.`,
                     403,
-                    { code: 'MODULE_ACCESS_RESTRICTED', moduleKey }
+                    { code: 'PERMISSION_DENIED', featureCode: 'FEATURE_ACCESS_DENIED', moduleKey }
                 );
             }
 

@@ -255,7 +255,7 @@ export class EscalationEngine {
                                 idempotencyKey: resolvedIdempotencyKey,
                             },
                         },
-                        { upsert: true, new: true }
+                        { upsert: true, returnDocument: 'after' }
                     );
                     exemptedEvent = upsertExempt?.value || upsertExempt;
                 } catch (exemptErr) {
@@ -277,17 +277,15 @@ export class EscalationEngine {
                 };
             }
 
-            // 9. Fast-Path Idempotency Check: Query existing verified event
+            // 9. Fast-path idempotency check: query by unique idempotencyKey.
+            // Uses the unique index on idempotencyKey — efficient, no $or scan needed.
             const existingEvent = await EscalationEvent.findOne({
                 companyId: companyObjId,
-                $or: [
-                    { idempotencyKey: resolvedIdempotencyKey },
-                    { employeeId: employeeObjId, category, eventDate, sourceRecordId },
-                ],
+                idempotencyKey: resolvedIdempotencyKey,
             });
 
             if (existingEvent) {
-                console.log('[EscalationEngine] Event skipped (duplicate detected via query)', JSON.stringify({
+                console.log('[EscalationEngine] Event skipped (duplicate detected via idempotencyKey)', JSON.stringify({
                     action: 'EVENT_DUPLICATE_SKIPPED',
                     companyId,
                     employeeId,
@@ -309,7 +307,7 @@ export class EscalationEngine {
             }
 
             // 10. Atomic Upsert for Verified EscalationEvent
-            // Handles concurrent threads gracefully without duplicate key failures
+            // Handles concurrent threads gracefully without duplicate key failures.
             let createdEvent: IEscalationEventDocument | null = null;
             let isNewEvent = true;
 
@@ -339,7 +337,7 @@ export class EscalationEngine {
                     },
                     {
                         upsert: true,
-                        new: true,
+                        returnDocument: 'after',
                         includeResultMetadata: true,
                     }
                 );

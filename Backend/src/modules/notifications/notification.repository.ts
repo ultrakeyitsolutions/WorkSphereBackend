@@ -109,7 +109,7 @@ export class NotificationRepository {
                 recipientId: new Types.ObjectId(recipientId),
             },
             { $set: { isRead: true, readAt: new Date() } },
-            { new: true }
+            { returnDocument: 'after' }
         ).lean();
 
         return notif as INotification | null;
@@ -171,7 +171,7 @@ export class NotificationRepository {
         return NotificationPreference.findOneAndUpdate(
             { companyId: new Types.ObjectId(companyId), notificationType: type },
             { $set: data },
-            { upsert: true, new: true, runValidators: true }
+            { upsert: true, returnDocument: 'after', runValidators: true }
         ).lean() as Promise<INotificationPreference>;
     }
 

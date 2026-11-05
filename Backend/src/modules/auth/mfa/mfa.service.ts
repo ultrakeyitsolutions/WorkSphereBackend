@@ -364,7 +364,7 @@ export class MfaService {
                 keyOtpExpiresAt: null,
                 keyOtpAttempts: 0,
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
         );
 
         // Generate high-resolution QR code data URL

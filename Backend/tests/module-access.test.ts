@@ -719,6 +719,102 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
             expect(emp2.effectiveModules.dropbox).toBe(true);
         });
 
+        describe('Manager module individual override precedence', () => {
+            it('Organization ON + Employee DENY -> Manager disabled', async () => {
+                await ModuleAccessService.updateGlobalModuleAccess(
+                    mockCompanyId,
+                    { modules: { manager: true } },
+                    mockAdminId
+                );
+                await ModuleAccessService.updateEmployeeModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id,
+                    { overrides: { manager: 'DENY' } },
+                    mockAdminId
+                );
+
+                const access = await ModuleAccessService.getEffectiveMemberModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id
+                );
+                expect(access.effectiveModules.manager).toBe(false);
+                expect(access.denialReasons.manager).toBe('USER_OVERRIDE_DISABLED');
+            });
+
+            it('Organization OFF + Employee ALLOW -> Manager enabled', async () => {
+                await ModuleAccessService.updateGlobalModuleAccess(
+                    mockCompanyId,
+                    { modules: { manager: false } },
+                    mockAdminId
+                );
+                await ModuleAccessService.updateEmployeeModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id,
+                    { overrides: { manager: 'ALLOW' } },
+                    mockAdminId
+                );
+
+                const access = await ModuleAccessService.getEffectiveMemberModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id
+                );
+                expect(access.effectiveModules.manager).toBe(true);
+            });
+
+            it('Organization ON + Employee INHERIT -> Manager enabled', async () => {
+                await ModuleAccessService.updateGlobalModuleAccess(
+                    mockCompanyId,
+                    { modules: { manager: true } },
+                    mockAdminId
+                );
+
+                const access = await ModuleAccessService.getEffectiveMemberModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id
+                );
+                expect(access.effectiveModules.manager).toBe(true);
+            });
+
+            it('Organization OFF + Employee INHERIT -> Manager disabled', async () => {
+                await ModuleAccessService.updateGlobalModuleAccess(
+                    mockCompanyId,
+                    { modules: { manager: false } },
+                    mockAdminId
+                );
+
+                const access = await ModuleAccessService.getEffectiveMemberModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id
+                );
+                expect(access.effectiveModules.manager).toBe(false);
+            });
+
+            it('Employee A DENY does not affect Employee B', async () => {
+                await ModuleAccessService.updateGlobalModuleAccess(
+                    mockCompanyId,
+                    { modules: { manager: true } },
+                    mockAdminId
+                );
+                await ModuleAccessService.updateEmployeeModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id,
+                    { overrides: { manager: 'DENY' } },
+                    mockAdminId
+                );
+
+                const emp1 = await ModuleAccessService.getEffectiveMemberModuleAccess(
+                    mockCompanyId,
+                    mockEmployee1Id
+                );
+                const emp2 = await ModuleAccessService.getEffectiveMemberModuleAccess(
+                    mockCompanyId,
+                    mockEmployee2Id
+                );
+                expect(emp1.effectiveModules.manager).toBe(false);
+                expect(emp2.effectiveModules.manager).toBe(true);
+            });
+        });
+
         it('7. Updating global settings preserves existing explicit member overrides', async () => {
             // Employee 1 explicitly enabled for timesheet
             await ModuleAccessService.updateEmployeeModuleAccess(

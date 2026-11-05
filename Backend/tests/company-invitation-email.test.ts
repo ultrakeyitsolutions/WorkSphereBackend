@@ -23,6 +23,7 @@ import companySettingsRouter from '../src/modules/companyadmin/settings/company-
 import { mailDefaults } from '../src/config/mail';
 import { env } from '../src/config/env';
 import { SubscriptionQuotaService } from '../src/services/subscription-quota.service';
+import { invitationEmailQueue } from '../src/modules/companyadmin/invitations/invitation-queue.service';
 
 // Mock Transporter for mail
 const mockSendMail = vi.fn().mockResolvedValue({
@@ -170,6 +171,7 @@ vi.mock('../src/modules/companyadmin/invitations/invitation-delivery.model', () 
 vi.mock('../src/modules/companyadmin/invitations/roles/company-role.model', () => ({
     CompanyRole: {
         findOne: vi.fn(),
+        find: vi.fn(),
         findById: vi.fn(),
     },
     default: {
@@ -181,6 +183,7 @@ vi.mock('../src/modules/companyadmin/invitations/roles/company-role.model', () =
 vi.mock('../src/modules/companyadmin/invitations/designation/designation.model', () => ({
     Designation: {
         findOne: vi.fn(),
+        find: vi.fn(),
         findById: vi.fn(),
     },
     default: {
@@ -277,6 +280,10 @@ describe('Company Admin Custom Invitation Email Suite', () => {
         subscriptionMap.clear();
         settingsMap.clear();
         CompanyEmailEntitlementService.clearAllCache();
+
+        // Clear the background queue singleton so tests are isolated.
+        invitationEmailQueue['queue'] = [];
+        invitationEmailQueue['processingIds'].clear();
 
         // Default: User.findById in authenticate middleware
         vi.mocked(User.findById).mockImplementation(((id: any) => {
@@ -661,8 +668,8 @@ describe('Company Admin Custom Invitation Email Suite', () => {
         expect(lastMailCall.replyTo).toBe('reply@acme.com');
     });
 
-    // ── Test 13: InvitationService.invite tracks sender in InvitationDelivery ──
-    it('13. InvitationService.invite creates delivery record with sender metadata', async () => {
+    // ── Test 13: InvitationService.invite queues delivery; background worker sends with sender metadata ──
+    it('13. InvitationService.invite queues delivery; background worker sends with sender metadata', async () => {
         setCompanySubscription(companyAId, true);
         setCompanySettings(companyAId, {
             mode: 'COMPANY',
@@ -673,8 +680,8 @@ describe('Company Admin Custom Invitation Email Suite', () => {
 
         const mockRole = { _id: new Types.ObjectId(), name: 'Developer', isActive: true };
         const mockDesignation = { _id: new Types.ObjectId(), name: 'Senior Dev', isActive: true };
-        vi.mocked(CompanyRole.findOne).mockResolvedValue(mockRole as any);
-        vi.mocked(Designation.findOne).mockResolvedValue(mockDesignation as any);
+        vi.mocked(CompanyRole.find).mockReturnValue(createQuery([mockRole]) as any);
+        vi.mocked(Designation.find).mockReturnValue(createQuery([mockDesignation]) as any);
 
         const mockInvitation = {
             _id: new Types.ObjectId(),
@@ -704,8 +711,21 @@ describe('Company Admin Custom Invitation Email Suite', () => {
 
         expect(batchResult.created).toBe(1);
         expect(batchResult.results[0].status).toBe('INVITED');
+        // API returns immediately with QUEUED (background delivery), never falsely SENT.
+        expect(batchResult.results[0].deliveryStatus).toBe('QUEUED');
 
-        // Check InvitationDelivery update
+        // Delivery record created as QUEUED for background processing.
+        expect(InvitationDelivery.create).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 'QUEUED', channel: 'EMAIL' })
+        );
+
+        // Email is NOT sent synchronously during the HTTP call (fast response).
+        expect(mockSendMail).not.toHaveBeenCalled();
+        expect(invitationEmailQueue.getStats().queued).toBe(1);
+
+        // Background worker processes the queue and delivers with correct sender metadata.
+        await invitationEmailQueue.process();
+        expect(mockSendMail).toHaveBeenCalledTimes(1);
         expect(InvitationDelivery.findByIdAndUpdate).toHaveBeenCalledWith(
             mockDelivery._id,
             expect.objectContaining({

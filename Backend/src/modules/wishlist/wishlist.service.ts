@@ -343,7 +343,7 @@ export class WishlistService {
             const settings = await ProjectSettings.findOneAndUpdate(
                 { projectId: new Types.ObjectId(projectId) },
                 { $inc: { lastTaskItemNumber: 1 } },
-                { new: true, upsert: true, session }
+                { returnDocument: 'after', upsert: true, session }
             );
 
             const itemNumber = settings.lastTaskItemNumber;

@@ -20,7 +20,7 @@ export type ModuleKey =
     | 'shifts'
     | 'manager';
 
-export type OverrideState = 'INHERIT' | 'ENABLED' | 'DISABLED';
+export type OverrideState = 'INHERIT' | 'ALLOW' | 'DENY' | 'ENABLED' | 'DISABLED';
 
 export type AggregateState = 'ALL_ENABLED' | 'ALL_DISABLED' | 'MIXED';
 
@@ -79,7 +79,7 @@ export interface UpdateEmployeeOverrideDto {
 export interface BulkUpdateEmployeeOverridesDto {
     employeeIds?: string[];
     memberIds?: string[];
-    action?: 'SET' | 'RESET' | 'ENABLE' | 'DISABLE';
+    action?: 'SET' | 'RESET' | 'ALLOW' | 'DENY' | 'ENABLE' | 'DISABLE';
     moduleKey?: ModuleKey;
     overrides?: Partial<Record<ModuleKey, OverrideState | boolean>>;
     modules?: Partial<Record<ModuleKey, boolean>>;

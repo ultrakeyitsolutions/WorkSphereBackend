@@ -105,7 +105,7 @@ export class LeavePolicyService {
             await CompanyLeavePolicy.findOneAndUpdate(
                 { companyId: cId, leaveType: def.leaveType },
                 { $setOnInsert: def },
-                { upsert: true, new: true }
+                { upsert: true, returnDocument: 'after' }
             );
         }
     }
@@ -157,7 +157,7 @@ export class LeavePolicyService {
                     createdBy: actorId ? new Types.ObjectId(actorId) : null,
                 },
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
         );
 
         if (actorId) {
@@ -318,7 +318,7 @@ export class LeavePolicyService {
                     createdBy: actorId ? new Types.ObjectId(actorId) : null,
                 },
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
         );
 
         if (actorId) {

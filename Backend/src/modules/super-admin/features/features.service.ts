@@ -31,7 +31,7 @@ export class FeatureService {
         }
 
         const feature = await Feature.findByIdAndUpdate(id, dto, {
-            new: true,
+            returnDocument: 'after',
             runValidators: true,
         });
         if (!feature) throw new Error('Feature not found');
@@ -39,7 +39,7 @@ export class FeatureService {
     }
 
     static async changeFeatureStatus(id: string, isActive: boolean) {
-        const feature = await Feature.findByIdAndUpdate(id, { isActive }, { new: true });
+        const feature = await Feature.findByIdAndUpdate(id, { isActive }, { returnDocument: 'after' });
         if (!feature) throw new Error('Feature not found');
         return feature;
     }

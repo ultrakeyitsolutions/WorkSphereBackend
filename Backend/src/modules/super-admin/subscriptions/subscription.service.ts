@@ -56,6 +56,63 @@ export class SubscriptionService {
     }
 
     /**
+     * Authoritative centralized helper to resolve the single active subscription document
+     * for a given company.
+     * 1. Prioritizes Company.subscriptionId if valid and active.
+     * 2. Finds latest active/trialing/paused/past_due subscription.
+     * 3. Falls back to latest subscription document.
+     * 4. Synchronizes Company.subscriptionId if desynchronized.
+     */
+    public static async getActiveSubscriptionDocument(
+        companyId: string | Types.ObjectId
+    ): Promise<ISubscriptionDocument | null> {
+        if (!companyId || !Types.ObjectId.isValid(companyId)) return null;
+        const cId = new Types.ObjectId(companyId);
+        const company = await Company.findById(cId).select('subscriptionId');
+
+        let sub: any = null;
+        if (company?.subscriptionId) {
+            sub = await Subscription.findOne({
+                _id: new Types.ObjectId(company.subscriptionId as any),
+                status: {
+                    $in: [
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.TRIALING,
+                        SubscriptionStatus.PAUSED,
+                        SubscriptionStatus.PAST_DUE,
+                    ],
+                },
+            });
+        }
+
+        if (!sub) {
+            sub = await Subscription.findOne({
+                companyId: cId,
+                status: {
+                    $in: [
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.TRIALING,
+                        SubscriptionStatus.PAUSED,
+                        SubscriptionStatus.PAST_DUE,
+                    ],
+                },
+            }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+        }
+
+        if (!sub) {
+            sub = await Subscription.findOne({
+                companyId: cId,
+            }).sort({ createdAt: -1 });
+        }
+
+        if (sub && company && (!company.subscriptionId || String(company.subscriptionId) !== String(sub._id))) {
+            await Company.updateOne({ _id: cId }, { $set: { subscriptionId: sub._id } });
+        }
+
+        return (sub as ISubscriptionDocument) || null;
+    }
+
+    /**
      * Create a new subscription for a company.
      */
     static async createSubscription(
@@ -71,11 +128,15 @@ export class SubscriptionService {
         if (!plan) throw new Error('Plan not found');
         if (!plan.isActive || plan.isArchived) throw new Error('Cannot subscribe to inactive plan');
 
-        const existingSub = await Subscription.findOne({
-            companyId,
-            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] },
-        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
-        if (existingSub) throw new Error('Company already has an active subscription');
+        const existingSub = await this.getActiveSubscriptionDocument(companyId);
+        if (
+            existingSub &&
+            [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED].includes(
+                existingSub.status as any
+            )
+        ) {
+            throw new Error('Company already has an active subscription');
+        }
 
         const now = opts?.periodStart || new Date();
         const endDate = this.calculatePeriodEnd(now, plan.billingCycle || 'MONTHLY', opts?.durationDays);
@@ -89,6 +150,8 @@ export class SubscriptionService {
             currentPeriodEnd: endDate,
             cancelAtPeriodEnd: false,
         });
+
+        await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: subscription._id } });
 
         await SubscriptionEvent.create({
             subscriptionId: subscription._id,
@@ -135,15 +198,7 @@ export class SubscriptionService {
             ? new Date(opts.periodEnd)
             : this.calculatePeriodEnd(now, targetPlan.billingCycle || 'YEARLY', opts?.durationDays || 365);
 
-        let activeSub = await Subscription.findOne({
-            companyId: new Types.ObjectId(companyId),
-            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] },
-        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
-
-        if (!activeSub) {
-            activeSub = await Subscription.findOne({ companyId: new Types.ObjectId(companyId) }).sort({ createdAt: -1 });
-        }
-
+        let activeSub = await this.getActiveSubscriptionDocument(companyId);
         const prevPlanId = activeSub?.planId ? String(activeSub.planId) : null;
 
         if (!activeSub) {
@@ -175,6 +230,8 @@ export class SubscriptionService {
             activeSub.pricingOverride = 0;
             await activeSub.save();
         }
+
+        await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: activeSub._id } });
 
         await SubscriptionEvent.create({
             subscriptionId: activeSub._id,
@@ -210,22 +267,29 @@ export class SubscriptionService {
 
     /**
      * Upgrade or downgrade a plan (immediate activation or scheduled for next billing cycle).
+     * SuperAdmin or Company Admin (via payment confirmation) calls this to change plans.
+     *
+     * @param companyId - Company ID
+     * @param targetPlanId - Target plan ID
+     * @param adminId - Admin user ID performing the change
+     * @param immediate - If true, apply immediately; otherwise schedule for next cycle
+     * @param reason - Optional reason for the change
+     * @param pricingOverride - Optional custom pricing override (SuperAdmin only). If not provided,
+     *   any existing pricingOverride is cleared unless the plan is complimentary.
      */
     static async changePlan(
         companyId: string,
         targetPlanId: string,
         adminId: string,
         immediate: boolean = true,
-        reason?: string
+        reason?: string,
+        pricingOverride?: number | null
     ) {
         const targetPlan = await Plan.findById(targetPlanId);
         if (!targetPlan) throw new Error('Target plan not found');
         if (!targetPlan.isActive || targetPlan.isArchived) throw new Error('Target plan is not active');
 
-        const activeSub = await Subscription.findOne({
-            companyId,
-            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED] },
-        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+        const activeSub = await this.getActiveSubscriptionDocument(companyId);
 
         // If no existing active/trialing/paused subscription, create one immediately
         if (!activeSub) {
@@ -266,7 +330,22 @@ export class SubscriptionService {
             activeSub.planId = new Types.ObjectId(targetPlanId);
             activeSub.status = SubscriptionStatus.ACTIVE;
             activeSub.scheduledPlanId = undefined; // Clear any pending scheduled plan change
+
+            // Reset pricingOverride unless explicitly provided (SuperAdmin custom pricing)
+            // or the plan is complimentary
+            if (pricingOverride !== undefined) {
+                activeSub.pricingOverride = pricingOverride;
+            } else if (!activeSub.isComplimentary) {
+                activeSub.pricingOverride = null;
+            }
+
+            const now = new Date();
+            activeSub.currentPeriodStart = now;
+            activeSub.currentPeriodEnd = this.calculatePeriodEnd(now, targetPlan.billingCycle || 'MONTHLY');
+            activeSub.cancelAtPeriodEnd = false;
+
             await activeSub.save();
+            await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: activeSub._id } });
 
             await SubscriptionEvent.create({
                 subscriptionId: activeSub._id,
@@ -297,6 +376,7 @@ export class SubscriptionService {
             // Next cycle change
             activeSub.scheduledPlanId = new Types.ObjectId(targetPlanId);
             await activeSub.save();
+            await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: activeSub._id } });
 
             await SubscriptionEvent.create({
                 subscriptionId: activeSub._id,
@@ -327,6 +407,148 @@ export class SubscriptionService {
     }
 
     /**
+     * SuperAdmin direct plan assignment.
+     * Assigns a plan to a company immediately, with optional custom pricing.
+     * This is the authoritative method for SuperAdmin-driven plan changes.
+     * It does NOT create payment records or route through payment gateways -
+     * it directly updates the subscription record and invalidates all caches.
+     */
+    static async assignPlan(
+        companyId: string,
+        targetPlanId: string,
+        adminId: string,
+        opts?: {
+            immediate?: boolean;
+            reason?: string;
+            pricingOverride?: number | null;
+            isComplimentary?: boolean;
+            complimentaryReason?: string;
+            periodEnd?: Date;
+        }
+    ): Promise<ISubscriptionDocument> {
+        const targetPlan = await Plan.findById(targetPlanId);
+        if (!targetPlan) throw new Error('Target plan not found');
+        if (!targetPlan.isActive || targetPlan.isArchived) throw new Error('Target plan is not active');
+
+        const now = new Date();
+        const company = await Company.findById(companyId);
+        if (!company) throw new Error('Company not found');
+
+        const activeSub = await this.getActiveSubscriptionDocument(companyId);
+
+        const isComplimentary = opts?.isComplimentary === true;
+        const isUpgrade = targetPlan.price > 0 && (!activeSub || (targetPlan.price || 0) > (activeSub?.planId ? (await Plan.findById(activeSub.planId))?.price || 0 : 0));
+
+        const endDate = opts?.periodEnd
+            ? new Date(opts.periodEnd)
+            : this.calculatePeriodEnd(now, targetPlan.billingCycle || 'MONTHLY');
+
+        let previousPlanId: Types.ObjectId | null = null;
+
+        if (!activeSub) {
+            // No existing subscription - create new one
+            const subscription = await Subscription.create({
+                companyId: new Types.ObjectId(companyId),
+                planId: new Types.ObjectId(targetPlanId),
+                status: SubscriptionStatus.ACTIVE,
+                startedAt: now,
+                currentPeriodStart: now,
+                currentPeriodEnd: endDate,
+                cancelAtPeriodEnd: false,
+                isComplimentary,
+                complimentaryReason: opts?.reason || (isComplimentary ? 'Complimentary plan granted by SuperAdmin' : undefined),
+                complimentaryGrantedBy: isComplimentary ? new Types.ObjectId(adminId) : undefined,
+                complimentaryGrantedAt: isComplimentary ? new Date() : undefined,
+                pricingOverride: isComplimentary ? 0 : (opts?.pricingOverride ?? null),
+            });
+
+            await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: subscription._id } });
+
+            await SubscriptionEvent.create({
+                subscriptionId: subscription._id,
+                companyId,
+                type: SubscriptionEventType.SUBSCRIPTION_CREATED,
+                toPlanId: new Types.ObjectId(targetPlanId),
+                toStatus: SubscriptionStatus.ACTIVE,
+                effectiveAt: now,
+                performedBy: adminId,
+                metadata: {
+                    message: 'SuperAdmin assigned plan',
+                    immediate: opts?.immediate !== false,
+                    pricingOverride: opts?.pricingOverride ?? null,
+                },
+            });
+
+            await SubscriptionEntitlementSyncService.sync({
+                companyId,
+                toPlanId: targetPlanId,
+                actorId: adminId,
+                action: AuditAction.SUBSCRIPTION_CREATED,
+                isComplimentary: !!isComplimentary,
+                reason: opts?.reason,
+                effectiveDate: now,
+                metadata: { billingCycle: targetPlan.billingCycle, periodEnd: endDate, immediate: opts?.immediate !== false },
+            });
+
+            return subscription;
+        }
+
+        previousPlanId = activeSub.planId;
+
+        // Update existing subscription
+        activeSub.planId = new Types.ObjectId(targetPlanId);
+        activeSub.status = SubscriptionStatus.ACTIVE;
+        activeSub.currentPeriodStart = now;
+        activeSub.currentPeriodEnd = endDate;
+        activeSub.cancelAtPeriodEnd = false;
+        activeSub.scheduledPlanId = undefined;
+        activeSub.isComplimentary = isComplimentary;
+        activeSub.complimentaryReason = isComplimentary ? (opts?.reason || 'Complimentary plan granted by SuperAdmin') : undefined;
+        activeSub.complimentaryGrantedBy = isComplimentary ? new Types.ObjectId(adminId) : undefined;
+        activeSub.complimentaryGrantedAt = isComplimentary ? new Date() : undefined;
+        activeSub.pricingOverride = isComplimentary ? 0 : (opts?.pricingOverride ?? null);
+
+        await activeSub.save();
+        await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: activeSub._id } });
+
+        await SubscriptionEvent.create({
+            subscriptionId: activeSub._id,
+            companyId,
+            type: isUpgrade ? SubscriptionEventType.PLAN_UPGRADED : SubscriptionEventType.PLAN_DOWNGRADED,
+            fromPlanId: previousPlanId,
+            toPlanId: new Types.ObjectId(targetPlanId),
+            fromStatus: activeSub.status,
+            toStatus: SubscriptionStatus.ACTIVE,
+            effectiveAt: now,
+            performedBy: adminId,
+            metadata: {
+                immediate: opts?.immediate !== false,
+                reason: opts?.reason,
+                pricingOverride: opts?.pricingOverride ?? null,
+                isComplimentary,
+            },
+        });
+
+        await SubscriptionEntitlementSyncService.sync({
+            companyId,
+            fromPlanId: previousPlanId,
+            toPlanId: targetPlanId,
+            actorId: adminId,
+            action: isUpgrade ? AuditAction.SUBSCRIPTION_UPGRADED : AuditAction.SUBSCRIPTION_DOWNGRADED,
+            reason: opts?.reason,
+            effectiveDate: now,
+            isComplimentary,
+            metadata: {
+                immediate: opts?.immediate !== false,
+                pricingOverride: opts?.pricingOverride ?? null,
+                isComplimentary,
+            },
+        });
+
+        return activeSub;
+    }
+
+    /**
      * Atomically rolls over a scheduled plan change if its arrival date has passed.
      */
     static async reconcileScheduledSubscription(companyId: string): Promise<ISubscriptionDocument | null> {
@@ -334,7 +556,7 @@ export class SubscriptionService {
             companyId: new Types.ObjectId(companyId),
             scheduledPlanId: { $ne: null },
             status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING] },
-        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+        });
 
         if (!sub || !sub.scheduledPlanId || !sub.currentPeriodEnd) {
             return null;
@@ -360,6 +582,7 @@ export class SubscriptionService {
         sub.currentPeriodStart = newPeriodStart;
         sub.currentPeriodEnd = newPeriodEnd;
         await sub.save();
+        await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: sub._id } });
 
         await SubscriptionEvent.create({
             subscriptionId: sub._id,
@@ -392,7 +615,7 @@ export class SubscriptionService {
         resumeAt?: Date,
         reason?: string
     ) {
-        const sub = await Subscription.findOne({ companyId }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+        const sub = await Subscription.findOne({ companyId });
         if (!sub) throw new Error('Subscription not found');
         if (sub.status !== SubscriptionStatus.ACTIVE) throw new Error('Can only pause active subscriptions');
 
@@ -434,7 +657,7 @@ export class SubscriptionService {
         adminId: string,
         resumeImmediate: boolean
     ) {
-        const sub = await Subscription.findOne({ companyId }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+        const sub = await Subscription.findOne({ companyId });
         if (!sub) throw new Error('Subscription not found');
 
         if (resumeImmediate && sub.status === SubscriptionStatus.PAUSED) {
@@ -471,7 +694,7 @@ export class SubscriptionService {
         cancelImmediate: boolean,
         reason?: string
     ) {
-        const sub = await Subscription.findOne({ companyId }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+        const sub = await Subscription.findOne({ companyId });
         if (!sub) throw new Error('Subscription not found');
 
         if (cancelImmediate) {
@@ -543,22 +766,13 @@ export class SubscriptionService {
             // Non-blocking
         }
 
-        let sub = await Subscription.findOne({
-            companyId: new Types.ObjectId(companyId),
-            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE, SubscriptionStatus.PAUSED] },
-        })
-            .sort({ currentPeriodEnd: -1, createdAt: -1 })
-            .populate('planId', 'name price billingCycle description isActive')
-            .populate('scheduledPlanId', 'name price billingCycle description isActive')
-            .lean();
+        const activeDoc = await this.getActiveSubscriptionDocument(companyId);
+        if (!activeDoc) return null;
 
-        if (!sub) {
-            sub = await Subscription.findOne({ companyId: new Types.ObjectId(companyId) })
-                .sort({ createdAt: -1 })
-                .populate('planId', 'name price billingCycle description isActive')
-                .populate('scheduledPlanId', 'name price billingCycle description isActive')
-                .lean();
-        }
+        const sub = await Subscription.findById(activeDoc._id)
+            .populate('planId', 'name code price billingCycle description isActive')
+            .populate('scheduledPlanId', 'name code price billingCycle description isActive')
+            .lean();
 
         if (!sub) return null;
 
@@ -566,8 +780,8 @@ export class SubscriptionService {
         const events = await SubscriptionEvent.find({ companyId: new Types.ObjectId(companyId) })
             .sort({ createdAt: -1 })
             .limit(20)
-            .populate('fromPlanId', 'name price billingCycle')
-            .populate('toPlanId', 'name price billingCycle')
+            .populate('fromPlanId', 'name code price billingCycle')
+            .populate('toPlanId', 'name code price billingCycle')
             .populate('performedBy', 'name email')
             .lean();
 

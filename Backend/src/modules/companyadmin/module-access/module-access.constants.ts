@@ -163,6 +163,7 @@ export const SUPPORTED_MODULES: IModuleDefinition[] = [
         description: 'Team oversight, manager dashboard, assigned employee performance and approvals',
         category: 'Management',
         defaultEnabled: true,
+        featureFlag: 'enableManagerDashboard',
         route: '/main/manager',
         iconName: 'Users',
     },

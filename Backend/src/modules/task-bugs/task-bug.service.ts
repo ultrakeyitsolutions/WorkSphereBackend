@@ -50,7 +50,7 @@ export class TaskBugService {
         const bug = await TaskBug.findOneAndUpdate(
             { _id: bugId, companyId },
             { $set: data },
-            { new: true }
+            { returnDocument: 'after' }
         ).populate('createdBy', 'id name avatar role').populate('assignedTo', 'id name avatar role');
 
         if (!bug) throw new Error('BUG_NOT_FOUND');

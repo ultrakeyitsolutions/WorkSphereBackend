@@ -8,6 +8,7 @@ import { getRedisClient } from '../../../config/redis';
 import { getSocketServer } from '../../../sockets/socket-server';
 import { SubscriptionQuotaService } from '../../../services/subscription-quota.service';
 import { SessionService } from '../../auth/session/session.service';
+import { MemberResolutionService } from './member-resolution.service';
 
 export interface GetMembersQuery {
     companyId: string;
@@ -664,17 +665,13 @@ export class MemberService {
      * Keeps user accounts unified - no duplicate accounts created!
      */
     static async changeUserRole(companyId: string, targetUserId: string, newRole: string, actorId: string) {
-        const compId = new Types.ObjectId(companyId);
-        const userOid = new Types.ObjectId(targetUserId);
+        // Centralized member resolution: accepts either User _id or CompanyMember _id.
+        const resolved = await MemberResolutionService.resolveActiveMember(companyId, targetUserId);
+        const userOid = new Types.ObjectId(resolved.userId);
 
         const targetRoleUpper = newRole.trim().toUpperCase();
         if (!['EMPLOYEE', 'MANAGER'].includes(targetRoleUpper)) {
             throw new Error('Unsupported role assignment. Supported roles: EMPLOYEE, MANAGER');
-        }
-
-        const member = await CompanyMember.findOne({ companyId: compId, userId: userOid });
-        if (!member) {
-            throw new Error('User is not an active member of this company');
         }
 
         const user = await User.findById(userOid);
@@ -682,7 +679,7 @@ export class MemberService {
             throw new Error('User record not found');
         }
 
-        const oldMemberType = member.memberType;
+        const oldMemberType = resolved.member.memberType;
 
         // Find or map the Role document
         const RoleModel = (await import('../../roles/role.model.js')).Role;
@@ -696,6 +693,11 @@ export class MemberService {
         }
         await user.save();
 
+        // Update the member record using its actual _id (memberId)
+        const member = await CompanyMember.findById(resolved.memberId);
+        if (!member) {
+            throw new Error('Member record not found');
+        }
         member.memberType = targetRoleUpper as any;
         await member.save();
 
@@ -705,23 +707,23 @@ export class MemberService {
 
         if (targetRoleUpper === 'MANAGER') {
             const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service.js');
-            await ManagerAssignmentService.promoteToManager(companyId, targetUserId, actorId, {}).catch(() => {});
+            await ManagerAssignmentService.promoteToManager(companyId, resolved.userId, actorId, {}).catch(() => {});
         } else if (targetRoleUpper === 'EMPLOYEE') {
             const { ManagerAssignmentService } = await import('../../manager/services/manager-assignment.service.js');
-            await ManagerAssignmentService.demoteManager(companyId, targetUserId, actorId, 'Demoted to Employee by Company Administrator').catch(() => {});
-            await FeatureRevocationService.revokeManagerAccess(companyId, targetUserId, 'DEMOTE', undefined, undefined, 'Role changed to Employee');
+            await ManagerAssignmentService.demoteManager(companyId, resolved.userId, actorId, 'Demoted to Employee by Company Administrator').catch(() => {});
+            await FeatureRevocationService.revokeManagerAccess(companyId, resolved.userId, 'DEMOTE', undefined, undefined, 'Role changed to Employee');
         }
 
-        await TeamAccessService.invalidateScopeCache(companyId, targetUserId);
+        await TeamAccessService.invalidateScopeCache(companyId, resolved.userId);
 
         try {
             const redis = getRedisClient();
             if (redis) {
                 await redis.del(
-                    `session:${targetUserId}`,
-                    `user:${targetUserId}`,
-                    `worksphere:cache:member:${companyId}:${targetUserId}`,
-                    `worksphere:cache:module_access:${companyId}:${targetUserId}`
+                    `session:${resolved.userId}`,
+                    `user:${resolved.userId}`,
+                    `worksphere:cache:member:${companyId}:${resolved.userId}`,
+                    `worksphere:cache:module_access:${companyId}:${resolved.userId}`
                 ).catch(() => {});
             }
         } catch {}
@@ -729,16 +731,16 @@ export class MemberService {
         try {
             const io = getSocketServer();
             if (io) {
-                io.to(`user:${targetUserId}`).emit('user:role_updated', {
+                io.to(`user:${resolved.userId}`).emit('user:role_updated', {
                     companyId,
-                    userId: targetUserId,
+                    userId: resolved.userId,
                     oldRole: oldMemberType,
                     newRole: targetRoleUpper,
                     timestamp: Date.now(),
                 });
                 io.to(`company:${companyId}`).emit('company:user_role_updated', {
                     companyId,
-                    userId: targetUserId,
+                    userId: resolved.userId,
                     oldRole: oldMemberType,
                     newRole: targetRoleUpper,
                     timestamp: Date.now(),
@@ -748,7 +750,7 @@ export class MemberService {
 
         return {
             success: true,
-            userId: targetUserId,
+            userId: resolved.userId,
             newRole: targetRoleUpper,
             message: `User role successfully updated to ${targetRoleUpper}`,
         };

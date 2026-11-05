@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../../auth/auth.types';
 import { CompanyService } from './company.service';
-import { createCompanySchema, editCompanySchema, suspendCompanySchema, companyAdminPasswordResetSchema } from './company.schema';
+import { createCompanySchema, editCompanySchema, suspendCompanySchema, companyAdminPasswordResetSchema, billingDiscountSettingsSchema } from './company.schema';
 import { sendSuccess, sendError } from '../../../utils/response';
 
 export class CompanyController {
@@ -222,6 +222,33 @@ export class CompanyController {
                 return sendError(res, 'Company not found', 404);
             }
             return sendError(res, error.message || 'Failed to remove company logo', 500);
+        }
+    }
+
+    /**
+     * PATCH /api/super-admin/companies/:companyId/billing-discount
+     * Super Admin sets company-wise billing discount & proration settings.
+     * When enabled, the company sees discounted plan rates + proration on upgrades.
+     * When disabled, the company pays full amount (no proration).
+     */
+    static async updateBillingDiscountSettings(req: AuthenticatedRequest, res: Response) {
+        const { companyId } = req.params as { companyId: string };
+        const parsed = billingDiscountSettingsSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return sendError(res, 'Validation Error', 400, parsed.error.format());
+        }
+
+        try {
+            const company = await CompanyService.updateBillingDiscountSettings(
+                companyId,
+                parsed.data,
+            );
+            return sendSuccess(res, 'Company billing discount settings updated successfully', { company });
+        } catch (error: any) {
+            if (error.message === 'Company not found') {
+                return sendError(res, 'Company not found', 404);
+            }
+            return sendError(res, error.message || 'Failed to update billing discount settings', 500);
         }
     }
 }

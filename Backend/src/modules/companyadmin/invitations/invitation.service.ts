@@ -8,6 +8,7 @@ import { Designation } from './designation/designation.model';
 import { CompanyMember } from './company-member.model';
 import { Invitation } from './invitation.model';
 import { InvitationDelivery } from './invitation-delivery.model';
+import { invitationEmailQueue } from './invitation-queue.service';
 import { User } from '../../users/user.model';
 import { Role } from '../../roles/role.model';
 import { EmailService } from './email.service';
@@ -58,35 +59,109 @@ export class InvitationService {
 
     // ── ① Bulk invite ──────────────────────────────────────────────────────────
 
+    /**
+     * Bulk create invitations and enqueue their emails for background delivery.
+     *
+     * Performance optimizations vs the previous synchronous implementation:
+     * 1. Company / roles / designations are validated ONCE per batch (not per member).
+     * 2. Independent members are validated & inserted in parallel (bounded concurrency).
+     * 3. SMTP email delivery is moved to a background queue (InvitationEmailQueue)
+     *    so the HTTP response returns immediately after the invitation is durably
+     *    stored in MongoDB. Delivery status is reported as QUEUED; the background
+     *  worker transitions it to SENT/FAILED and retries with exponential backoff.
+     * 4. Structured timing logs are emitted per phase (db, token, total).
+     *
+     * Reliability: the invitation record + QUEUED delivery record are committed
+     * to the database before returning, so no invitation is lost even if the SMTP
+     * provider is temporarily unavailable. Failed deliveries are retried up to
+     * INVITATION_EMAIL_MAX_ATTEMPTS times and remain resendable via the resend
+     * endpoint. An invitation is never reported as "delivered" unless the email
+     * was actually accepted by the SMTP provider.
+     */
     static async invite(
         members: InviteMemberInput[],
         companyId: string,
         invitedByUserId: string
     ) {
-        // Validate company
-        const company = await Company.findById(companyId);
+        const totalStart = Date.now();
+        const companyObjId = new Types.ObjectId(companyId);
+        const invitedByObjId = new Types.ObjectId(invitedByUserId);
+
+        // Validate company (once per batch)
+        const dbStart = Date.now();
+        const company = await Company.findById(companyObjId).lean();
         if (!company) throw new Error('Company not found');
         if (company.status !== 'ACTIVE' || !company.isActive) {
             throw new Error('Company is not active');
         }
+        const companyName = company.name;
+        const dbMs = Date.now() - dbStart;
 
         // ── Enforce Subscription User Limit ──
         const quotaReservation = await SubscriptionQuotaService.reserveQuota(companyId, 'users', members.length);
+
+        // ── Batch-validate roles & designations once (not per member) ──
+        const uniqueRoleIds = [...new Set(members.map((m) => m.roleId))];
+        const uniqueDesignationIds = [...new Set(members.map((m) => m.designationId))];
+
+        const [roles, designations] = await Promise.all([
+            CompanyRole.find({
+                _id: { $in: uniqueRoleIds.map((id) => new Types.ObjectId(id)) },
+                companyId: companyObjId,
+            }).lean(),
+            Designation.find({
+                _id: { $in: uniqueDesignationIds.map((id) => new Types.ObjectId(id)) },
+                companyId: companyObjId,
+            }).lean(),
+        ]);
+
+        const roleById = new Map<string, any>();
+        for (const r of roles) roleById.set(String(r._id), r);
+        const designationById = new Map<string, any>();
+        for (const d of designations) designationById.set(String(d._id), d);
 
         const results: Array<{
             emailOrPhone: string;
             status: string;
             reason?: string;
             invitationId?: string;
-            deliveryStatus?: 'SENT' | 'FAILED';
+            deliveryStatus?: 'QUEUED' | 'SENT' | 'FAILED';
             deliveryError?: string;
         }> = [];
         let created = 0;
         let failed = 0;
 
-        try {
-            for (const member of members) {
+        // Bounded concurrency for independent member processing.
+        const concurrency = Number(env.INVITATION_MEMBER_CONCURRENCY || '10');
+
+        type MemberOutcome = {
+            emailOrPhone: string;
+            status: string;
+            reason?: string;
+            invitationId?: string;
+            deliveryStatus?: 'QUEUED' | 'SENT' | 'FAILED';
+            created: boolean;
+        };
+
+        async function processWithLimit<T>(
+            items: InviteMemberInput[],
+            fn: (item: InviteMemberInput, idx: number) => Promise<T>
+        ): Promise<T[]> {
+            const out: Array<T | undefined> = new Array(items.length);
+            let i = 0;
+            async function worker(): Promise<void> {
+                while (i < items.length) {
+                    const idx = i++;
+                    out[idx] = await fn(items[idx], idx);
+                }
+            }
+            await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }).map(() => worker()));
+            return out as T[];
+        }
+
+        const outcomes = await processWithLimit<MemberOutcome>(members, async (member) => {
             const { emailOrPhone, roleId, designationId, memberType } = member;
+            const memberStart = Date.now();
 
             try {
                 // ── Determine channel ──────────────────────────────────────
@@ -99,19 +174,13 @@ export class InvitationService {
                     throw new Error('Invalid email address');
                 }
 
-                // ── Validate Role ──────────────────────────────────────────
-                const role = await CompanyRole.findOne({
-                    _id: new Types.ObjectId(roleId),
-                    companyId: new Types.ObjectId(companyId),
-                });
+                // ── Validate Role (from batch cache) ───────────────────────
+                const role = roleById.get(roleId);
                 if (!role) throw new Error(`Role ${roleId} not found or does not belong to this company`);
                 if (!role.isActive) throw new Error(`Role "${role.name}" is not active`);
 
-                // ── Validate Designation ───────────────────────────────────
-                const designation = await Designation.findOne({
-                    _id: new Types.ObjectId(designationId),
-                    companyId: new Types.ObjectId(companyId),
-                });
+                // ── Validate Designation (from batch cache) ────────────────
+                const designation = designationById.get(designationId);
                 if (!designation) throw new Error(`Designation ${designationId} not found or does not belong to this company`);
                 if (!designation.isActive) throw new Error(`Designation "${designation.name}" is not active`);
 
@@ -120,20 +189,22 @@ export class InvitationService {
                     const existingUser = await User.findOne({ email });
                     if (existingUser) {
                         const existingMember = await CompanyMember.findOne({
-                            companyId: new Types.ObjectId(companyId),
+                            companyId: companyObjId,
                             userId: existingUser._id,
                         });
                         if (existingMember) {
-                            results.push({ emailOrPhone, status: 'ALREADY_MEMBER' });
-                            failed++;
-                            continue;
+                            return {
+                                emailOrPhone,
+                                status: 'ALREADY_MEMBER',
+                                created: false,
+                            };
                         }
                     }
                 }
 
                 // ── Check existing PENDING invitation ──────────────────────
                 const pendingQuery: Record<string, unknown> = {
-                    companyId: new Types.ObjectId(companyId),
+                    companyId: companyObjId,
                     status: 'PENDING',
                     expiresAt: { $gt: new Date() },
                 };
@@ -142,31 +213,36 @@ export class InvitationService {
 
                 const existingPending = await Invitation.findOne(pendingQuery);
                 if (existingPending) {
-                    results.push({ emailOrPhone, status: 'ALREADY_INVITED' });
-                    failed++;
-                    continue;
+                    return {
+                        emailOrPhone,
+                        status: 'ALREADY_INVITED',
+                        created: false,
+                    };
                 }
 
                 // ── Generate token ─────────────────────────────────────────
+                const tokenStart = Date.now();
                 const { rawToken, tokenHash } = generateToken();
+                const tokenMs = Date.now() - tokenStart;
+
                 const expiresAt = new Date();
                 expiresAt.setDate(expiresAt.getDate() + env.INVITATION_EXPIRES_DAYS);
 
                 // ── Create Invitation ──────────────────────────────────────
                 const invitation = await Invitation.create({
-                    companyId: new Types.ObjectId(companyId),
+                    companyId: companyObjId,
                     email,
                     phoneNumber: phone,
                     roleId: new Types.ObjectId(roleId),
                     designationId: new Types.ObjectId(designationId),
                     memberType,
-                    invitedByUserId: new Types.ObjectId(invitedByUserId),
+                    invitedByUserId: invitedByObjId,
                     tokenHash,
                     expiresAt,
                     status: 'PENDING',
                 });
 
-                // ── Create Delivery Record ─────────────────────────────────
+                // ── Create Delivery Record (QUEUED for background delivery) ─
                 const delivery = await InvitationDelivery.create({
                     invitationId: invitation._id,
                     channel,
@@ -174,63 +250,87 @@ export class InvitationService {
                     attemptCount: 0,
                 });
 
-                // ── Send Email ─────────────────────────────────────────────
-                let emailDeliveryError: string | null = null;
+                // ── Enqueue email for background delivery ─────────────────
                 if (channel === 'EMAIL' && email) {
-                    try {
-                        await InvitationDelivery.findByIdAndUpdate(delivery._id, {
-                            status: 'SENDING',
-                            $inc: { attemptCount: 1 },
-                        });
-
-                        const deliveryResult = await EmailService.sendInvitationEmail({
-                            to: email,
-                            rawToken,
-                            companyName: company.name,
-                            roleName: role.name,
-                            designationName: designation.name,
-                            companyId: String(company._id),
-                        });
-
-                        await InvitationDelivery.findByIdAndUpdate(delivery._id, {
-                            status: 'SENT',
-                            providerMessageId: deliveryResult.messageId,
-                            senderEmail: deliveryResult.senderEmail,
-                            senderMode: deliveryResult.senderMode,
-                            sentAt: new Date(),
-                        });
-                    } catch (emailErr: any) {
-                        emailDeliveryError = emailErr?.message ?? 'Unknown error';
-                        await InvitationDelivery.findByIdAndUpdate(delivery._id, {
-                            status: 'FAILED',
-                            failureReason: emailErr?.message ?? 'Unknown error',
-                            failedAt: new Date(),
-                        });
-                        // Invitation still created — let admin retry manually
-                        console.error(`[InvitationService] Failed to send invitation email to ${email}:`, emailErr);
-                    }
+                    invitationEmailQueue.enqueue({
+                        deliveryId: delivery._id,
+                        invitationId: invitation._id,
+                        email,
+                        rawToken,
+                        companyName,
+                        roleName: role.name,
+                        designationName: designation.name,
+                        companyId: String(company._id),
+                        attempt: 0,
+                        nextRetryAt: new Date(),
+                    });
                 }
 
-                results.push({
+                const memberMs = Date.now() - memberStart;
+                console.log(JSON.stringify({
+                    level: 'info',
+                    component: 'invitation-service',
+                    event: 'invitation_created',
+                    email: emailOrPhone,
+                    invitationId: String(invitation._id),
+                    deliveryId: String(delivery._id),
+                    channel,
+                    dbMs: memberMs,
+                    tokenMs,
+                    deliveryStatus: 'QUEUED',
+                }));
+
+                return {
                     emailOrPhone,
                     status: 'INVITED',
                     invitationId: String(invitation._id),
-                    deliveryStatus: emailDeliveryError ? 'FAILED' : 'SENT',
-                    ...(emailDeliveryError ? { deliveryError: emailDeliveryError } : {}),
-                });
-                created++;
+                    deliveryStatus: 'QUEUED',
+                    created: true,
+                };
 
             } catch (err: any) {
-                results.push({
+                return {
                     emailOrPhone,
                     status: 'FAILED',
                     reason: err?.message ?? 'Unknown error',
+                    created: false,
+                };
+            }
+        });
+
+        for (const outcome of outcomes) {
+            if (outcome.created) {
+                created++;
+                results.push({
+                    emailOrPhone: outcome.emailOrPhone,
+                    status: outcome.status,
+                    invitationId: outcome.invitationId,
+                    deliveryStatus: (outcome.deliveryStatus as 'QUEUED' | 'SENT' | 'FAILED' | undefined),
                 });
+            } else {
                 failed++;
+                results.push({
+                    emailOrPhone: outcome.emailOrPhone,
+                    status: outcome.status,
+                    reason: outcome.reason,
+                });
             }
         }
 
         await quotaReservation.commit();
+
+        const totalMs = Date.now() - totalStart;
+        console.log(JSON.stringify({
+            level: 'info',
+            component: 'invitation-service',
+            event: 'invite_batch_complete',
+            companyId,
+            total: members.length,
+            created,
+            failed,
+            totalMs,
+            dbMs,
+        }));
 
         return {
             total: members.length,
@@ -238,10 +338,6 @@ export class InvitationService {
             failed,
             results,
         };
-        } catch (err) {
-            await quotaReservation.release();
-            throw err;
-        }
     }
 
     // ── ② Validate invitation token (public) ──────────────────────────────────

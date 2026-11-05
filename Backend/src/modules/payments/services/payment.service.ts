@@ -7,6 +7,7 @@ import { RazorpayAdapter } from '../providers/razorpay.adapter';
 import { PaymentOutboxService } from './payment-outbox.service';
 import { Plan } from '../../super-admin/plans/plans.model';
 import { Subscription } from '../../super-admin/subscriptions/subscription.model';
+import { SubscriptionService } from '../../super-admin/subscriptions/subscription.service';
 import { SubscriptionEvent } from '../../super-admin/subscriptions/subscription-event.model';
 import { SubscriptionEventType } from '../../super-admin/subscriptions/subscription-event.types';
 import { SubscriptionStatus, ISubscriptionDocument } from '../../super-admin/subscriptions/subscription.types';
@@ -101,14 +102,22 @@ export class PaymentService {
             billingPolicy = 'FULL_PRICE';
         }
 
-        let amountInMinorUnits = Math.round(plan.price * 100);
+        // Apply SuperAdmin company-level discount if enabled
+        const discountEnabled = Boolean(company.billingDiscountEnabled);
+        const discountPercentage = Math.max(0, Math.min(100, Number(company.billingDiscountPercentage) || 0));
+        let basePrice = plan.price || 0;
+        if (discountEnabled && discountPercentage > 0) {
+            basePrice = Math.round((basePrice * (1 - discountPercentage / 100)) * 100) / 100;
+        }
+
+        let amountInMinorUnits = Math.round(basePrice * 100);
+
+        // Check if SuperAdmin enabled proration for this company (default true)
+        const prorationEnabled = company.billingProrationEnabled !== false;
 
         // Proration calculation: calculate remaining unused credit ONLY from a valid paid active subscription
-        if (billingPolicy === 'PRORATED') {
-            const activeSub = await Subscription.findOne({
-                companyId: new Types.ObjectId(companyId),
-                status: SubscriptionStatus.ACTIVE,
-            });
+        if (billingPolicy === 'PRORATED' && prorationEnabled) {
+            const activeSub = await SubscriptionService.getActiveSubscriptionDocument(companyId);
 
             // Only apply proration credit if:
             // 1. Subscription is strictly ACTIVE (not trialing, not paused)
@@ -117,12 +126,14 @@ export class PaymentService {
             // 4. Subscription had a legitimate non-zero paid base price
             if (
                 activeSub &&
+                activeSub.status === SubscriptionStatus.ACTIVE &&
                 !activeSub.isComplimentary &&
-                activeSub.currentPeriodEnd > new Date()
+                activeSub.currentPeriodEnd &&
+                new Date(activeSub.currentPeriodEnd).getTime() > Date.now()
             ) {
                 // If user is renewing the exact same plan, charge full plan price for new cycle
                 if (activeSub.planId.toString() === planId) {
-                    amountInMinorUnits = Math.round(plan.price * 100);
+                    amountInMinorUnits = Math.round(basePrice * 100);
                 } else {
                     const currentPlan = await Plan.findById(activeSub.planId);
                     const effectiveBasePrice =
@@ -130,17 +141,17 @@ export class PaymentService {
                             ? activeSub.pricingOverride
                             : (currentPlan?.price || 0);
 
-                    if (effectiveBasePrice > 0) {
+                    if (effectiveBasePrice > 0 && activeSub.currentPeriodStart) {
                         const now = Date.now();
                         const totalPeriodMs =
-                            activeSub.currentPeriodEnd.getTime() - activeSub.currentPeriodStart.getTime();
-                        const remainingMs = Math.max(0, activeSub.currentPeriodEnd.getTime() - now);
+                            new Date(activeSub.currentPeriodEnd).getTime() - new Date(activeSub.currentPeriodStart).getTime();
+                        const remainingMs = Math.max(0, new Date(activeSub.currentPeriodEnd).getTime() - now);
 
                         if (totalPeriodMs > 0 && remainingMs > 0) {
                             const remainingRatio = Math.min(1, Math.max(0, remainingMs / totalPeriodMs));
                             // Round unused credit to two decimal places (cents)
                             const unusedCredit = Math.round(effectiveBasePrice * remainingRatio * 100) / 100;
-                            const netUpgradePrice = Math.max(0, Math.round((plan.price - unusedCredit) * 100) / 100);
+                            const netUpgradePrice = Math.max(0, Math.round((basePrice - unusedCredit) * 100) / 100);
                             amountInMinorUnits = Math.round(netUpgradePrice * 100);
                         }
                     }
@@ -684,7 +695,7 @@ export class PaymentService {
                     errorMessage: null,
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) {
@@ -811,11 +822,8 @@ export class PaymentService {
         let periodStart = now;
         let periodEnd = new Date(now);
 
-        // Fetch existing subscription prioritizing active records with latest period end
-        const existingSub = await Subscription.findOne({
-            companyId: attempt.companyId,
-            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
-        }).sort({ currentPeriodEnd: -1, createdAt: -1 });
+        // Fetch existing subscription using centralized resolver
+        const existingSub = await SubscriptionService.getActiveSubscriptionDocument(attempt.companyId);
         let prevPlanId: any = null;
         let isUpgrade = false;
 
@@ -903,9 +911,10 @@ export class PaymentService {
             });
         }
 
-        // Link subscriptionId back to attempt
+        // Link subscriptionId back to attempt and company
         attempt.subscriptionId = subscriptionDoc._id;
         await attempt.save();
+        await Company.updateOne({ _id: attempt.companyId }, { $set: { subscriptionId: subscriptionDoc._id } });
 
         // Synchronize entitlements, invalidate all caches across workers, log audit, and notify sockets
         await SubscriptionEntitlementSyncService.sync({
@@ -1032,7 +1041,7 @@ export class PaymentService {
             throw AppError.badRequest('Target plan is invalid or inactive');
         }
 
-        const existingSub = await Subscription.findOne({ companyId: new Types.ObjectId(companyId) });
+        const existingSub = await SubscriptionService.getActiveSubscriptionDocument(companyId);
         const fromPlanId = existingSub?.planId ? (existingSub.planId as Types.ObjectId) : undefined;
         const now = new Date();
         const periodEnd = new Date(now);
@@ -1071,6 +1080,8 @@ export class PaymentService {
             await existingSub.save();
             subDoc = existingSub;
         }
+
+        await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: subDoc._id } });
 
         // Immutable Subscription Event
         await SubscriptionEvent.create({
@@ -1450,12 +1461,16 @@ export class PaymentService {
             throw AppError.notFound('Company not found');
         }
 
+        const activeSubDoc = await SubscriptionService.getActiveSubscriptionDocument(companyId);
+
         const [subscription, payments, events, upgradeRequests, auditLogs, allPlans] = await Promise.all([
-            Subscription.findOne({ companyId: new Types.ObjectId(companyId) })
-                .populate('planId')
-                .populate('scheduledPlanId')
-                .populate('complimentaryGrantedBy', 'name email')
-                .lean(),
+            activeSubDoc
+                ? Subscription.findById(activeSubDoc._id)
+                      .populate('planId')
+                      .populate('scheduledPlanId')
+                      .populate('complimentaryGrantedBy', 'name email')
+                      .lean()
+                : null,
             PaymentAttempt.find({ companyId: new Types.ObjectId(companyId) })
                 .populate('planId', 'name price billingCycle')
                 .populate('actorId', 'name email')
@@ -1506,7 +1521,11 @@ export class PaymentService {
                 slug: company.slug,
                 domain: company.domain,
                 status: company.status,
+                billingDiscountEnabled: Boolean(company.billingDiscountEnabled),
+                billingDiscountPercentage: company.billingDiscountPercentage || 0,
+                billingProrationEnabled: company.billingProrationEnabled !== false,
             },
+            currentPlan: (subscription as any)?.planId || null,
             subscription: subscription
                 ? {
                       id: subscription._id,
@@ -1562,11 +1581,16 @@ export class PaymentService {
             throw AppError.badRequest('Invalid organization ID');
         }
 
-        const [subscription, activePlans, recentPayments] = await Promise.all([
-            Subscription.findOne({ companyId: new Types.ObjectId(companyId) })
-                .populate('planId')
-                .populate('scheduledPlanId')
-                .lean(),
+        const activeSubDoc = await SubscriptionService.getActiveSubscriptionDocument(companyId);
+
+        const [company, subscription, activePlans, recentPayments] = await Promise.all([
+            Company.findById(new Types.ObjectId(companyId)).lean(),
+            activeSubDoc
+                ? Subscription.findById(activeSubDoc._id)
+                      .populate('planId')
+                      .populate('scheduledPlanId')
+                      .lean()
+                : null,
             Plan.find({ isActive: true, isArchived: false }).lean(),
             PaymentAttempt.find({ companyId: new Types.ObjectId(companyId) })
                 .populate('planId', 'name price billingCycle')
@@ -1575,9 +1599,26 @@ export class PaymentService {
                 .lean(),
         ]);
 
-        const currentPlan: any = subscription?.planId;
+        let currentPlan: any = (subscription as any)?.planId;
+        if (!currentPlan) {
+            currentPlan = await Plan.findOne({ isDefault: true, isActive: true, isArchived: false }).lean();
+        }
+
         const now = Date.now();
+
+        // Company-level billing discount settings (Super Admin controlled)
+        const discountEnabled = Boolean(company?.billingDiscountEnabled);
+        const discountPercentage = Math.max(0, Math.min(100, Number(company?.billingDiscountPercentage) || 0));
+        const prorationEnabled = company?.billingProrationEnabled !== false; // default true
+
+        // Apply company discount to plan prices if enabled
+        const applyDiscount = (price: number) => {
+            if (!discountEnabled || discountPercentage <= 0) return price;
+            return Math.round((price * (1 - discountPercentage / 100)) * 100) / 100;
+        };
+
         const isEligibleForProration =
+            prorationEnabled &&
             subscription &&
             subscription.status === SubscriptionStatus.ACTIVE &&
             !subscription.isComplimentary &&
@@ -1599,58 +1640,135 @@ export class PaymentService {
                 ? Math.max(0, new Date(subscription.currentPeriodEnd).getTime() - now)
                 : 0;
         const remainingRatio = totalPeriodMs > 0 ? Math.min(1, Math.max(0, remainingMs / totalPeriodMs)) : 0;
-        const unusedCredit =
-            effectiveBasePrice > 0 ? Math.round(effectiveBasePrice * remainingRatio * 100) / 100 : 0;
+
+        // A complimentary/free plan (price = 0) generates no proratable credit.
+        // You cannot earn credit on a plan you never paid for.
+        // If prorationEnabled is false, no proration credit is generated.
+        const isPaidPlan = effectiveBasePrice > 0;
+        const billableUnusedCredit =
+            prorationEnabled && isPaidPlan && isEligibleForProration
+                ? Math.round(effectiveBasePrice * remainingRatio * 100) / 100
+                : 0;
 
         const availableUpgrades = activePlans.map((plan: any) => {
+            const discountedPrice = applyDiscount(plan.price || 0);
             const isCurrent = currentPlan && String(currentPlan._id) === String(plan._id);
-            const proratedPrice = isCurrent ? 0 : Math.max(0, Math.round((plan.price - unusedCredit) * 100) / 100);
+            const proratedPrice = isCurrent
+                ? 0
+                : Math.max(0, Math.round((discountedPrice - billableUnusedCredit) * 100) / 100);
             return {
                 id: plan._id,
                 name: plan.name,
                 code: plan.code,
                 description: plan.description,
                 price: plan.price,
+                discountedPrice,
                 currency: plan.currency,
                 billingCycle: plan.billingCycle,
                 isCurrent,
-                // Return both naming conventions to guarantee seamless UI & API contract compatibility
-                proratedCredit: Math.round(unusedCredit * 100) / 100,
+                proratedCredit: billableUnusedCredit,
                 estimatedPayable: isCurrent ? 0 : proratedPrice,
                 proratedUpgradePrice: proratedPrice,
-                savingsFromCurrentPlan: Math.round(unusedCredit * 100) / 100,
+                savingsFromCurrentPlan: billableUnusedCredit,
+                discountApplied: discountEnabled && discountPercentage > 0 ? discountPercentage : 0,
+                // Net payable after applying prorated credit (never below zero)
+                netPayableToday: isCurrent ? 0 : Math.max(0, Math.round((discountedPrice - billableUnusedCredit) * 100) / 100),
             };
         });
 
+        const formattedSub = subscription
+            ? {
+                  id: String(subscription._id),
+                  status: subscription.status,
+                  currentPlan,
+                  scheduledPlan: subscription.scheduledPlanId,
+                  startedAt: subscription.startedAt,
+                  currentPeriodStart: subscription.currentPeriodStart,
+                  currentPeriodEnd: subscription.currentPeriodEnd,
+                  cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+                  isComplimentary: Boolean(subscription.isComplimentary),
+                  complimentaryReason: subscription.isComplimentary ? subscription.complimentaryReason : undefined,
+                  pricingOverride: (subscription as any).pricingOverride,
+              }
+            : null;
+
+        const formattedPlan = currentPlan
+            ? {
+                  id: String(currentPlan._id),
+                  name: currentPlan.name,
+                  code: currentPlan.code,
+                  description: currentPlan.description,
+                  price: currentPlan.price,
+                  currency: currentPlan.currency || 'INR',
+                  billingCycle: currentPlan.billingCycle,
+                  features: currentPlan.features || [],
+              }
+            : null;
+
         return {
-            subscription: subscription
+            company: company
                 ? {
-                      id: subscription._id,
-                      status: subscription.status,
-                      currentPlan,
-                      scheduledPlan: subscription.scheduledPlanId,
-                      startedAt: subscription.startedAt,
-                      currentPeriodStart: subscription.currentPeriodStart,
-                      currentPeriodEnd: subscription.currentPeriodEnd,
-                      cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-                      isComplimentary: Boolean(subscription.isComplimentary),
-                      complimentaryReason: subscription.isComplimentary ? subscription.complimentaryReason : undefined,
+                      id: String(company._id),
+                      name: company.name,
+                      status: company.status,
                   }
                 : null,
+            currentSubscription: formattedSub,
+            currentPlan: formattedPlan,
+            subscription: formattedSub,
             availableUpgrades,
             recentPayments: recentPayments.map((p: any) => ({
+                id: p._id,
                 attemptId: p.attemptId,
                 plan: p.planSnapshot || p.planId,
+                planName: p.planSnapshot?.name || p.planId?.name || 'Subscription Plan',
+                planCode: p.planSnapshot?.code || p.planId?.code || 'PLAN',
                 amount: p.amount,
                 formattedAmount: (p.amount / 100).toFixed(2),
                 currency: p.currency,
+                billingCycle: p.billingCycle || p.planSnapshot?.billingCycle || 'MONTHLY',
+                billingPolicy: p.billingPolicy || 'FULL_PRICE',
+                status: p.state,
                 state: p.state,
+                providerOrderId: p.providerOrderId,
+                providerPaymentId: p.providerPaymentId,
                 confirmedAt: p.confirmedAt,
                 refundedAt: p.refundedAt,
                 safeErrorMessage: p.state === PaymentAttemptState.FAILED ? p.errorMessage : null,
                 retryable: p.state === PaymentAttemptState.FAILED || p.state === PaymentAttemptState.CANCELLED,
                 createdAt: p.createdAt,
             })),
+            companyDiscountSettings: {
+                discountEnabled,
+                discountPercentage,
+                prorationEnabled,
+            },
+            discountInfo: {
+                title: 'What is a Discount / Offer?',
+                description: 'A discount or offer is a price reduction applied to your plan. It can be a promotional rate, a loyalty discount, or a superadmin-configured company-level discount.',
+                howItWorks: [
+                    'Discounts reduce the full plan rate before any proration credit is applied.',
+                    'If your company has an active discount, the discounted rate is shown as the Full Plan Rate.',
+                    'Prorated credit is then calculated from your current plan’s unused period and subtracted from the discounted rate.',
+                    'Net Payable Today = Discounted Full Plan Rate − Prorated Credit (minimum ₹0).',
+                ],
+                whenItAppears: 'A discount appears when your Super Admin has enabled company-level pricing or when a promotional offer is active for your plan.',
+                prorationNote: 'Prorated credit only applies to paid (non-complimentary) plans. If you are on a free plan, there is no unused credit to carry forward.',
+            },
+            prorationInfo: {
+                title: 'What is Prorated Billing?',
+                description: 'Proration ensures you only pay for the exact time you use a plan. When upgrading mid-cycle, the unused portion of your current paid subscription is calculated as a credit and deducted from your new plan price.',
+                howItWorks: [
+                    'We calculate the exact fraction of time remaining in your current billing cycle.',
+                    'Remaining Days / Total Period Days × Current Plan Paid Price = Prorated Credit.',
+                    'Net Upgrade Payable = New Plan Price (after any discounts) − Prorated Credit.',
+                    'If proration is disabled by SuperAdmin, the full new plan price applies without credit deduction.',
+                ],
+                whenItApplies: 'Applies automatically to all mid-cycle plan upgrades on paid (non-complimentary) active subscriptions.',
+                superAdminToggleNotice: prorationEnabled
+                    ? 'Proration credit is currently ENABLED for your organization.'
+                    : 'Proration credit is currently DISABLED by administrator policy. Full plan rate applies.',
+            },
         };
     }
 

@@ -47,6 +47,12 @@ export const env = {
     // Invitation token TTL (days)
     INVITATION_EXPIRES_DAYS: parseInt(process.env.INVITATION_EXPIRES_DAYS || '7', 10),
 
+    // Invitation background email queue
+    INVITATION_EMAIL_CONCURRENCY: parseInt(process.env.INVITATION_EMAIL_CONCURRENCY || '5', 10),
+    INVITATION_EMAIL_MAX_ATTEMPTS: parseInt(process.env.INVITATION_EMAIL_MAX_ATTEMPTS || '5', 10),
+    INVITATION_EMAIL_BASE_BACKOFF_MS: parseInt(process.env.INVITATION_EMAIL_BASE_BACKOFF_MS || '5000', 10),
+    INVITATION_MEMBER_CONCURRENCY: parseInt(process.env.INVITATION_MEMBER_CONCURRENCY || '10', 10),
+
     // ── MFA ──────────────────────────────────────────────────────────────────
     // 32-byte hex key for AES-256-GCM encryption of TOTP secrets.
     // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"

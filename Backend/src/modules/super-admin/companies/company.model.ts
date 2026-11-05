@@ -146,6 +146,24 @@ const companySchema = new Schema<ICompanyDocument>(
             type: Schema.Types.ObjectId,
             ref: 'User',
         },
+
+        // ── Company-wise billing discount settings ──
+        // When enabled, the company sees a discounted plan rate and proration
+        // is applied on upgrades. When disabled, the company pays full amount.
+        billingDiscountEnabled: {
+            type: Boolean,
+            default: false,
+        },
+        billingDiscountPercentage: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 100,
+        },
+        billingProrationEnabled: {
+            type: Boolean,
+            default: true,
+        },
     },
     {
         timestamps: true,

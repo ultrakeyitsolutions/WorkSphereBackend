@@ -130,9 +130,9 @@ router.use('/member/profile', userProfileRoutes);
 
 // ── Communication & Global Media Modules ──────────────────────────────────────
 router.use('/projects', authenticate, requireModuleAccess('projects'), projectMemberRoutes);
-router.use('/conversations', chatRoutes);
-router.use('/messages', messageRoutes);
-router.use('/files', fileRoutes);
+router.use('/conversations', authenticate, requireModuleAccess('chat'), chatRoutes);
+router.use('/messages', authenticate, requireModuleAccess('chat'), messageRoutes);
+router.use('/files', authenticate, requireModuleAccess('dropbox'), fileRoutes);
 router.use('/calls', callRoutes);
 router.use('/notifications', notificationRoutes);
 
@@ -140,8 +140,8 @@ import meetingRoutes from '../modules/meetings/meeting.routes';
 import stickyNoteRoutes from '../modules/sticky-notes/sticky-note.routes';
 
 // ── Meetings Module ───────────────────────────────────────────────────────────
-router.use('/meetings', meetingRoutes);
-router.use('/v1/meetings', meetingRoutes);
+router.use('/meetings', authenticate, requireModuleAccess('meetings'), meetingRoutes);
+router.use('/v1/meetings', authenticate, requireModuleAccess('meetings'), meetingRoutes);
 
 // ── Sticky Notes Module ───────────────────────────────────────────────────────
 router.use('/sticky-notes', stickyNoteRoutes);
@@ -149,9 +149,9 @@ router.use('/v1/sticky-notes', stickyNoteRoutes);
 
 // Also alias under /v1 for flexibility
 router.use('/v1/projects', authenticate, requireModuleAccess('projects'), projectMemberRoutes);
-router.use('/v1/conversations', chatRoutes);
-router.use('/v1/messages', messageRoutes);
-router.use('/v1/files', fileRoutes);
+router.use('/v1/conversations', authenticate, requireModuleAccess('chat'), chatRoutes);
+router.use('/v1/messages', authenticate, requireModuleAccess('chat'), messageRoutes);
+router.use('/v1/files', authenticate, requireModuleAccess('dropbox'), fileRoutes);
 router.use('/v1/calls', callRoutes);
 router.use('/v1/notifications', notificationRoutes);
 router.use('/v1/company/notification-preferences', notificationPreferenceRoutes);
@@ -166,14 +166,21 @@ router.use('/v1/admin/attendance', attendanceRoutes);
 
 import impersonationRoutes from '../modules/super-admin/impersonation/impersonation.routes';
 
-// ── Super Admin Impersonation Routes ──────────────────────────────────────────
+// ── Impersonation Routes (Super Admin & Company Admin) ────────────────────────
 // POST /api/superadmin/impersonation/start
 // POST /api/superadmin/impersonation/stop
 // GET  /api/superadmin/impersonation/current
+// POST /api/v1/company/impersonation/start
 router.use('/superadmin/impersonation', impersonationRoutes);
 router.use('/super-admin/impersonation', impersonationRoutes);
 router.use('/v1/superadmin/impersonation', impersonationRoutes);
 router.use('/v1/super-admin/impersonation', impersonationRoutes);
+router.use('/company/impersonation', impersonationRoutes);
+router.use('/companyadmin/impersonation', impersonationRoutes);
+router.use('/company-admin/impersonation', impersonationRoutes);
+router.use('/v1/company/impersonation', impersonationRoutes);
+router.use('/v1/companyadmin/impersonation', impersonationRoutes);
+router.use('/v1/company-admin/impersonation', impersonationRoutes);
 
 import superAdminDashboardRoutes from '../modules/super-admin';
 
@@ -203,8 +210,8 @@ import managerRoutes from '../modules/manager/routes/manager.routes';
 import managerAdminRoutes from '../modules/manager/routes/manager-admin.routes';
 import teamRoutes from '../modules/teams/team.routes';
 
-router.use('/manager', managerRoutes);
-router.use('/v1/manager', managerRoutes);
+router.use('/manager', authenticate, requireModuleAccess('manager'), managerRoutes);
+router.use('/v1/manager', authenticate, requireModuleAccess('manager'), managerRoutes);
 
 router.use('/teams', teamRoutes);
 router.use('/v1/teams', teamRoutes);

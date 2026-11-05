@@ -40,7 +40,7 @@ const notificationSchema = new Schema<INotification>(
         recipientRole: { type: String, default: 'EMPLOYEE', index: true },
         actorId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
         type: { type: String, required: true },
-        category: { type: String, required: true, index: true },
+        category: { type: String, required: true },
         title: { type: String, required: true },
         message: { type: String, required: true },
         priority: {

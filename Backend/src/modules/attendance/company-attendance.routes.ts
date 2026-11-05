@@ -11,9 +11,14 @@ import {
 
 const router = Router();
 
-// Authentication and Company Admin authorization guard
+// Authentication guard for all company attendance routes.
+// Role-based authorization is applied per-route below so that employee
+// self-service routes (check-in/out, status, today, history, adjustments,
+// leaves) remain accessible while company-admin analytics routes stay
+// restricted to COMPANY_ADMIN / Admin / SUPER_ADMIN.
 router.use(authenticate);
-router.use(authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'));
+
+const adminOnly = authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN');
 
 /**
  * @route   GET /api/v1/company/attendance/summary
@@ -32,6 +37,7 @@ router.get('/summary', (req, res, next) => {
  */
 router.get(
     '/late-arrivals',
+    adminOnly,
     requireFeature('BASIC_ANALYTICS'),
     validateRequest(lateArrivalsQuerySchema),
     AttendanceController.getCompanyLateArrivals
@@ -43,6 +49,7 @@ router.get(
  */
 router.get(
     '/records',
+    adminOnly,
     validateRequest(companyAttendanceRecordsQuerySchema),
     AttendanceController.getCompanyAttendanceRecords
 );
@@ -51,7 +58,7 @@ router.get(
  * @route   GET /api/v1/company/attendance/admin
  * @desc    Admin daily workforce attendance list with shift, status, and punches
  */
-router.get('/admin', AttendanceController.getAdminAttendanceList);
+router.get('/admin', adminOnly, AttendanceController.getAdminAttendanceList);
 
 /**
  * @route   GET /api/v1/company/attendance/calendar
@@ -63,21 +70,25 @@ router.get('/calendar', AttendanceController.getCalendar);
  * @route   GET /api/v1/company/attendance/admin/employees/:employeeId/calendar
  * @desc    Admin view of specific employee attendance calendar
  */
-router.get('/admin/employees/:employeeId/calendar', AttendanceController.getAdminEmployeeCalendar);
+router.get(
+    '/admin/employees/:employeeId/calendar',
+    adminOnly,
+    AttendanceController.getAdminEmployeeCalendar
+);
 
 /**
  * @route   POST /api/v1/company/attendance/admin/finalize
  * @desc    Finalize unpunched workforce attendance for a date
  */
-router.post('/admin/finalize', AttendanceController.finalizeDailyAttendance);
+router.post('/admin/finalize', adminOnly, AttendanceController.finalizeDailyAttendance);
 
 /**
  * ── Adjustments Endpoints ──
  */
 router.post('/adjustments', AttendanceController.requestAdjustment);
 router.get('/adjustments', AttendanceController.getAdjustments);
-router.patch('/admin/adjustments/:id/approve', AttendanceController.approveAdjustment);
-router.patch('/admin/adjustments/:id/reject', AttendanceController.rejectAdjustment);
+router.patch('/admin/adjustments/:id/approve', adminOnly, AttendanceController.approveAdjustment);
+router.patch('/admin/adjustments/:id/reject', adminOnly, AttendanceController.rejectAdjustment);
 
 /**
  * ── Leaves Endpoints ──
@@ -86,26 +97,26 @@ router.post('/leaves', AttendanceController.applyLeave);
 router.get('/leaves', AttendanceController.getLeaves);
 router.get('/leaves/preview', AttendanceController.previewLeave);
 router.patch('/leaves/:id/cancel', AttendanceController.cancelLeave);
-router.patch('/admin/leaves/:id/approve', AttendanceController.approveLeave);
-router.patch('/admin/leaves/:id/approve-breakdown', AttendanceController.approveLeaveWithBreakdown);
-router.patch('/admin/leaves/:id/reject', AttendanceController.rejectLeave);
-router.post('/admin/leaves/:id/request-revision', AttendanceController.requestRevision);
+router.patch('/admin/leaves/:id/approve', adminOnly, AttendanceController.approveLeave);
+router.patch('/admin/leaves/:id/approve-breakdown', adminOnly, AttendanceController.approveLeaveWithBreakdown);
+router.patch('/admin/leaves/:id/reject', adminOnly, AttendanceController.rejectLeave);
+router.post('/admin/leaves/:id/request-revision', adminOnly, AttendanceController.requestRevision);
 
 /**
  * ── Holidays Endpoints ──
  */
-router.post('/holidays', AttendanceController.createHoliday);
+router.post('/holidays', adminOnly, AttendanceController.createHoliday);
 router.get('/holidays', AttendanceController.getHolidays);
-router.put('/holidays/:id', AttendanceController.updateHoliday);
-router.delete('/holidays/:id', AttendanceController.deleteHoliday);
+router.put('/holidays/:id', adminOnly, AttendanceController.updateHoliday);
+router.delete('/holidays/:id', adminOnly, AttendanceController.deleteHoliday);
 
 /**
  * ── Reports Endpoints ──
  */
-router.get('/reports/daily', AttendanceController.getDailyReport);
-router.get('/reports/weekly', AttendanceController.getWeeklyReport);
-router.get('/reports/monthly', AttendanceController.getMonthlyReport);
-router.get('/reports/employee/:employeeId', AttendanceController.getEmployeeReport);
+router.get('/reports/daily', adminOnly, AttendanceController.getDailyReport);
+router.get('/reports/weekly', adminOnly, AttendanceController.getWeeklyReport);
+router.get('/reports/monthly', adminOnly, AttendanceController.getMonthlyReport);
+router.get('/reports/employee/:employeeId', adminOnly, AttendanceController.getEmployeeReport);
 
 /**
  * @route   GET /api/v1/company/attendance/:attendanceId

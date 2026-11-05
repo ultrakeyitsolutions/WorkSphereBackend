@@ -57,7 +57,7 @@ export class TaskExplanationRatingService {
                     ratedById: new Types.ObjectId(userId),
                 },
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
         );
 
         return doc!;

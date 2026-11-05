@@ -37,7 +37,7 @@ export class PaymentOutboxService {
                         nextRunAt,
                     },
                 },
-                { upsert: true, new: true }
+                { upsert: true, returnDocument: 'after' }
             );
         } catch (err: any) {
             if (err.code === 11000) {

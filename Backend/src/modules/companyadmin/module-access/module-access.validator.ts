@@ -29,13 +29,14 @@ export const moduleKeyEnum = z.preprocess((val) => {
 
 export const overrideStateEnum = z.preprocess((val) => {
     if (typeof val === 'boolean') {
-        return val ? 'ENABLED' : 'DISABLED';
+        return val ? 'ALLOW' : 'DENY';
     }
     if (typeof val === 'string') {
         const upper = val.trim().toUpperCase();
-        if (upper === 'TRUE') return 'ENABLED';
-        if (upper === 'FALSE') return 'DISABLED';
-        if (['INHERIT', 'ENABLED', 'DISABLED'].includes(upper)) {
+        if (upper === 'TRUE' || upper === 'ENABLED' || upper === 'ALLOW') return 'ALLOW';
+        if (upper === 'FALSE' || upper === 'DISABLED' || upper === 'DENY') return 'DENY';
+        if (upper === 'INHERIT') return 'INHERIT';
+        if (['INHERIT', 'ALLOW', 'DENY', 'ENABLED', 'DISABLED'].includes(upper)) {
             return upper;
         }
     }
@@ -43,7 +44,7 @@ export const overrideStateEnum = z.preprocess((val) => {
         return 'INHERIT';
     }
     return val;
-}, z.enum(['INHERIT', 'ENABLED', 'DISABLED']));
+}, z.enum(['INHERIT', 'ALLOW', 'DENY', 'ENABLED', 'DISABLED']));
 
 export const updateGlobalModuleAccessSchema = z.object({
     body: z.object({
@@ -73,7 +74,7 @@ export const bulkUpdateEmployeeOverridesSchema = z.object({
     body: z.object({
         employeeIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid employee ID format')).optional(),
         memberIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid member ID format')).optional(),
-        action: z.enum(['SET', 'RESET', 'ENABLE', 'DISABLE']).optional(),
+        action: z.enum(['SET', 'RESET', 'ALLOW', 'DENY', 'ENABLE', 'DISABLE']).optional(),
         moduleKey: moduleKeyEnum.optional(),
         overrides: z.record(moduleKeyEnum, overrideStateEnum).optional(),
         modules: z.record(moduleKeyEnum, z.boolean()).optional(),
@@ -83,7 +84,7 @@ export const bulkUpdateEmployeeOverridesSchema = z.object({
     }, {
         message: 'At least one employee ID or member ID is required',
     }).refine((data) => {
-        if (data.action && ['ENABLE', 'DISABLE', 'RESET'].includes(data.action)) {
+        if (data.action && ['ENABLE', 'DISABLE', 'ALLOW', 'DENY', 'RESET'].includes(data.action)) {
             return Boolean(data.moduleKey);
         }
         const hasOverrides = Boolean(data.overrides) && Object.keys(data.overrides || {}).length > 0;
@@ -110,6 +111,12 @@ export const resetEmployeeOverrideParamsSchema = z.object({
     params: z.object({
         employeeId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid employee ID format'),
         moduleKey: moduleKeyEnum,
+    }),
+});
+
+export const resetAllEmployeeOverridesParamsSchema = z.object({
+    params: z.object({
+        employeeId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid employee ID format'),
     }),
 });
 

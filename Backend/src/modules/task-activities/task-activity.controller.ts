@@ -79,7 +79,7 @@ export const uploadAudio = async (req: AuthenticatedRequest, res: Response) => {
         const activity = await TaskActivity.findOneAndUpdate(
             { _id: activityId, companyId },
             { $set: { audio: req.body.audio } },
-            { new: true }
+            { returnDocument: 'after' }
         );
         if (!activity) return res.status(404).json({ success: false, message: 'Activity not found' });
         return res.status(200).json({ success: true, data: activity });
@@ -98,7 +98,7 @@ export const uploadVideo = async (req: AuthenticatedRequest, res: Response) => {
         const activity = await TaskActivity.findOneAndUpdate(
             { _id: activityId, companyId },
             { $set: { video: req.body.video } },
-            { new: true }
+            { returnDocument: 'after' }
         );
         if (!activity) return res.status(404).json({ success: false, message: 'Activity not found' });
         return res.status(200).json({ success: true, data: activity });

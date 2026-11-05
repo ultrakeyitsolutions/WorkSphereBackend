@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { Request } from 'express';
 import { AuthSession, IAuthSessionDocument } from './auth-session.model';
-import { Types } from 'mongoose';
+import mongoose, { Types, ClientSession } from 'mongoose';
 
 export class SessionService {
     /**
@@ -156,15 +156,19 @@ export class SessionService {
     /**
      * Revoke all sessions for a user (e.g., on password reset or logout-all)
      */
-    static async revokeAllUserSessions(userId: string): Promise<number> {
+    static async revokeAllUserSessions(userId: string, session?: ClientSession): Promise<number> {
         try {
             if (!Types.ObjectId.isValid(userId)) {
                 return 0;
             }
-            const result = await AuthSession.updateMany(
+            const query = AuthSession.updateMany(
                 { userId: new Types.ObjectId(userId), revokedAt: null },
                 { $set: { revokedAt: new Date() } }
             );
+            if (session) {
+                query.session(session);
+            }
+            const result = await query;
             return result.modifiedCount;
         } catch (err) {
             console.error('[SessionService] Failed to revoke all user sessions:', err);

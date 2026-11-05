@@ -11,6 +11,8 @@ import { EscalationSchedulerJob } from './modules/escalation/jobs/escalationSche
 import { verifyMailConnection } from './config/mail';
 import { EntitlementService } from './services/entitlement.service';
 import { StorageConfigurationService } from './modules/super-admin/storage/storage-config.service';
+import { ModuleAccessService } from './modules/companyadmin/module-access/module-access.service';
+import { InvitationEmailWorker } from './modules/companyadmin/invitations/invitation-worker';
 
 const PORT = process.env.PORT || 5000;
 
@@ -30,6 +32,11 @@ const startServer = async () => {
         // Initialize cross-worker storage configuration invalidation subscriber
         StorageConfigurationService.initRedisSubscriber();
 
+        // Initialize cross-worker module access permission subscriber
+        ModuleAccessService.initRedisSubscriber();
+
+        // Initialize background invitation email delivery worker (fast API responses).
+        InvitationEmailWorker.start();
 
         // Initialize meeting reminder scheduler
         MeetingSchedulerJob.start();

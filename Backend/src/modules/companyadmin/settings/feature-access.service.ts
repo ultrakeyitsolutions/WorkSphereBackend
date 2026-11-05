@@ -7,7 +7,7 @@ export type FeatureFlagKey = keyof ICompanyFeatureFlags;
 
 export interface FeatureAccessResult {
     allowed: boolean;
-    reason?: 'FEATURE_DISABLED_BY_COMPANY' | 'PLAN_UPGRADE_REQUIRED' | 'COMPANY_NOT_FOUND';
+    reason?: 'FEATURE_DISABLED' | 'FEATURE_DISABLED_BY_COMPANY' | 'PLAN_UPGRADE_REQUIRED' | 'COMPANY_NOT_FOUND';
     message?: string;
 }
 
@@ -20,6 +20,7 @@ export const FEATURE_ENTITLEMENT_MAP: Record<FeatureFlagKey, string | null> = {
     enableTimesheets: 'ADVANCED_TIME_TRACKING',
     enableTaskAttachments: 'FILE_ATTACHMENTS',
     enableEscalations: null,
+    enableManagerDashboard: null,
 };
 
 // In-memory cache for company settings (TTL 15 seconds)
@@ -30,13 +31,6 @@ interface CacheEntry {
 
 const settingsCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 15 * 1000;
-
-const withTimeout = <T>(promise: Promise<T>, timeoutMs = 250, fallback: T): Promise<T> => {
-    return Promise.race([
-        promise,
-        new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
-    ]);
-};
 
 export class FeatureAccessService {
     /**
@@ -53,10 +47,10 @@ export class FeatureAccessService {
         settingsCache.clear();
     }
 
-    /**
-     * Fetch the company's active feature flags, using cached value if fresh.
-     */
-    static async getCompanyFeatureFlags(companyId: string): Promise<ICompanyFeatureFlags> {
+    static async getCompanyFeatureFlags(
+        companyId: string,
+        options: { failClosed?: boolean } = {}
+    ): Promise<ICompanyFeatureFlags> {
         const key = String(companyId);
         const cached = settingsCache.get(key);
         const now = Date.now();
@@ -66,11 +60,7 @@ export class FeatureAccessService {
         }
 
         try {
-            const settings = await withTimeout(
-                Promise.resolve(CompanySettings.findOne({ companyId }).lean()),
-                250,
-                null
-            );
+            const settings = await CompanySettings.findOne({ companyId }).lean();
             const features: ICompanyFeatureFlags = {
                 ...DEFAULT_FEATURE_FLAGS,
                 ...(settings?.features || {}),
@@ -83,6 +73,13 @@ export class FeatureAccessService {
 
             return features;
         } catch {
+            if (options.failClosed) {
+                const disabled = {} as ICompanyFeatureFlags;
+                for (const flag of Object.keys(DEFAULT_FEATURE_FLAGS) as FeatureFlagKey[]) {
+                    disabled[flag] = false;
+                }
+                return disabled;
+            }
             return { ...DEFAULT_FEATURE_FLAGS };
         }
     }
@@ -118,14 +115,19 @@ export class FeatureAccessService {
         }
 
         // Tier 2: Check Company Feature Toggle
-        const companyFeatures = await this.getCompanyFeatureFlags(companyId);
+        const companyFeatures = await this.getCompanyFeatureFlags(companyId, {
+            failClosed: featureKey === 'enableManagerDashboard',
+        });
         const isEnabledInCompany = companyFeatures[featureKey] ?? true;
 
         if (!isEnabledInCompany) {
+            const message = featureKey === 'enableManagerDashboard'
+                ? 'Manager Dashboard is currently disabled by your organization administrator.'
+                : `The feature '${featureKey}' has been disabled in your company settings.`;
             return {
                 allowed: false,
                 reason: 'FEATURE_DISABLED_BY_COMPANY',
-                message: `The feature '${featureKey}' has been disabled in your company settings.`,
+                message,
             };
         }
 

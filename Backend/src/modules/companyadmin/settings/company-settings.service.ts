@@ -60,8 +60,9 @@ export class CompanySettingsService {
         if (settings && settings.features) {
             const rawFeatures = (settings.features as any).toObject ? (settings.features as any).toObject() : { ...settings.features };
             const effectiveFeatures: any = { ...rawFeatures };
-            for (const [flagKey, entitlementKey] of Object.entries(FEATURE_ENTITLEMENT_MAP)) {
-                if (entitlementKey) {
+            const entitlementChecks = Object.entries(FEATURE_ENTITLEMENT_MAP).map(
+                async ([flagKey, entitlementKey]) => {
+                    if (!entitlementKey) return;
                     try {
                         const hasAccess = await EntitlementService.hasFeature(companyId, entitlementKey);
                         if (!hasAccess) {
@@ -71,7 +72,8 @@ export class CompanySettingsService {
                         effectiveFeatures[flagKey] = false;
                     }
                 }
-            }
+            );
+            await Promise.all(entitlementChecks);
             (settings as any).features = effectiveFeatures;
         }
 
@@ -216,7 +218,7 @@ export class CompanySettingsService {
                 $setOnInsert: setOnInsertQuery,
             },
             {
-                new: true,
+                returnDocument: 'after',
                 upsert: true,
                 runValidators: true,
             }
@@ -249,6 +251,13 @@ export class CompanySettingsService {
 
         if (disabledFeatures.length > 0) {
             await FeatureRevocationService.revokeCompanyFeatures(companyId, disabledFeatures);
+        } else if (dto.features) {
+            const rawUpdatedFeatures = (updatedSettings as any)?.features;
+            const featureSnapshot = {
+                ...DEFAULT_FEATURE_FLAGS,
+                ...(rawUpdatedFeatures?.toObject ? rawUpdatedFeatures.toObject() : rawUpdatedFeatures || {}),
+            };
+            await FeatureRevocationService.notifyCompanyFeaturesUpdated(companyId, featureSnapshot);
         }
 
         // ── 5. Audit Logging ─────────────────────────────────────────────────

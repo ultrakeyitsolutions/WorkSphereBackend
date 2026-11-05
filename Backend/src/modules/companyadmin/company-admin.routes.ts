@@ -10,6 +10,7 @@ import managerAdminRoutes from '../manager/routes/manager-admin.routes';
 import teamRoutes from '../teams/team.routes';
 import clientRoutes from './members/client.routes';
 import memberRoutes from './members/member.routes';
+import memberDeletionRoutes from './members/member-deletion.routes';
 import projectRoutes from './projects/project.routes';
 import taskRoutes from '../tasks/task.routes';
 import taskMetaRoutes from '../tasks/task-meta.routes';
@@ -96,6 +97,9 @@ router.use('/teams', teamRoutes);
 // ── /api/v1/company/members ──────────────────────────────────────────────────
 router.use('/members', memberRoutes);
 
+// ── /api/v1/company/member-deletion ──────────────────────────────────────────
+router.use('/member-deletion', memberDeletionRoutes);
+
 // ── /api/v1/company/projects ──────────────────────────────────────────────────
 router.use('/projects', requireModuleAccess('projects'), projectRoutes);
 
@@ -123,7 +127,11 @@ import calendarRoutes from '../calendar/calendar.routes';
 router.use('/calendar', requireModuleAccess('calendar'), calendarRoutes);
 
 // ── /api/v1/company/attendance ───────────────────────────────────────────────
-router.use('/attendance', requireModuleAccess('attendance'), attendanceRoutes);
+// Employee self-service punches (check-in/out, break, status, today, history)
+// are scoped to the authenticated user in AttendanceController and must not be
+// blocked by module access. Company-admin analytics routes are separately
+// guarded by authorizeRoles in company-attendance.routes (mounted first).
+router.use('/attendance', attendanceRoutes);
 
 // ── /api/v1/company/task-tracking ────────────────────────────────────────────
 router.use('/task-tracking', requireModuleAccess('tasks'), taskTrackingRoutes);

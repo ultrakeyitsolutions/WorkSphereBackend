@@ -248,7 +248,7 @@ export class MonitoringAlertService {
                     ...(note ? { 'metadata.acknowledgementNote': note } : {}),
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         )
             .populate<{ acknowledgedById: { _id: Types.ObjectId; name: string } }>('acknowledgedById', 'name')
             .lean();
@@ -292,7 +292,7 @@ export class MonitoringAlertService {
                     ...(note ? { 'metadata.resolutionNote': note } : {}),
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         )
             .populate<{ resolvedById: { _id: Types.ObjectId; name: string } }>('resolvedById', 'name')
             .lean();

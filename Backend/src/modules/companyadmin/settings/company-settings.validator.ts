@@ -17,6 +17,8 @@ export const featureFlagsSchema = z.object({
     enableAttendanceAdjustments: z.boolean().optional(),
     enableTimesheets: z.boolean().optional(),
     enableTaskAttachments: z.boolean().optional(),
+    enableEscalations: z.boolean().optional(),
+    enableManagerDashboard: z.boolean().optional(),
 }).strict();
 
 export const attendancePoliciesSchema = z.object({

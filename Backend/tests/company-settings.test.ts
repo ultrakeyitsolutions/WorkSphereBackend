@@ -109,6 +109,24 @@ describe('WorkSphere Company Settings & Feature Access Engine', () => {
             expect(result.success).toBe(true);
         });
 
+        it('should accept enableManagerDashboard and enableEscalations toggles', () => {
+            const payload = {
+                body: {
+                    features: {
+                        enableManagerDashboard: false,
+                        enableEscalations: false,
+                    },
+                },
+            };
+
+            const result = updateCompanySettingsSchema.safeParse(payload);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.body.features?.enableManagerDashboard).toBe(false);
+                expect(result.data.body.features?.enableEscalations).toBe(false);
+            }
+        });
+
         it('should reject unknown fields (strict schema)', () => {
             const payload = {
                 body: {
@@ -294,6 +312,59 @@ describe('WorkSphere Company Settings & Feature Access Engine', () => {
             expect(result.reason).toBe('FEATURE_DISABLED_BY_COMPANY');
         });
 
+        it('should deny Manager Dashboard when enableManagerDashboard is disabled by company', async () => {
+            mocks.companySettingsFindOne.mockReturnValue({
+                lean: vi.fn().mockResolvedValue({
+                    features: { enableManagerDashboard: false },
+                }),
+            });
+
+            const result = await FeatureAccessService.checkAccess(
+                MOCK_COMPANY_ID,
+                'enableManagerDashboard'
+            );
+            expect(result.allowed).toBe(false);
+            expect(result.reason).toBe('FEATURE_DISABLED_BY_COMPANY');
+        });
+
+        it('should allow Manager Dashboard when enableManagerDashboard is enabled (no plan entitlement)', async () => {
+            mocks.companySettingsFindOne.mockReturnValue({
+                lean: vi.fn().mockResolvedValue({
+                    features: { enableManagerDashboard: true },
+                }),
+            });
+
+            const result = await FeatureAccessService.checkAccess(
+                MOCK_COMPANY_ID,
+                'enableManagerDashboard'
+            );
+            expect(result.allowed).toBe(true);
+        });
+
+        it('should fail closed for Manager Dashboard when settings cannot be loaded', async () => {
+            mocks.companySettingsFindOne.mockImplementation(() => {
+                throw new Error('database unavailable');
+            });
+
+            const result = await FeatureAccessService.checkAccess(
+                MOCK_COMPANY_ID,
+                'enableManagerDashboard'
+            );
+            expect(result.allowed).toBe(false);
+            expect(result.reason).toBe('FEATURE_DISABLED_BY_COMPANY');
+        });
+
+        it('should keep default-enabled behavior for other features when settings cannot be loaded', async () => {
+            mocks.companySettingsFindOne.mockImplementation(() => {
+                throw new Error('database unavailable');
+            });
+            mocks.entitlementHasFeature.mockResolvedValue(true);
+            mocks.entitlementGetDetails.mockResolvedValue({ enabled: true });
+
+            const result = await FeatureAccessService.checkAccess(MOCK_COMPANY_ID, 'enableChat');
+            expect(result.allowed).toBe(true);
+        });
+
         it('should deny access when feature is not included in subscription plan', async () => {
             mocks.companySettingsFindOne.mockReturnValue({
                 lean: vi.fn().mockResolvedValue({
@@ -356,6 +427,36 @@ describe('WorkSphere Company Settings & Feature Access Engine', () => {
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
                     success: false,
+                    errors: { code: 'FEATURE_DISABLED_BY_COMPANY' },
+                })
+            );
+        });
+
+        it('should return canonical FEATURE_DISABLED code for Manager Dashboard', async () => {
+            mocks.companySettingsFindOne.mockReturnValue({
+                lean: vi.fn().mockResolvedValue({
+                    features: { enableManagerDashboard: false },
+                }),
+            });
+
+            const middleware = requireCompanyFeature('enableManagerDashboard');
+            const req: any = { currentUser: { companyId: MOCK_COMPANY_ID } };
+            const res: any = {
+                status: vi.fn().mockReturnThis(),
+                json: vi.fn(),
+            };
+            const next = vi.fn();
+
+            await middleware(req, res, next);
+
+            expect(next).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(403);
+            expect(res.json).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    success: false,
+                    code: 'FEATURE_DISABLED',
+                    message:
+                        'Manager Dashboard is currently disabled by your organization administrator.',
                     errors: { code: 'FEATURE_DISABLED_BY_COMPANY' },
                 })
             );

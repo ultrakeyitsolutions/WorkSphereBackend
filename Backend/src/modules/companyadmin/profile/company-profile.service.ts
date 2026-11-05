@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { Company } from '../../super-admin/companies/company.model';
 import { Subscription } from '../../super-admin/subscriptions/subscription.model';
 import { SubscriptionStatus } from '../../super-admin/subscriptions/subscription.types';
+import { SubscriptionService } from '../../super-admin/subscriptions/subscription.service';
 import { Plan } from '../../super-admin/plans/plans.model';
 import { PlanUpgradeRequest } from '../../super-admin/subscriptions/plan-upgrade-request.model';
 import { AppError } from '../../../utils/AppError';
@@ -38,34 +39,36 @@ export class CompanyProfileService {
     static async getCompanySubscription(companyId: string) {
         if (!companyId || !Types.ObjectId.isValid(companyId)) return null;
 
-        const sub: any = await Subscription.findOne({
-            companyId: new Types.ObjectId(companyId),
-            status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAUSED, SubscriptionStatus.PENDING] },
-        })
-            .sort({ createdAt: -1 })
-            .populate('planId')
-            .lean();
+        const activeDoc = await SubscriptionService.getActiveSubscriptionDocument(companyId);
+        if (activeDoc) {
+            const sub: any = await Subscription.findById(activeDoc._id)
+                .populate('planId')
+                .lean();
 
-        if (sub && sub.planId) {
-            const plan = sub.planId;
-            return {
-                id: String(sub._id),
-                status: sub.status,
-                startedAt: sub.startedAt,
-                currentPeriodStart: sub.currentPeriodStart,
-                currentPeriodEnd: sub.currentPeriodEnd,
-                cancelAtPeriodEnd: sub.cancelAtPeriodEnd ?? false,
-                plan: {
-                    id: String(plan._id),
-                    name: plan.name,
-                    code: plan.code,
-                    description: plan.description,
-                    billingCycle: plan.billingCycle,
-                    price: plan.price,
-                    currency: plan.currency,
-                    trialPeriodDays: plan.trialPeriodDays ?? 0,
-                },
-            };
+            if (sub && sub.planId) {
+                const plan = sub.planId;
+                return {
+                    id: String(sub._id),
+                    status: sub.status,
+                    startedAt: sub.startedAt,
+                    currentPeriodStart: sub.currentPeriodStart,
+                    currentPeriodEnd: sub.currentPeriodEnd,
+                    cancelAtPeriodEnd: sub.cancelAtPeriodEnd ?? false,
+                    isComplimentary: Boolean(sub.isComplimentary),
+                    complimentaryReason: sub.complimentaryReason,
+                    pricingOverride: sub.pricingOverride,
+                    plan: {
+                        id: String(plan._id),
+                        name: plan.name,
+                        code: plan.code,
+                        description: plan.description,
+                        billingCycle: plan.billingCycle,
+                        price: plan.price,
+                        currency: plan.currency,
+                        trialPeriodDays: plan.trialPeriodDays ?? 0,
+                    },
+                };
+            }
         }
 
         // Fallback to default/free plan if no subscription record has been created yet

@@ -1,0 +1,253 @@
+/* WorkSphere shared frontend — base styles for organization subdomains */
+:root {
+  --ws-bg: #f4f4f5;
+  --ws-surface: #ffffff;
+  --ws-text: #111827;
+  --ws-muted: #6b7280;
+  --ws-primary: #3b82f6;
+  --ws-secondary: #1e40af;
+  --ws-accent: #6366f1;
+  --ws-border: #e5e7eb;
+  --ws-radius: 10px;
+  --ws-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.12);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--ws-bg);
+  color: var(--ws-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ws-invite-page {
+  min-height: 100vh;
+  background: var(--ws-bg);
+  color: var(--ws-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.ws-invite-surface {
+  width: 100%;
+  max-width: 480px;
+}
+
+.ws-invite-header {
+  padding: 32px 40px 24px;
+  text-align: center;
+}
+
+.ws-invite-logo {
+  height: 56px;
+  width: auto;
+  display: block;
+  margin: 0 auto 14px;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.ws-invite-logo-placeholder {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 10px;
+  background: var(--ws-secondary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 22px;
+}
+
+.ws-invite-org-name {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+
+.ws-invite-subtitle {
+  font-size: 12px;
+  color: var(--ws-muted);
+  word-break: break-all;
+}
+
+.ws-invite-card {
+  background: var(--ws-surface);
+  border-radius: var(--ws-radius);
+  box-shadow: var(--ws-shadow);
+  padding: 40px;
+}
+
+.ws-invite-loading {
+  text-align: center;
+  color: var(--ws-muted);
+  font-size: 14px;
+  padding: 24px 0;
+}
+
+.ws-invite-alert {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ws-invite-alert-close {
+  background: transparent;
+  border: none;
+  color: #991b1b;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.ws-invite-details h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+.ws-invite-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  font-size: 14px;
+  color: var(--ws-muted);
+  margin-bottom: 24px;
+}
+.ws-invite-meta dt {
+  font-weight: 600;
+  color: var(--ws-text);
+}
+.ws-invite-meta dd {
+  grid-column: 2;
+}
+
+.ws-invite-actions h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.ws-invite-actions p {
+  font-size: 14px;
+  color: var(--ws-muted);
+  margin-bottom: 22px;
+}
+
+.ws-invite-field {
+  margin-bottom: 14px;
+}
+.ws-invite-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ws-text);
+  margin-bottom: 6px;
+}
+.ws-invite-field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--ws-border);
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+}
+.ws-invite-field input:disabled {
+  background: #f3f4f6;
+  cursor: not-allowed;
+}
+
+.ws-invite-divider {
+  text-align: center;
+  color: var(--ws-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 22px 0;
+}
+
+.ws-invite-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.ws-invite-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.ws-invite-btn-primary {
+  background: var(--ws-accent);
+  color: #fff;
+}
+.ws-invite-btn-outline {
+  background: #fff;
+  color: var(--ws-text);
+  border: 1px solid var(--ws-border);
+}
+
+.ws-invite-divider + .ws-invite-form .ws-invite-btn-outline { margin-bottom: 16px; }
+
+.ws-invite-note {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--ws-muted);
+}
+.ws-invite-note strong, .ws-invite-note em { color: var(--ws-text); }
+
+.ws-invite-success {
+  text-align: center;
+  padding: 24px 0;
+}
+.ws-invite-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+.ws-invite-success h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.ws-invite-success p {
+  color: var(--ws-muted);
+  font-size: 14px;
+  margin-bottom: 18px;
+}
+
+.ws-invite-footer {
+  margin-top: 28px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ws-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .ws-invite-card { padding: 28px 24px; }
+  .ws-invite-header { padding: 24px 24px 20px; }
+}

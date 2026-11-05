@@ -8,6 +8,7 @@ import { ImpersonationSession } from '../modules/super-admin/impersonation/imper
 import { ImpersonationStatus } from '../modules/super-admin/impersonation/impersonation.types';
 import { AuditLogService } from '../modules/audit-logs/audit-log.service';
 import { AuditAction } from '../modules/audit-logs/audit-log.types';
+import { performance } from 'perf_hooks';
 
 export const authenticate = async (
     req: AuthenticatedRequest,
@@ -168,7 +169,9 @@ export const authenticate = async (
 
         // Perform backend check on company & user status for non-SUPER_ADMIN users
         if (decoded.role !== 'SUPER_ADMIN') {
+            const authDbStart = performance.now();
             const user = await (User.findById(decoded.userId) as any).populate('role');
+            const userDbMs = performance.now() - authDbStart;
             if (!user) {
                 return sendError(res, 'User context not found', 401);
             }
@@ -190,6 +193,16 @@ export const authenticate = async (
                     return sendError(res, 'Your organization account is no longer active.', 403);
                 }
             }
+            console.log(JSON.stringify({
+                level: 'info',
+                component: 'auth-middleware',
+                event: 'auth_db_queries',
+                userId: decoded.userId,
+                role: decoded.role,
+                userDbMs: Math.round(userDbMs),
+                companyDbMs: user.companyId ? Math.round(performance.now() - authDbStart - userDbMs) : 0,
+                totalAuthDbMs: Math.round(performance.now() - authDbStart),
+            }));
         }
 
         return next();

@@ -26,6 +26,7 @@ import { Plan } from '../plans/plans.model';
 import { SubscriptionStatus } from '../subscriptions/subscription.types';
 import { SubscriptionService } from '../subscriptions/subscription.service';
 import { CompanySettings } from '../../companyadmin/settings/company-settings.model';
+import { EntitlementService } from '../../../services/entitlement.service';
 import { getMailTransporter, mailDefaults } from '../../../config/mail';
 
 export const ALLOWED_LOGO_MIME_TYPES = new Set([
@@ -897,7 +898,10 @@ export class CompanyService {
         const Subscription = mongoose.model('Subscription');
         const SubscriptionEvent = mongoose.model('SubscriptionEvent');
 
-        const subscription = await Subscription.findOne({ companyId }).populate('planId');
+        const activeSubDoc = await SubscriptionService.getActiveSubscriptionDocument(companyId);
+        const subscription = activeSubDoc
+            ? await Subscription.findById(activeSubDoc._id).populate('planId')
+            : null;
 
         const subscriptionEvents = await SubscriptionEvent.find({ companyId })
             .sort({ createdAt: -1 })
@@ -910,5 +914,33 @@ export class CompanyService {
             subscription,
             subscriptionEvents
         };
+    }
+
+    /**
+     * Updates company-wise billing discount & proration settings.
+     * Super Admin only.
+     */
+    static async updateBillingDiscountSettings(companyId: string, data: any) {
+        const company = await Company.findOne({ _id: companyId, status: { $ne: 'DELETED' } });
+        if (!company) {
+            throw new Error('Company not found');
+        }
+
+        if (data.billingDiscountEnabled !== undefined) {
+            company.billingDiscountEnabled = data.billingDiscountEnabled;
+        }
+        if (data.billingDiscountPercentage !== undefined) {
+            company.billingDiscountPercentage = Math.max(0, Math.min(100, data.billingDiscountPercentage));
+        }
+        if (data.billingProrationEnabled !== undefined) {
+            company.billingProrationEnabled = data.billingProrationEnabled;
+        }
+
+        await company.save();
+
+        // Invalidate entitlement caches so billing discount changes take effect immediately
+        EntitlementService.invalidateCache(companyId);
+
+        return company;
     }
 }

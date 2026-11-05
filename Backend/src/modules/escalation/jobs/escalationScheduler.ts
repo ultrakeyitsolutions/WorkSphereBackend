@@ -81,10 +81,10 @@ export class EscalationSchedulerJob {
                         acquiredAt: now,
                     },
                 },
-                {
-                    upsert: true,
-                    new: true,
-                }
+                    {
+                        upsert: true,
+                        returnDocument: 'after',
+                    }
             );
 
             if (lockDoc && lockDoc.owner === ownerToken) {

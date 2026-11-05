@@ -19,7 +19,7 @@ export interface SendInvitationEmailResult {
 
 /**
  * Resolves the public frontend base URL for invitations.
- * Always resolves to the original production domain (or verified custom domain), never localhost.
+ * Returns environment-specific URL: localhost in development, production domain in production.
  */
 export async function resolveInvitationBaseUrl(companyId?: string): Promise<string> {
   // 1. If company has a verified custom domain, prefer that
@@ -38,11 +38,15 @@ export async function resolveInvitationBaseUrl(companyId?: string): Promise<stri
 
   // 2. Check APP_URL from env (strip trailing slash)
   const envUrl = (env.APP_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
-  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
-    return envUrl;
+  if (envUrl) {
+    // Development: use APP_URL even if it contains localhost
+    // Production: skip localhost, fall through to default
+    if (env.NODE_ENV !== 'production' || !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+      return envUrl;
+    }
   }
 
-  // 3. Fallback to original platform domain (never localhost)
+  // 3. Fallback to original platform domain
   return 'https://uworksphere.com';
 }
 

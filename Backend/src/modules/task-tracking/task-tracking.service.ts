@@ -157,7 +157,7 @@ export class TaskTrackingService {
                 $set: { state: session.state, intervals: session.intervals, workedSeconds: session.workedSeconds },
                 $inc: { __v: 1 }
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
@@ -202,7 +202,7 @@ export class TaskTrackingService {
                 $set: { state: session.state, intervals: session.intervals, workedSeconds: session.workedSeconds },
                 $inc: { __v: 1 }
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
@@ -244,7 +244,7 @@ export class TaskTrackingService {
                 $set: { state: session.state, intervals: session.intervals }, // no change to workedSeconds
                 $inc: { __v: 1 }
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
@@ -295,7 +295,7 @@ export class TaskTrackingService {
                 },
                 $inc: { __v: 1 }
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');
@@ -401,7 +401,7 @@ export class TaskTrackingService {
                 $set: { state: session.state, intervals: session.intervals, workedSeconds: session.workedSeconds },
                 $inc: { __v: 1 }
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) throw AppError.conflict('CONCURRENT_MODIFICATION');

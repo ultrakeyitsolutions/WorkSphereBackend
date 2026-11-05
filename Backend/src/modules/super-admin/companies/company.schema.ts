@@ -166,3 +166,16 @@ export const companyAdminPasswordResetSchema = z.object({
 }).strict();
 
 export type CompanyAdminPasswordResetDto = z.infer<typeof companyAdminPasswordResetSchema>;
+
+// ─── Billing Discount Settings Schema ──────────────────────────────────────────
+export const billingDiscountSettingsSchema = z.object({
+    billingDiscountEnabled: z.boolean().optional(),
+    billingDiscountPercentage: z
+        .number()
+        .min(0, { message: 'Discount percentage must be between 0 and 100' })
+        .max(100, { message: 'Discount percentage must be between 0 and 100' })
+        .optional(),
+    billingProrationEnabled: z.boolean().optional(),
+}).strict();
+
+export type BillingDiscountSettingsDto = z.infer<typeof billingDiscountSettingsSchema>;

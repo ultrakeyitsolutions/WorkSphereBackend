@@ -41,6 +41,11 @@ export interface ICompany {
     // Activation audit trail
     activatedAt?: Date;
     activatedBy?: Schema.Types.ObjectId;
+
+    // ── Company-wise billing discount settings ──
+    billingDiscountEnabled?: boolean;
+    billingDiscountPercentage?: number;
+    billingProrationEnabled?: boolean;
 }
 
 // ─── Mongoose Document ────────────────────────────────────────────────────────

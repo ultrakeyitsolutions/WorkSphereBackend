@@ -97,10 +97,22 @@ companiesRouter.post(
     CompanyController.uploadLogo
 );
 
+companiesRouter.patch(
+    '/:companyId/billing-discount',
+    authorizePermissions('COMPANY_UPDATE'),
+    CompanyController.updateBillingDiscountSettings
+);
+
 companiesRouter.delete(
     '/:companyId/logo',
     authorizePermissions('COMPANY_UPDATE'),
     CompanyController.deleteLogo
+);
+
+companiesRouter.patch(
+    '/:companyId/billing-discount',
+    authorizePermissions('COMPANY_UPDATE'),
+    CompanyController.updateBillingDiscountSettings
 );
 
 companiesRouter.use('/:companyId/subscription', subscriptionRoutes);

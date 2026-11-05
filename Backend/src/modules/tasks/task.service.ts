@@ -898,7 +898,7 @@ export class TaskService {
         const settings = await ProjectSettings.findOneAndUpdate(
             { projectId },
             { $inc: { lastTaskItemNumber: 1 } },
-            { new: true, upsert: true }
+            { returnDocument: 'after', upsert: true }
         );
         return settings.lastTaskItemNumber;
     }

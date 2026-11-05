@@ -322,7 +322,7 @@ export class NotificationSoundService {
                     createdBy: actorObjId,
                 },
             },
-            { upsert: true, new: true, runValidators: true }
+            { upsert: true, returnDocument: 'after', runValidators: true }
         );
 
         // Invalidate cache immediately

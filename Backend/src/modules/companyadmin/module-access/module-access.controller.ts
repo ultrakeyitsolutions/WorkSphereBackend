@@ -227,6 +227,35 @@ export class ModuleAccessController {
     }
 
     /**
+     * DELETE /api/v1/company/module-access/employees/:employeeId/overrides
+     * Reset all overrides for an employee back to organization defaults (INHERIT)
+     */
+    static async resetAllEmployeeOverrides(req: AuthenticatedRequest, res: Response): Promise<Response> {
+        try {
+            const companyId = req.currentUser?.companyId || req.user?.companyId;
+            if (!companyId) {
+                return sendError(res, 'Company context not found', 400);
+            }
+
+            const employeeId = String(req.params.employeeId);
+            const userId = req.currentUser?.userId || req.user?.userId;
+
+            const data = await ModuleAccessService.resetAllEmployeeOverrides(
+                companyId,
+                employeeId,
+                userId
+            );
+
+            return sendSuccess(res, 'All module overrides reset to inherit organization defaults', data, 200);
+        } catch (error: any) {
+            if (error instanceof AppError) {
+                return sendError(res, error.message, error.statusCode);
+            }
+            return sendError(res, error.message || 'Failed to reset employee overrides', 500);
+        }
+    }
+
+    /**
      * POST /api/v1/company/module-access/bulk
      * Bulk update module overrides for multiple employees
      */

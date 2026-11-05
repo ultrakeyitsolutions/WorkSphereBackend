@@ -41,7 +41,7 @@ export class StickyNoteReminderService {
                     {
                         $set: { reminderSentAt: now },
                     },
-                    { new: true }
+                    { returnDocument: 'after' }
                 );
 
                 if (!updated) {

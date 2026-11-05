@@ -595,23 +595,27 @@ export class TeamService {
 
         const team = await Team.findOne({ _id: teamIdStr, companyId: companyIdStr })
             .populate('memberIds', 'name email avatar status')
+            .populate('projectIds', 'name status')
             .lean();
 
         if (!team) throw AppError.notFound('Team not found');
 
         const memberOids = (team.memberIds || []).map((m: any) => m._id);
-        const projectOids = (team.projectIds || []).map((p: any) => p._id || p);
+        const projectOids = (team.projectIds || []).map((p: any) => (p._id ? p._id : p));
 
-        // Calculate tasks count for team members
-        const TaskModel = Task;
-        const tasks = await TaskModel.find({
+        // Calculate tasks count for team members and team projects using actual DB records.
+        // Task model uses `statusId` (ref to Status) + `completedDate`, not a denormalized `status` field.
+        const tasks = await Task.find({
             companyId: new Types.ObjectId(companyIdStr),
+            isArchived: { $ne: true },
             $or: [
-                { assigneeId: { $in: memberOids } },
-                { assignees: { $in: memberOids } },
+                { assignedToId: { $in: memberOids } },
                 { projectId: { $in: projectOids } },
             ],
-        }).select('status priority dueDate completedAt estimatedHours actualHours').lean();
+        })
+            .populate('statusId', 'name')
+            .select('statusId dueDate completedAt assignedToId projectId')
+            .lean();
 
         const totalTasks = tasks.length;
         const now = new Date();
@@ -621,15 +625,25 @@ export class TeamService {
         let overdueTasks = 0;
 
         for (const task of tasks as any[]) {
-            const statusUpper = ((task as any).status || '').toUpperCase();
-            if (statusUpper === 'COMPLETED' || statusUpper === 'DONE') {
+            const statusDoc = (task as any).statusId;
+            const statusName = (statusDoc && typeof statusDoc === 'object' ? (statusDoc as any).name : (statusDoc as any)) || '';
+            // Normalize spaces/underscores so 'In Progress', 'In_Progress', 'IN PROGRESS' all match.
+            const statusNorm = String(statusName).toUpperCase().replace(/[\s_]+/g, '_');
+            const hasCompletedDate = !!(task as any).completedDate;
+            const isCompleted = hasCompletedDate || /^(COMPLETED|DONE|CLOSED)$/.test(statusNorm);
+            const isCancelled = /^CANCELLED$/.test(statusNorm);
+            const dueDate = (task as any).dueDate ? new Date((task as any).dueDate) : null;
+            const isOverdue = !isCompleted && !isCancelled && !!dueDate && dueDate < now;
+
+            if (isCompleted) {
                 completedTasks++;
             } else {
-                pendingTasks++;
-                if (statusUpper === 'IN_PROGRESS' || statusUpper === 'ACTIVE') {
+                if (/^(IN_PROGRESS|WORKING|ACTIVE)$/.test(statusNorm)) {
                     inProgressTasks++;
+                } else {
+                    pendingTasks++;
                 }
-                if (task.dueDate && new Date(task.dueDate) < now) {
+                if (isOverdue) {
                     overdueTasks++;
                 }
             }

@@ -287,7 +287,7 @@ export class AccountRecoveryService {
                     emailDeliveryStatus: 'PENDING',
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) {
@@ -375,7 +375,7 @@ export class AccountRecoveryService {
                     adminReason: adminReason.trim(),
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updated) {
@@ -473,7 +473,7 @@ export class AccountRecoveryService {
                     completedAt: new Date(),
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updatedRequest) {

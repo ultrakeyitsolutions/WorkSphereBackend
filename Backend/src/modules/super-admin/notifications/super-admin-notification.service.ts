@@ -458,7 +458,7 @@ export class SuperAdminNotificationService {
                     readAt: new Date(),
                 },
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!notif) {
@@ -661,7 +661,7 @@ export class SuperAdminNotificationService {
                         updates.allowDisableCriticalSecurity ?? current.allowDisableCriticalSecurity,
                 },
             },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
+            { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
         ).lean();
 
         return {

@@ -5,6 +5,7 @@ import { Company } from '../../super-admin/companies/company.model';
 import { User } from '../../users/user.model';
 import { UserService } from '../../users/user.service';
 import { Project, ProjectTeamMember, ProjectInCharge } from '../../companyadmin/projects/project.model';
+import { Team } from '../../teams/team.model';
 import { DashboardQueryDto, DashboardScopeContext, DashboardScopeType } from '../dashboard.types';
 import { DashboardDateRangeService } from '../services/dashboard-date-range.service';
 
@@ -65,17 +66,28 @@ export class DashboardScopeService {
             }).select('_id').lean();
             accessibleProjectIds = allProjects.map((p) => p._id as Types.ObjectId);
         } else {
-            // Employee / Member: ONLY projects they are explicitly assigned to or in charge of
-            const [teamMemberships, inCharges, createdProjects] = await Promise.all([
-                ProjectTeamMember.find({ userId }).select('projectId').lean(),
-                ProjectInCharge.find({ userId }).select('projectId').lean(),
-                Project.find({ companyId, createdById: userId, deletedAt: null }).select('_id').lean(),
-            ]);
+            // Employee / Member: projects they are explicitly assigned to, in charge of,
+            // created, OR assigned via a team they belong to (member / lead / manager).
+            const [teamMemberships, inCharges, createdProjects, userTeams] =
+                await Promise.all([
+                    ProjectTeamMember.find({ userId }).select('projectId').lean(),
+                    ProjectInCharge.find({ userId }).select('projectId').lean(),
+                    Project.find({ companyId, createdById: userId, deletedAt: null }).select('_id').lean(),
+                    Team.find({
+                        companyId,
+                        $or: [{ memberIds: userId }, { leadId: userId }, { managerIds: userId }],
+                        isActive: true,
+                        isArchived: false,
+                    }).select('projectIds').lean(),
+                ]);
 
             const pIdSet = new Set<string>();
             teamMemberships.forEach((m) => pIdSet.add(String(m.projectId)));
             inCharges.forEach((m) => pIdSet.add(String(m.projectId)));
             createdProjects.forEach((p) => pIdSet.add(String(p._id)));
+            userTeams.forEach((t) => {
+                (t.projectIds || []).forEach((pId: any) => pIdSet.add(String(pId)));
+            });
 
             accessibleProjectIds = Array.from(pIdSet).map((id) => new Types.ObjectId(id));
         }

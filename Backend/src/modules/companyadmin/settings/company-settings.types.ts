@@ -18,6 +18,7 @@ export interface ICompanyFeatureFlags {
     enableTimesheets: boolean;
     enableTaskAttachments: boolean;
     enableEscalations?: boolean;
+    enableManagerDashboard: boolean;
 }
 
 export type FeatureFlagKey = keyof ICompanyFeatureFlags;
