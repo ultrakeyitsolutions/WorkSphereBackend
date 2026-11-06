@@ -113,12 +113,16 @@ vi.mock('../src/modules/companyadmin/module-access/module-access.service', () =>
 }));
 
 // Mock Users
-vi.mock('../src/modules/users/user.model', () => ({
-    User: {
+vi.mock('../src/modules/users/user.model', () => {
+    const mockUser = {
         findById: mocks.userFindById,
         find: mocks.userFind,
-    },
-}));
+    };
+    return {
+        User: mockUser,
+        default: mockUser,
+    };
+});
 
 // Mock Company
 vi.mock('../src/modules/super-admin/companies/company.model', () => ({
@@ -142,11 +146,16 @@ vi.mock('../src/modules/tasks/task.model', () => ({
 }));
 
 // Mock CalendarEvent
-vi.mock('../src/modules/calendar/calendar-event.model', () => ({
-    CalendarEvent: {
+vi.mock('../src/modules/calendar/calendar-event.model', () => {
+    const mockCalendarEvent = {
         find: mocks.calendarEventFind,
-    },
-}));
+        create: vi.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+    };
+    return {
+        CalendarEvent: mockCalendarEvent,
+        default: mockCalendarEvent,
+    };
+});
 
 // Mock AuditLog
 vi.mock('../src/modules/audit-logs/audit-log.service', () => ({
@@ -228,17 +237,21 @@ describe('Quick Meeting System Tests', () => {
             }),
         });
 
+        const defaultUsers = [
+            {
+                _id: new Types.ObjectId(PARTICIPANT_ID_1),
+                name: 'Participant 1',
+                email: 'p1@test.com',
+                companyId: new Types.ObjectId(COMPANY_ID),
+                isActive: true,
+                status: 'ACTIVE',
+            },
+        ];
         mocks.userFind.mockReturnValue({
-            lean: vi.fn().mockResolvedValue([
-                {
-                    _id: new Types.ObjectId(PARTICIPANT_ID_1),
-                    name: 'Participant 1',
-                    email: 'p1@test.com',
-                    companyId: new Types.ObjectId(COMPANY_ID),
-                    isActive: true,
-                    status: 'ACTIVE',
-                },
-            ]),
+            select: vi.fn().mockReturnValue({
+                lean: vi.fn().mockResolvedValue(defaultUsers),
+            }),
+            lean: vi.fn().mockResolvedValue(defaultUsers),
         });
 
         mocks.projectFindOne.mockReturnValue({
@@ -292,6 +305,7 @@ describe('Quick Meeting System Tests', () => {
                 scheduledEndAt: new Date(new Date(startAt).getTime() + 30 * 60 * 1000),
                 durationMinutes: 30,
                 status: MeetingStatus.PENDING,
+                save: vi.fn().mockResolvedValue(true),
             });
 
             mocks.participantInsertMany.mockResolvedValue([]);
@@ -330,17 +344,21 @@ describe('Quick Meeting System Tests', () => {
         });
 
         it('should reject cross-company meeting creation with 403 CROSS_COMPANY_MEETING_NOT_ALLOWED', async () => {
+            const crossCompanyUsers = [
+                {
+                    _id: new Types.ObjectId(CROSS_COMPANY_USER_ID),
+                    name: 'Cross Company User',
+                    email: 'external@othercorp.com',
+                    companyId: new Types.ObjectId(OTHER_COMPANY_ID),
+                    isActive: true,
+                    status: 'ACTIVE',
+                },
+            ];
             mocks.userFind.mockReturnValue({
-                lean: vi.fn().mockResolvedValue([
-                    {
-                        _id: new Types.ObjectId(CROSS_COMPANY_USER_ID),
-                        name: 'Cross Company User',
-                        email: 'external@othercorp.com',
-                        companyId: new Types.ObjectId(OTHER_COMPANY_ID),
-                        isActive: true,
-                        status: 'ACTIVE',
-                    },
-                ]),
+                select: vi.fn().mockReturnValue({
+                    lean: vi.fn().mockResolvedValue(crossCompanyUsers),
+                }),
+                lean: vi.fn().mockResolvedValue(crossCompanyUsers),
             });
 
             const res = await request(app)

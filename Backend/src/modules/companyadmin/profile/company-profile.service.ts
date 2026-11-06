@@ -72,7 +72,8 @@ export class CompanyProfileService {
         }
 
         // Fallback to default/free plan if no subscription record has been created yet
-        const defaultPlan: any = await Plan.findOne({ isDefault: true, isActive: true, isArchived: false }).lean();
+        const planQuery: any = Plan.findOne({ isDefault: true, isActive: true, isArchived: false });
+        const defaultPlan: any = typeof planQuery?.lean === 'function' ? await planQuery.lean() : await planQuery;
         if (defaultPlan) {
             return {
                 id: null,

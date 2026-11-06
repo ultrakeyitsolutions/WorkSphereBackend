@@ -21,6 +21,16 @@ vi.mock('../src/modules/audit-logs/audit-log.model', () => ({
     },
 }));
 
+vi.mock('../src/modules/companyadmin/module-access/module-access.service', () => ({
+    ModuleAccessService: {
+        getEffectiveMemberModuleAccess: vi.fn().mockResolvedValue({
+            effectiveModules: {
+                attendance: true,
+            },
+        }),
+    },
+}));
+
 describe('Attendance Management System - Integration Tests', () => {
     const mockCompanyId = new Types.ObjectId().toString();
     const mockEmployeeId = new Types.ObjectId().toString();

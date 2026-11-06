@@ -72,6 +72,16 @@ vi.mock('../src/services/entitlement.service', () => ({
     },
 }));
 
+vi.mock('../src/modules/companyadmin/module-access/module-access.service', () => ({
+    ModuleAccessService: {
+        getEffectiveMemberModuleAccess: vi.fn().mockResolvedValue({
+            effectiveModules: {
+                tasks: true,
+            },
+        }),
+    },
+}));
+
 vi.mock('../src/utils/tokens', () => ({
     verifyAccessToken: vi.fn().mockImplementation((token: string) => {
         if (token === 'admin-token') {

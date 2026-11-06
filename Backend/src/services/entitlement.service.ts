@@ -160,7 +160,7 @@ export class EntitlementService {
                 Promise.resolve(
                     Subscription.findOne({
                         companyId: _companyId,
-                        status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
+                        status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING] },
                     })
                         .sort({ currentPeriodEnd: -1, createdAt: -1 })
                         .lean()
@@ -181,7 +181,7 @@ export class EntitlementService {
                 const nowMs = Date.now();
                 const periodEndMs = sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).getTime() : Infinity;
                 const isNotExpired = !sub.currentPeriodEnd || (periodEndMs + GRACE_PERIOD_MS) >= nowMs;
-                const isValidStatus = sub.status === 'ACTIVE' || sub.status === 'TRIALING' || (sub.status === 'PAST_DUE' && isNotExpired);
+                const isValidStatus = sub.status === 'ACTIVE' || sub.status === 'TRIALING';
 
                 if (isValidStatus && isNotExpired) {
                     // If scheduled plan transition has arrived, return scheduledPlanId and trigger durable rollover
@@ -401,7 +401,7 @@ export class EntitlementService {
                 Promise.resolve(
                     Subscription.findOne({
                         companyId: normalizedCompanyId,
-                        status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.PAST_DUE] },
+                        status: { $in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING] },
                     })
                         .sort({ currentPeriodEnd: -1, createdAt: -1 })
                         .populate('planId')
@@ -431,7 +431,7 @@ export class EntitlementService {
             const nowMs = Date.now();
             const periodEndMs = sub?.currentPeriodEnd ? new Date(sub.currentPeriodEnd).getTime() : Infinity;
             const isNotExpired = !sub?.currentPeriodEnd || (periodEndMs + GRACE_PERIOD_MS) >= nowMs;
-            const isActiveStatus = sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING' || (sub.status === 'PAST_DUE' && isNotExpired));
+            const isActiveStatus = sub && (sub.status === 'ACTIVE' || sub.status === 'TRIALING');
 
             if (!sub || !isActiveStatus || !isNotExpired) {
                 // Inactive, expired, or non-existent subscription

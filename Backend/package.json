@@ -39,15 +39,15 @@
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.4",
-    "multer": "^2.4.0",
-    "nodemailer": "^10.0.13",
+    "multer": "^2.5.0",
+    "nodemailer": "^10.3.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3",
     "speakeasy": "^2.0.0",
     "swagger-ui-express": "^5.0.1",
-    "zod": "^4.5.4"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -78,12 +78,19 @@
     "fast-glob": "^3.3.3",
     "brace-expansion": "^2.0.1",
     "braces": "^3.0.3",
-    "fast-uri": "^3.1.8",
-    "ip-address": "^10.7.1",
+    "fast-uri": "^3.1.9",
+    "ip-address": "^10.7.6",
     "micromatch": "^4.0.8",
     "path-to-regexp": "^6.3.0",
-    "undici": "^6.27.1",
+    "undici": "^6.29.1",
     "vite": "^8.2.4",
-    "@vitest/mocker": "^4.1.12"
+    "@vitest/mocker": "^4.1.12",
+    "body-parser": "^2.4.0",
+    "multer": "^2.5.0",
+    "zod": "^4.6.7",
+    "nodemailer": "^10.3.1",
+    "qs": "^6.17.1",
+    "glob": "^14.0.4",
+    "minimatch": "^11.0.5"
   }
 }

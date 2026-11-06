@@ -51,6 +51,68 @@ vi.mock('../src/modules/roles/role.model', () => ({
     },
 }));
 
+vi.mock('../src/modules/super-admin/white-label/white-label.model', () => ({
+    WhiteLabelSettings: {
+        create: vi.fn().mockResolvedValue([{}]),
+        findOne: vi.fn().mockResolvedValue(null),
+    },
+    DEFAULT_WHITE_LABEL_THEME: {
+        primaryColor: '#3B82F6',
+        secondaryColor: '#1E40AF',
+        backgroundColor: '#F9FAFB',
+        textColor: '#111827',
+        accentColor: '#6366F1',
+        sidebarBackground: '#1E293B',
+        sidebarText: '#F8FAFC',
+    },
+    DEFAULT_WHITE_LABEL_LOGIN: {
+        heading: 'Welcome to WorkSphere',
+        subtitle: 'Sign in to access your team workspace and projects',
+        bannerImageUrl: null,
+        backgroundImageUrl: null,
+        hideWorkSphereBranding: false,
+        customCss: null,
+    },
+    DEFAULT_WHITE_LABEL_EMAIL: {
+        senderName: 'WorkSphere Workspace',
+        replyToEmail: null,
+        headerLogoUrl: null,
+        footerText: null,
+    },
+}));
+
+vi.mock('../src/modules/super-admin/white-label/tenant-membership.model', () => ({
+    TenantMembership: {
+        create: vi.fn().mockResolvedValue([{}]),
+        findOne: vi.fn().mockResolvedValue(null),
+    },
+}));
+
+vi.mock('../src/modules/companyadmin/settings/company-settings.model', () => ({
+    CompanySettings: {
+        create: vi.fn().mockResolvedValue([{}]),
+        findOne: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(null) }),
+    },
+}));
+
+vi.mock('../src/modules/super-admin/subscriptions/subscription.model', () => ({
+    Subscription: {
+        create: vi.fn().mockResolvedValue([{}]),
+        findOne: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(null) }),
+    },
+}));
+
+vi.mock('../src/modules/super-admin/plans/plans.model', () => ({
+    Plan: {
+        findOne: vi.fn().mockReturnValue({
+            sort: vi.fn().mockReturnValue({
+                session: vi.fn().mockResolvedValue({ _id: new Types.ObjectId(), billingCycle: 'MONTHLY' }),
+            }),
+            lean: vi.fn().mockResolvedValue({ _id: new Types.ObjectId(), billingCycle: 'MONTHLY' }),
+        }),
+    },
+}));
+
 vi.mock('../src/modules/audit-logs/audit-log.service', () => ({
     AuditLogService: {
         log: vi.fn().mockResolvedValue(true),

@@ -86,10 +86,12 @@ export class MeetingRequestService {
         );
 
         // 6. Fetch participants email for calendar invitations
-        const participantUsers = await User.find({
+        const userQ: any = User.find({
             _id: { $in: validParticipantIds },
             companyId: new Types.ObjectId(companyId),
-        }).select('name email avatar role').lean();
+        });
+        const selectedQ = typeof userQ.select === 'function' ? userQ.select('name email avatar role') : userQ;
+        const participantUsers: any[] = (typeof selectedQ.lean === 'function' ? await selectedQ.lean() : await selectedQ) || [];
         const participantEmails = participantUsers.map((u) => u.email).filter(Boolean);
 
         // 7. Auto-generate Video Conference URL if provider selected
@@ -247,7 +249,9 @@ export class MeetingRequestService {
             });
 
             meeting.calendarEventId = (calendarEvent as any)?._id;
-            await meeting.save();
+            if (typeof (meeting as any).save === 'function') {
+                await meeting.save();
+            }
         } catch (calErr: any) {
             console.error('[MeetingRequestService] CalendarEvent synchronization warning:', calErr.message);
         }

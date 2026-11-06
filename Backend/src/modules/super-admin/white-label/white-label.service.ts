@@ -72,6 +72,16 @@ export class WhiteLabelService {
 
     public static clearAllCache(): void {
         memoryCache.clear();
+        try {
+            const client = getRedisClient();
+            if (client) {
+                client.keys('branding:*').then((keys) => {
+                    if (keys && keys.length > 0) {
+                        client.del(...keys).catch(() => {});
+                    }
+                }).catch(() => {});
+            }
+        } catch {}
     }
 
     public static async invalidateCache(tenantId?: string, slug?: string, domain?: string): Promise<void> {
@@ -416,7 +426,7 @@ export class WhiteLabelService {
             }
         }
 
-        settings.updatedBy = actorUserId ? new Types.ObjectId(actorUserId) : null;
+        settings.updatedBy = actorUserId && Types.ObjectId.isValid(actorUserId) ? new Types.ObjectId(actorUserId) : null;
         await settings.save();
 
         // Invalidate caching
@@ -444,7 +454,7 @@ export class WhiteLabelService {
 
         const settings = await this.getBranding(String(company._id));
         settings.enabled = enabled;
-        settings.updatedBy = actorUserId ? new Types.ObjectId(actorUserId) : null;
+        settings.updatedBy = actorUserId && Types.ObjectId.isValid(actorUserId) ? new Types.ObjectId(actorUserId) : null;
         await settings.save();
 
         await this.invalidateCache(company.tenantId, company.slug, settings.customDomain || undefined);
@@ -487,7 +497,7 @@ export class WhiteLabelService {
         settings.domainVerificationStatus = 'PENDING';
         settings.domainVerificationToken = verificationToken;
         settings.verifiedAt = null;
-        settings.updatedBy = actorUserId ? new Types.ObjectId(actorUserId) : null;
+        settings.updatedBy = actorUserId && Types.ObjectId.isValid(actorUserId) ? new Types.ObjectId(actorUserId) : null;
         await settings.save();
 
         await this.invalidateCache(company.tenantId, company.slug, cleanDomain);
@@ -617,7 +627,7 @@ export class WhiteLabelService {
             heading: `Welcome to ${company.name}`,
         };
         // emailBranding intentionally not reset — feature not supported.
-        settings.updatedBy = actorUserId ? new Types.ObjectId(actorUserId) : null;
+        settings.updatedBy = actorUserId && Types.ObjectId.isValid(actorUserId) ? new Types.ObjectId(actorUserId) : null;
         await settings.save();
 
         await this.invalidateCache(company.tenantId, company.slug, settings.customDomain || undefined);

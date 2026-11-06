@@ -22,6 +22,16 @@ vi.mock('../src/modules/audit-logs/audit-log.model', () => ({
     },
 }));
 
+vi.mock('../src/modules/companyadmin/module-access/module-access.service', () => ({
+    ModuleAccessService: {
+        getEffectiveMemberModuleAccess: vi.fn().mockResolvedValue({
+            effectiveModules: {
+                attendance: true,
+            },
+        }),
+    },
+}));
+
 describe('Attendance Shift Lifecycle & API Endpoints Tests', () => {
     const companyAId = new Types.ObjectId().toString();
     const companyBId = new Types.ObjectId().toString();

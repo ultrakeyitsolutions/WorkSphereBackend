@@ -152,9 +152,49 @@ vi.mock('../src/modules/tasks/task.model', () => ({
     },
 }));
 
+vi.mock('../src/modules/companyadmin/module-access/module-access.service', () => ({
+    ModuleAccessService: {
+        getEffectiveMemberModuleAccess: vi.fn().mockResolvedValue({
+            effectiveModules: {
+                calendar: true,
+            },
+        }),
+    },
+}));
+
+vi.mock('../src/modules/meetings/models/meeting.model', () => {
+    const mockMeeting = {
+        create: vi.fn().mockResolvedValue({ _id: new Types.ObjectId(), save: vi.fn().mockResolvedValue(true) }),
+        findOne: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(null) }),
+        find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }),
+    };
+    return {
+        Meeting: mockMeeting,
+        default: mockMeeting,
+    };
+});
+
+vi.mock('../src/modules/meetings/models/meeting-participant.model', () => {
+    const mockParticipant = {
+        create: vi.fn().mockResolvedValue({}),
+        insertMany: vi.fn().mockResolvedValue([]),
+        find: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }),
+    };
+    return {
+        MeetingParticipant: mockParticipant,
+        default: mockParticipant,
+    };
+});
+
 vi.mock('../src/middleware/auth.middleware', () => ({
     authenticate: (req: any, _res: any, next: any) => {
         req.user = {
+            userId: mocks.currentUserId,
+            email: 'admin@worksphere.com',
+            companyId: COMPANY_ID,
+            role: mocks.currentUserRole,
+        };
+        req.currentUser = {
             userId: mocks.currentUserId,
             email: 'admin@worksphere.com',
             companyId: COMPANY_ID,
@@ -164,6 +204,12 @@ vi.mock('../src/middleware/auth.middleware', () => ({
     },
     default: (req: any, _res: any, next: any) => {
         req.user = {
+            userId: mocks.currentUserId,
+            email: 'admin@worksphere.com',
+            companyId: COMPANY_ID,
+            role: mocks.currentUserRole,
+        };
+        req.currentUser = {
             userId: mocks.currentUserId,
             email: 'admin@worksphere.com',
             companyId: COMPANY_ID,

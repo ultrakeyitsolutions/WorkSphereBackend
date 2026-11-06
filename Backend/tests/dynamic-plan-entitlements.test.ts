@@ -28,6 +28,24 @@ vi.mock('../src/modules/super-admin/subscriptions/subscription.model');
 vi.mock('../src/modules/super-admin/companies/company.model');
 vi.mock('../src/modules/companyadmin/invitations/company-member.model');
 vi.mock('../src/modules/companyadmin/module-access/module-access.model');
+vi.mock('../src/modules/companyadmin/settings/company-settings.model', () => ({
+    CompanySettings: {
+        findOne: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue(null),
+        }),
+    },
+    DEFAULT_FEATURE_FLAGS: {
+        enableLiveMonitoring: true,
+        enableDetailedMonitoring: true,
+        enableQuickMeetings: true,
+        enableChat: true,
+        enableAttendanceAdjustments: true,
+        enableTimesheets: true,
+        enableTaskAttachments: true,
+        enableEscalations: true,
+        enableManagerDashboard: true,
+    },
+}));
 vi.mock('../src/modules/super-admin/subscriptions/subscription-event.model', () => ({
     SubscriptionEvent: {
         create: vi.fn().mockResolvedValue({}),

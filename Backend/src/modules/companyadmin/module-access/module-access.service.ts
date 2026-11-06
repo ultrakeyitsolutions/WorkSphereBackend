@@ -229,8 +229,12 @@ export class ModuleAccessService {
 
         if (changed) {
             record.globalSettings = settings;
-            record.markModified('globalSettings');
-            await record.save().catch(() => {});
+            if (typeof (record as any).markModified === 'function') {
+                (record as any).markModified('globalSettings');
+            }
+            if (typeof (record as any).save === 'function') {
+                await (record as any).save().catch(() => {});
+            }
         }
 
         return record;
@@ -369,7 +373,7 @@ export class ModuleAccessService {
         }
 
         if (changedKeys.length > 0) {
-            record.markModified('globalSettings');
+            (record as any).markModified?.('globalSettings');
             record.updatedBy = updatedBy ? new Types.ObjectId(updatedBy) : null;
             record.auditHistory.push({
                 actorId: updatedBy ? new Types.ObjectId(updatedBy) : new Types.ObjectId(),
@@ -1022,7 +1026,7 @@ export class ModuleAccessService {
             );
         }
 
-        record.markModified('employeeOverrides');
+        (record as any).markModified?.('employeeOverrides');
         record.updatedBy = updatedBy ? new Types.ObjectId(updatedBy) : null;
         record.auditHistory.push({
             actorId: updatedBy ? new Types.ObjectId(updatedBy) : new Types.ObjectId(),
@@ -1265,7 +1269,7 @@ export class ModuleAccessService {
             return map.size > 0;
         });
 
-        record.markModified('employeeOverrides');
+        (record as any).markModified?.('employeeOverrides');
         record.updatedBy = updatedBy ? new Types.ObjectId(updatedBy) : null;
         record.auditHistory.push({
             actorId: updatedBy ? new Types.ObjectId(updatedBy) : new Types.ObjectId(),

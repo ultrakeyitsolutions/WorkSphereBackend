@@ -69,7 +69,7 @@ export const requireModuleAccess = (moduleKey: ModuleKey) => {
                     res,
                     `Access to the '${moduleKey}' module has been restricted for your account.`,
                     403,
-                    { code: 'PERMISSION_DENIED', featureCode: 'FEATURE_ACCESS_DENIED', moduleKey }
+                    { code: 'MODULE_ACCESS_RESTRICTED', featureCode: 'FEATURE_ACCESS_DENIED', moduleKey }
                 );
             }
 

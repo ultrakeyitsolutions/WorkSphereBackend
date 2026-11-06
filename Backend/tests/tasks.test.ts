@@ -92,11 +92,29 @@ vi.mock('../src/modules/companyadmin/projects/project.service', () => ({
     ProjectService: { canAccessProject: mocks.projectCanAccess }
 }));
 
+vi.mock('../src/modules/companyadmin/module-access/module-access.service', () => ({
+    ModuleAccessService: {
+        getEffectiveMemberModuleAccess: vi.fn().mockResolvedValue({
+            effectiveModules: {
+                tasks: true,
+                projects: true,
+            },
+        }),
+    },
+}));
+
 vi.mock('../src/middleware/auth.middleware', () => ({
     authenticate: (req: any, _res: any, next: any) => {
         req.user = {
             userId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
             companyId: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+            role: 'COMPANY_ADMIN',
+            roleLevel: 10
+        };
+        req.currentUser = {
+            userId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+            companyId: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+            role: 'COMPANY_ADMIN',
             roleLevel: 10
         };
         next();

@@ -60,7 +60,10 @@ export class FeatureAccessService {
         }
 
         try {
-            const settings = await CompanySettings.findOne({ companyId }).lean();
+            const settings: any = await Promise.race([
+                CompanySettings.findOne({ companyId }).lean(),
+                new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+            ]);
             const features: ICompanyFeatureFlags = {
                 ...DEFAULT_FEATURE_FLAGS,
                 ...(settings?.features || {}),

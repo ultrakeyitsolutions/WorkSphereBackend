@@ -134,7 +134,8 @@ export class CompanyService {
                 session.startTransaction();
 
                 // Step 1 ── Resolve or create the COMPANY_ADMIN role ─────────────
-                let companyAdminRole = await Role.findOne({ name: 'COMPANY_ADMIN' }).session(session);
+                const roleQuery: any = Role.findOne({ name: 'COMPANY_ADMIN' });
+                let companyAdminRole = typeof roleQuery?.session === 'function' ? await roleQuery.session(session) : await roleQuery;
                 if (!companyAdminRole) {
                     const [created] = await Role.create(
                         [{ name: 'COMPANY_ADMIN', permissions: [] }],

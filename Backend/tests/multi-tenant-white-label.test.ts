@@ -49,21 +49,23 @@ vi.mock('../src/modules/companyadmin/invitations/company-member.model', () => ({
     },
 }));
 
-vi.mock('../src/modules/users/user.model', () => ({
-    User: {
-        find: vi.fn(),
-        findById: vi.fn(),
-        findOne: vi.fn(),
-        create: vi.fn(),
-        updateOne: vi.fn(),
-        updateMany: vi.fn(),
-    },
-    default: {
-        find: vi.fn(),
-        findById: vi.fn(),
-        findOne: vi.fn(),
-    },
-}));
+vi.mock('../src/modules/users/user.model', () => {
+    function MockUser(this: any, data: any) {
+        Object.assign(this, data);
+        this._id = data?._id || new Types.ObjectId();
+        this.save = vi.fn().mockResolvedValue(this);
+    }
+    MockUser.find = vi.fn();
+    MockUser.findById = vi.fn();
+    MockUser.findOne = vi.fn();
+    MockUser.create = vi.fn();
+    MockUser.updateOne = vi.fn();
+    MockUser.updateMany = vi.fn();
+    return {
+        User: MockUser,
+        default: MockUser,
+    };
+});
 
 vi.mock('../src/modules/roles/role.model', () => ({
     Role: {
@@ -132,22 +134,35 @@ vi.mock('../src/modules/super-admin/subscriptions/subscription.model', () => ({
                 }),
             }),
         }),
+        findById: vi.fn().mockReturnValue({
+            populate: vi.fn().mockReturnValue({
+                lean: vi.fn().mockResolvedValue(null),
+            }),
+        }),
         create: vi.fn(),
     },
 }));
 
-vi.mock('../src/modules/auth/session.service', () => ({
+vi.mock('../src/modules/auth/session/session.service', () => ({
     SessionService: {
         createSession: vi.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
         revokeSession: vi.fn().mockResolvedValue(true),
         revokeAllUserSessions: vi.fn().mockResolvedValue(true),
+        validateSession: vi.fn().mockResolvedValue({ _id: new Types.ObjectId(), isValid: true }),
+        rotateSessionToken: vi.fn().mockResolvedValue(true),
     },
 }));
 
 vi.mock('../src/modules/super-admin/plans/plans.model', () => ({
     Plan: {
         findById: vi.fn(),
-        findOne: vi.fn(),
+        findOne: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue(null),
+            sort: vi.fn().mockReturnValue({
+                session: vi.fn().mockResolvedValue({ _id: new Types.ObjectId(), billingCycle: 'MONTHLY' }),
+                lean: vi.fn().mockResolvedValue(null),
+            }),
+        }),
     },
 }));
 
@@ -233,9 +248,10 @@ describe('Multi-Tenant White Labeling System', () => {
         tenantSlug: 'acme',
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
         WhiteLabelService.clearAllCache();
+        await WhiteLabelService.invalidateCache(companyATenantId, 'cache-corp');
 
         // Mock mongoose.startSession
         vi.spyOn(mongoose, 'startSession').mockResolvedValue({
@@ -257,6 +273,14 @@ describe('Multi-Tenant White Labeling System', () => {
             }),
         } as any));
 
+        // Default mock for Company.findById in auth middleware
+        vi.mocked(Company.findById).mockImplementation((id: any) => Promise.resolve({
+            _id: id,
+            name: 'Acme Corporation',
+            status: 'ACTIVE',
+            isActive: true,
+        }) as any);
+
         // Default mock for Subscription.findOne
         vi.mocked(Subscription.findOne).mockReturnValue({
             sort: vi.fn().mockReturnValue({
@@ -265,6 +289,22 @@ describe('Multi-Tenant White Labeling System', () => {
                 }),
             }),
         } as any);
+
+        // Default mock for Subscription.findById
+        vi.mocked(Subscription.findById).mockReturnValue({
+            populate: vi.fn().mockReturnValue({
+                lean: vi.fn().mockResolvedValue(null),
+            }),
+        } as any);
+
+        // Default mock for Plan.findOne
+        vi.mocked(Plan.findOne).mockImplementation(() => ({
+            lean: vi.fn().mockResolvedValue(null),
+            sort: vi.fn().mockReturnValue({
+                session: vi.fn().mockResolvedValue({ _id: new Types.ObjectId(), billingCycle: 'MONTHLY' }),
+                lean: vi.fn().mockResolvedValue(null),
+            }),
+        } as any));
     });
 
     // ── 1. Company Creation with Branding ────────────────────────────────────
@@ -490,6 +530,9 @@ describe('Multi-Tenant White Labeling System', () => {
             isActive: true,
             role: { name: 'COMPANY_ADMIN' },
         } as any);
+
+        // Invalidate cache before testing suspended company
+        await WhiteLabelService.invalidateCache(companyATenantId, 'acme');
 
         // Attempting to resolve public branding for suspended company returns 403
         const brandingRes = await request(app).get('/api/v1/public/branding/resolve?workspace=acme');

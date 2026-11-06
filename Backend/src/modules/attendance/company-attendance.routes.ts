@@ -28,7 +28,9 @@ router.get('/summary', (req, res, next) => {
     if (req.query.month || req.query.year) {
         return AttendanceController.getSummary(req as any, res, next);
     }
-    return AttendanceController.getCompanyAttendanceSummary(req as any, res, next);
+    return adminOnly(req as any, res, () => {
+        return AttendanceController.getCompanyAttendanceSummary(req as any, res, next);
+    });
 });
 
 /**
