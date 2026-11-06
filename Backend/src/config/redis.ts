@@ -40,16 +40,25 @@ export function getRedisClient(): Redis {
     const username = process.env.REDIS_USERNAME || undefined;
     const isTls = process.env.REDIS_TLS === 'true' || Boolean(redisUrl?.startsWith('rediss://'));
 
+    const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+
+    const clientOptions = {
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+        connectTimeout: 2000,
+        retryStrategy: (times: number) => (isTest ? null : Math.min(times * 100, 3000)),
+    };
+
     redisClient = redisUrl
-        ? new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 })
+        ? new Redis(redisUrl, clientOptions)
         : new Redis({
               host: process.env.REDIS_HOST || '127.0.0.1',
               port: parseInt(process.env.REDIS_PORT || '6379', 10),
               username,
               password,
               tls: isTls ? {} : undefined,
-              lazyConnect: true,
-              maxRetriesPerRequest: 1,
+              ...clientOptions,
           });
 
     redisClient.on('error', (err) => {
@@ -84,9 +93,14 @@ export function getRedisClient(): Redis {
 export async function redisGet(key: string): Promise<string | null> {
     try {
         const client = getRedisClient();
+        if (client.status === 'end' || client.status === 'close') {
+            return null;
+        }
         return await client.get(key);
     } catch (err: any) {
-        console.warn('[Redis] GET failed:', err?.message);
+        if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+            console.warn('[Redis] GET failed:', err?.message);
+        }
         return null;
     }
 }
@@ -101,8 +115,11 @@ export async function redisSet(
 ): Promise<void> {
     try {
         const client = getRedisClient();
+        if (client.status === 'end' || client.status === 'close') {
+            return;
+        }
         await client.set(key, value, 'EX', ttlSeconds);
     } catch (err: any) {
-        console.warn('[Redis] SET failed:', err?.message);
+        // Silently ignore — caching failure should not break app flow
     }
 }

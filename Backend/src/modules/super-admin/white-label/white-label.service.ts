@@ -74,7 +74,7 @@ export class WhiteLabelService {
         memoryCache.clear();
         try {
             const client = getRedisClient();
-            if (client) {
+            if (client && (client.status === 'ready' || client.status === 'connect')) {
                 client.keys('branding:*').then((keys) => {
                     if (keys && keys.length > 0) {
                         client.del(...keys).catch(() => {});
@@ -120,7 +120,7 @@ export class WhiteLabelService {
 
         try {
             const client = getRedisClient();
-            if (keysToDelete.length > 0) {
+            if (client && (client.status === 'ready' || client.status === 'connect') && keysToDelete.length > 0) {
                 await client.del(...keysToDelete);
             }
         } catch {}

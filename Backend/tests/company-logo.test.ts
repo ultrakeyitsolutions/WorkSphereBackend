@@ -119,6 +119,18 @@ vi.mock('../src/modules/audit-logs/audit-log.service', () => ({
     },
 }));
 
+vi.mock('../src/config/redis', () => ({
+    getRedisClient: vi.fn().mockReturnValue({
+        status: 'ready',
+        keys: vi.fn().mockResolvedValue([]),
+        del: vi.fn().mockResolvedValue(1),
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue('OK'),
+    }),
+    redisGet: vi.fn().mockResolvedValue(null),
+    redisSet: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../src/modules/super-admin/storage/storage-config.service', () => ({
     StorageConfigurationService: {
         getActiveConfiguration: vi.fn().mockResolvedValue({

@@ -194,6 +194,21 @@ vi.mock('../src/config/mail', () => ({
     },
 }));
 
+vi.mock('../src/config/redis', () => {
+    const client = {
+        status: 'ready',
+        keys: vi.fn().mockResolvedValue([]),
+        del: vi.fn().mockResolvedValue(1),
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue('OK'),
+    };
+    return {
+        getRedisClient: vi.fn().mockReturnValue(client),
+        redisGet: vi.fn().mockResolvedValue(null),
+        redisSet: vi.fn().mockResolvedValue(undefined),
+    };
+});
+
 // Build Express test application
 const app = express();
 app.use(express.json());
