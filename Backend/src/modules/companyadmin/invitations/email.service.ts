@@ -9,12 +9,15 @@ export interface SendInvitationEmailOptions {
   roleName: string;
   designationName: string;
   companyId?: string;
+  inviterName?: string;
+  logoUrl?: string;
 }
 
 export interface SendInvitationEmailResult {
   messageId?: string;
   senderEmail: string;
   senderMode: 'PLATFORM' | 'COMPANY';
+  invitationUrl?: string;
 }
 
 /**
@@ -61,8 +64,24 @@ export class EmailService {
   static async sendInvitationEmail(opts: SendInvitationEmailOptions): Promise<SendInvitationEmailResult> {
     const { to, rawToken, companyName, roleName, designationName, companyId } = opts;
 
+    let logoUrl: string | null = opts.logoUrl || null;
+    if (!logoUrl && companyId) {
+      try {
+        const { WhiteLabelSettings } = await import('../../super-admin/white-label/white-label.model.js');
+        const wl = await WhiteLabelSettings.findOne({ companyId }).lean();
+        if (wl?.logoUrl) logoUrl = wl.logoUrl;
+      } catch {}
+      if (!logoUrl) {
+        try {
+          const { Company } = await import('../../super-admin/companies/company.model.js');
+          const comp = await Company.findById(companyId).lean();
+          if (comp?.logoUrl) logoUrl = comp.logoUrl;
+        } catch {}
+      }
+    }
+
     const baseUrl = await resolveInvitationBaseUrl(companyId);
-    const acceptUrl = `${baseUrl}/invite?token=${encodeURIComponent(rawToken)}`;
+    const acceptUrl = `${baseUrl}/invite/${encodeURIComponent(rawToken)}`;
 
     // Centralized sender resolution
     const resolvedSender = await CompanyEmailService.resolveSender(companyId);
@@ -92,6 +111,7 @@ export class EmailService {
 <body>
   <div class="wrapper">
     <div class="header">
+      ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="max-height:48px; margin-bottom:12px;" /><br/>` : ''}
       <h1>${companyName}</h1>
     </div>
     <div class="body">
@@ -167,6 +187,7 @@ export class EmailService {
       messageId,
       senderEmail: effectiveSenderEmail,
       senderMode: effectiveSenderMode,
+      invitationUrl: acceptUrl,
     };
   }
 }

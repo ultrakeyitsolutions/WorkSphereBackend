@@ -95,9 +95,9 @@ describe('Production Database Seeding & Initialization System', () => {
 
             const result = await seedRoles(false);
 
-            expect(result.created).toBe(4); // SUPER_ADMIN, COMPANY_ADMIN, User, EMPLOYEE
+            expect(result.created).toBe(5); // SUPER_ADMIN, COMPANY_ADMIN, User, EMPLOYEE, MANAGER
             expect(result.updated).toBe(0);
-            expect(Role.create).toHaveBeenCalledTimes(4);
+            expect(Role.create).toHaveBeenCalledTimes(5);
         });
 
         it('should merge missing permissions without deleting existing customized permissions', async () => {
@@ -120,7 +120,7 @@ describe('Production Database Seeding & Initialization System', () => {
             const result = await seedRoles(false);
 
             expect(result.created).toBe(0);
-            expect(result.updated).toBe(4); // Each existing role gets missing perms merged
+            expect(result.updated).toBe(5); // Each existing role gets missing perms merged
             expect(mockSave).toHaveBeenCalled();
         });
     });

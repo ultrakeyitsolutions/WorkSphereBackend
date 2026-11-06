@@ -347,34 +347,71 @@ export class InvitationService {
         const invitation = await Invitation.findOne({ $or: [{ tokenHash }, { previousTokenHashes: tokenHash }] })
             .populate<{ roleId: { name: string } }>('roleId', 'name')
             .populate<{ designationId: { name: string } }>('designationId', 'name')
-            .populate<{ companyId: { name: string; status: string; isActive: boolean } }>('companyId', 'name status isActive');
+            .populate<{ companyId: { name: string; slug?: string; status: string; isActive: boolean; logoUrl?: string } }>('companyId')
+            .populate<{ invitedByUserId: { name?: string; email?: string } }>('invitedByUserId', 'name email');
 
-        if (!invitation) throw new Error('Invitation not found or invalid token');
-        if (invitation.status !== 'PENDING') throw new Error(`Invitation is ${invitation.status.toLowerCase()}`);
+        if (!invitation) throw AppError.notFound('Invitation not found or invalid token');
+        if (invitation.status !== 'PENDING') throw new AppError(`Invitation is ${invitation.status.toLowerCase()}`, 410);
         if (new Date() > invitation.expiresAt) {
             // Auto-expire
             await Invitation.findByIdAndUpdate(invitation._id, { status: 'EXPIRED' });
-            throw new Error('Invitation has expired');
+            throw new AppError('Invitation has expired', 410);
         }
 
         const company = invitation.companyId as any;
         if (!company || company.status !== 'ACTIVE' || !company.isActive) {
-            throw new Error('Company is not active');
+            throw AppError.badRequest('Company is not active');
         }
 
         const email = invitation.email ?? null;
         const userExists = email ? !!(await User.findOne({ email })) : false;
 
+        let whiteLabel: any = null;
+        try {
+            const { WhiteLabelSettings } = await import('../../super-admin/white-label/white-label.model.js');
+            whiteLabel = await WhiteLabelSettings.findOne({ companyId: company._id || company.id }).lean();
+        } catch {
+            // fallback if white-label settings are absent
+        }
+
+        const orgId = String(company._id || company.id || '');
+        const orgName = company.name || '';
+        const orgSlug = company.slug || orgName.toLowerCase().replace(/\s+/g, '-');
+        const roleName = (invitation.roleId as any)?.name ?? null;
+        const desgName = (invitation.designationId as any)?.name ?? null;
+        const inviter = invitation.invitedByUserId as any;
+        const inviterName = inviter?.name || (inviter?.email ? inviter.email.split('@')[0] : null);
+
+        const logoUrl = whiteLabel?.logoUrl || company.logoUrl || null;
+        const theme = whiteLabel?.theme || {
+            primaryColor: '#2563EB',
+            secondaryColor: '#1E293B',
+            accentColor: '#3B82F6',
+            backgroundColor: '#FFFFFF',
+            textColor: '#0F172A',
+        };
+
         return {
             valid: true,
             data: {
-                companyName: company.name,
+                organizationId: orgId,
+                organizationName: orgName,
+                assignedRole: roleName,
+                inviterName,
                 email,
                 phoneNumber: invitation.phoneNumber ?? null,
-                role: (invitation.roleId as any)?.name ?? null,
-                designation: (invitation.designationId as any)?.name ?? null,
+                role: roleName,
+                designation: desgName,
                 expiresAt: invitation.expiresAt,
                 userExists,
+                organization: {
+                    id: orgId,
+                    name: orgName,
+                    slug: orgSlug,
+                    logoUrl,
+                    theme,
+                },
+                companyName: orgName,
             },
         };
     }
@@ -391,37 +428,62 @@ export class InvitationService {
             const invitation = await Invitation.findOne({ $or: [{ tokenHash }, { previousTokenHashes: tokenHash }] }).session(session)
                 .populate<{ roleId: { _id: Types.ObjectId; name: string } }>('roleId', '_id name')
                 .populate<{ designationId: { _id: Types.ObjectId; name: string } }>('designationId', '_id name')
-                .populate<{ companyId: { _id: Types.ObjectId; name: string; status: string; isActive: boolean } }>('companyId', '_id name status isActive');
+                .populate<{ companyId: { _id: Types.ObjectId; name: string; slug?: string; status: string; isActive: boolean } }>('companyId');
 
-            if (!invitation) throw new Error('Invalid invitation token');
-            if (invitation.status !== 'PENDING') throw new Error(`Invitation is ${invitation.status.toLowerCase()}`);
-            if (new Date() > invitation.expiresAt) {
-                await Invitation.findByIdAndUpdate(invitation._id, { status: 'EXPIRED' }, { session });
-                throw new Error('Invitation has expired');
-            }
+            if (!invitation) throw AppError.notFound('Invalid invitation token');
 
             const company = invitation.companyId as any;
             if (!company || company.status !== 'ACTIVE' || !company.isActive) {
-                throw new Error('Company is not active');
+                throw AppError.badRequest('Company is not active');
             }
 
             // Find user by email
             const email = invitation.email;
-            if (!email) throw new Error('Invitation has no email — use SMS flow');
+            if (!email) throw AppError.badRequest('Invitation has no email — use SMS flow');
 
             const user = await User.findOne({ email }).session(session);
-            if (!user) throw new Error('No account found for this email. Please register instead.');
+            if (!user) throw AppError.notFound('No account found for this email. Please register instead.');
 
-            // Verify password
+            // Verify password first before state assertions
             const passwordMatch = await comparePassword(input.password, user.password || '');
-            if (!passwordMatch) throw new Error('Invalid password');
+            if (!passwordMatch) throw AppError.unauthorized('Invalid password');
+
+            // Check if invitation is already accepted by this user (idempotent replay)
+            if (invitation.status === 'ACCEPTED') {
+                const existingMember = await CompanyMember.findOne({
+                    companyId: company._id,
+                    userId: user._id,
+                }).session(session);
+                if (existingMember) {
+                    await session.commitTransaction();
+                    const payload = { userId: String(user._id), email: user.email, role: (user.role as any)?.name || 'User' };
+                    const accessToken = generateAccessToken(payload);
+                    const refreshToken = generateRefreshToken(payload);
+                    return {
+                        user: { id: String(user._id), name: user.name, email: user.email },
+                        company: { id: String(company._id), name: company.name, slug: company.slug || company.name?.toLowerCase().replace(/\s+/g, '-') },
+                        membership: { roleId: String(existingMember.roleId), designationId: String(existingMember.designationId), status: existingMember.status },
+                        accessToken,
+                        refreshToken,
+                        redirectTo: '/dashboard',
+                        workspace: company.slug || company.name?.toLowerCase().replace(/\s+/g, '-'),
+                    };
+                }
+                throw new AppError('Invitation is accepted', 410);
+            }
+
+            if (invitation.status !== 'PENDING') throw new AppError(`Invitation is ${invitation.status.toLowerCase()}`, 410);
+            if (new Date() > invitation.expiresAt) {
+                await Invitation.findByIdAndUpdate(invitation._id, { status: 'EXPIRED' }, { session });
+                throw new AppError('Invitation has expired', 410);
+            }
 
             // Check already a member
             const existingMembership = await CompanyMember.findOne({
                 companyId: company._id,
                 userId: user._id,
             }).session(session);
-            if (existingMembership) throw new Error('User is already a member of this company');
+            if (existingMembership) throw AppError.conflict('User is already a member of this company');
 
             // Create membership
             const roleObj = invitation.roleId as any;
@@ -460,10 +522,12 @@ export class InvitationService {
 
             return {
                 user: { id: String(user._id), name: user.name, email: user.email },
-                company: { id: String(company._id), name: company.name },
+                company: { id: String(company._id), name: company.name, slug: company.slug || company.name?.toLowerCase().replace(/\s+/g, '-') },
                 membership: { roleId: String(roleObj._id), designationId: String(desgObj._id), status: membership.status },
                 accessToken,
                 refreshToken,
+                redirectTo: '/dashboard',
+                workspace: company.slug || company.name?.toLowerCase().replace(/\s+/g, '-'),
             };
 
         } catch (err) {

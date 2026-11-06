@@ -159,7 +159,7 @@ export const DEFAULT_DARK_PALETTE: ICompanyThemePalette = {
     sidebarIcon: 'rgba(248, 250, 252, 0.65)',
     sidebarHoverBackground: 'rgba(255, 255, 255, 0.08)',
     sidebarHoverForeground: '#FFFFFF',
-    sidebarActiveBackground: '#3B82F6',
+    sidebarActiveBackground: '#2563EB',
     sidebarActiveForeground: '#FFFFFF',
     sidebarBorder: 'rgba(255, 255, 255, 0.08)',
 

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../../auth/auth.types';
 import { sendSuccess, sendError } from '../../../utils/response';
+import { AppError } from '../../../utils/AppError';
 import { InvitationService } from './invitation.service';
 import { validateData } from '../../../middleware/validateRequest';
 import {
@@ -63,7 +64,8 @@ export class InvitationController {
             const result = await InvitationService.validateToken(parsed.data.token);
             return sendSuccess(res, 'Invitation is valid', result.data);
         } catch (err: any) {
-            if (err?.message) return sendError(res, err.message, 400);
+            const statusCode = err?.statusCode || (err instanceof AppError ? err.statusCode : (err?.status || 400));
+            if (err?.message) return sendError(res, err.message, statusCode);
             next(err);
         }
     }
@@ -79,7 +81,8 @@ export class InvitationController {
             const result = await InvitationService.acceptInvitation(parsed.data);
             return sendSuccess(res, 'Invitation accepted successfully', result, 200);
         } catch (err: any) {
-            if (err?.message) return sendError(res, err.message, 400);
+            const statusCode = err?.statusCode || (err instanceof AppError ? err.statusCode : (err?.status || 400));
+            if (err?.message) return sendError(res, err.message, statusCode);
             next(err);
         }
     }
@@ -95,7 +98,8 @@ export class InvitationController {
             const result = await InvitationService.registerViaInvitation(parsed.data);
             return sendSuccess(res, 'Account created and invitation accepted', result, 201);
         } catch (err: any) {
-            if (err?.message) return sendError(res, err.message, 400);
+            const statusCode = err?.statusCode || (err instanceof AppError ? err.statusCode : (err?.status || 400));
+            if (err?.message) return sendError(res, err.message, statusCode);
             next(err);
         }
     }

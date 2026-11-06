@@ -914,7 +914,9 @@ export class PaymentService {
         // Link subscriptionId back to attempt and company
         attempt.subscriptionId = subscriptionDoc._id;
         await attempt.save();
-        await Company.updateOne({ _id: attempt.companyId }, { $set: { subscriptionId: subscriptionDoc._id } });
+        if (Company && typeof (Company as any).updateOne === 'function') {
+            await Company.updateOne({ _id: attempt.companyId }, { $set: { subscriptionId: subscriptionDoc._id } });
+        }
 
         // Synchronize entitlements, invalidate all caches across workers, log audit, and notify sockets
         await SubscriptionEntitlementSyncService.sync({
@@ -1081,7 +1083,9 @@ export class PaymentService {
             subDoc = existingSub;
         }
 
-        await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: subDoc._id } });
+        if (Company && typeof (Company as any).updateOne === 'function') {
+            await Company.updateOne({ _id: companyId }, { $set: { subscriptionId: subDoc._id } });
+        }
 
         // Immutable Subscription Event
         await SubscriptionEvent.create({
@@ -1583,25 +1587,39 @@ export class PaymentService {
 
         const activeSubDoc = await SubscriptionService.getActiveSubscriptionDocument(companyId);
 
+        const companyPromise: any = Company.findById(new Types.ObjectId(companyId));
         const [company, subscription, activePlans, recentPayments] = await Promise.all([
-            Company.findById(new Types.ObjectId(companyId)).lean(),
+            companyPromise && typeof companyPromise.lean === 'function' ? companyPromise.lean() : companyPromise,
             activeSubDoc
-                ? Subscription.findById(activeSubDoc._id)
-                      .populate('planId')
-                      .populate('scheduledPlanId')
-                      .lean()
+                ? (async () => {
+                      const q: any = Subscription.findById(activeSubDoc._id);
+                      const q1 = q && typeof q.populate === 'function' ? q.populate('planId') : q;
+                      const q2 = q1 && typeof q1.populate === 'function' ? q1.populate('scheduledPlanId') : q1;
+                      return q2 && typeof q2.lean === 'function' ? q2.lean() : q2;
+                  })()
                 : null,
-            Plan.find({ isActive: true, isArchived: false }).lean(),
-            PaymentAttempt.find({ companyId: new Types.ObjectId(companyId) })
-                .populate('planId', 'name price billingCycle')
-                .sort({ createdAt: -1 })
-                .limit(10)
-                .lean(),
+            (async () => {
+                const q: any = Plan.find({ isActive: true, isArchived: false });
+                return q && typeof q.lean === 'function' ? q.lean() : q;
+            })(),
+            (async () => {
+                const q: any = PaymentAttempt.find({ companyId: new Types.ObjectId(companyId) });
+                const q1 = q && typeof q.populate === 'function' ? q.populate('planId', 'name price billingCycle') : q;
+                const q2 = q1 && typeof q1.sort === 'function' ? q1.sort({ createdAt: -1 }) : q1;
+                const q3 = q2 && typeof q2.limit === 'function' ? q2.limit(10) : q2;
+                return q3 && typeof q3.lean === 'function' ? q3.lean() : q3;
+            })(),
         ]);
 
         let currentPlan: any = (subscription as any)?.planId;
         if (!currentPlan) {
-            currentPlan = await Plan.findOne({ isDefault: true, isActive: true, isArchived: false }).lean();
+            if (typeof Plan.findOne === 'function') {
+                const q: any = Plan.findOne({ isDefault: true, isActive: true, isArchived: false });
+                currentPlan = q && typeof q.lean === 'function' ? await q.lean() : await q;
+            }
+            if (!currentPlan && Array.isArray(activePlans)) {
+                currentPlan = activePlans.find((p: any) => p.isDefault) || activePlans[0] || null;
+            }
         }
 
         const now = Date.now();

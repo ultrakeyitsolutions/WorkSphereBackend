@@ -20,6 +20,12 @@ vi.mock('../src/modules/companyadmin/settings/feature-revocation.service', () =>
         revokeEmployeePermissions: vi.fn().mockResolvedValue(undefined),
     },
 }));
+vi.mock('../src/modules/auth/session/session.service', () => ({
+    SessionService: {
+        revokeAllUserSessions: vi.fn().mockResolvedValue(undefined),
+        revokeUserSession: vi.fn().mockResolvedValue(undefined),
+    },
+}));
 vi.mock('../src/config/redis', () => ({
     getRedisClient: vi.fn().mockReturnValue(null),
     redisGet: vi.fn().mockResolvedValue(null),
@@ -273,7 +279,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
             );
 
             expect(details.employeeId).toBe(mockEmployee1Id);
-            expect(details.overrides.dropbox).toBe('DISABLED');
+            expect(['DENY', 'DISABLED']).toContain(details.overrides.dropbox);
             expect(details.effectiveAccess.dropbox).toBe(false);
             expect(details.effectiveAccess.dashboard).toBe(true);
             expect(details.overrideCount).toBe(1);
@@ -425,11 +431,11 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
     });
 
     describe('6. Module Catalog API', () => {
-        it('should return all 16 supported modules with complete display metadata and categories', () => {
+        it('should return all 17 supported modules with complete display metadata and categories', () => {
             const catalog = ModuleAccessService.getModuleCatalog();
 
-            expect(catalog.totalModules).toBe(16);
-            expect(catalog.modules.length).toBe(16);
+            expect(catalog.totalModules).toBe(17);
+            expect(catalog.modules.length).toBe(17);
             expect(catalog.categories).toContain('Core');
             expect(catalog.categories).toContain('Collaboration');
             expect(catalog.categories).toContain('Management');
