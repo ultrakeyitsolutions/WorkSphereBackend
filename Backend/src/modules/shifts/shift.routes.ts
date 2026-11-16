@@ -19,6 +19,7 @@ const router = Router();
 
 router.post('/', validateRequest(createShiftSchema), ShiftController.createShift);
 router.get('/', validateRequest(listShiftQuerySchema), ShiftController.getShifts);
+router.get('/overview', ShiftController.getShiftOverview);
 router.get('/:shiftId', validateRequest(shiftParamSchema), ShiftController.getShiftById);
 router.patch('/:shiftId', validateRequest(updateShiftSchema), ShiftController.updateShift);
 router.delete('/:shiftId', validateRequest(shiftParamSchema), ShiftController.deactivateShift);

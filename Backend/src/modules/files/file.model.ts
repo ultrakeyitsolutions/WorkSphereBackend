@@ -75,6 +75,27 @@ const fileSchema = new Schema<IFileDocument>(
             default: null,
             index: true,
         },
+        checksum: {
+            type: String,
+            default: null,
+            index: true,
+        },
+        resourceType: {
+            type: String,
+            enum: ['image', 'video', 'raw'],
+            default: null,
+        },
+        publicId: {
+            type: String,
+            default: null,
+            trim: true,
+        },
+        processingStatus: {
+            type: String,
+            enum: ['PENDING', 'UPLOADING', 'UPLOADED', 'VALIDATING', 'PROCESSING', 'READY', 'FAILED'],
+            default: 'READY',
+            index: true,
+        },
         deletedAt: {
             type: Date,
             default: null,

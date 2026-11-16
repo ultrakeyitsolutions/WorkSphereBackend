@@ -63,6 +63,12 @@ const shiftSchema = new Schema<IShiftDocument>(
                 message: 'Working days must be numbers between 1 (Monday) and 7 (Sunday)',
             },
         },
+        breakDurationMinutes: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 240,
+        },
         halfDayThresholdMinutes: {
             type: Number,
             default: 240,
@@ -71,6 +77,11 @@ const shiftSchema = new Schema<IShiftDocument>(
         fullDayThresholdMinutes: {
             type: Number,
             default: 480,
+            min: 0,
+        },
+        overtimeThresholdMinutes: {
+            type: Number,
+            default: 0,
             min: 0,
         },
         isActive: {

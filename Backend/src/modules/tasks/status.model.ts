@@ -22,10 +22,10 @@ const statusSchema = new Schema<IStatus>(
         isActive: { type: Boolean, default: true },
         createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true }
     },
-    { timestamps: true }
+    { timestamps: true, collection: 'status' }
 );
 
 statusSchema.index({ companyId: 1, isActive: 1 });
 statusSchema.index({ companyId: 1, name: 1 }, { unique: true });
 
-export const Status = model<IStatus>('Status', statusSchema);
+export const Status = model<IStatus>('Status', statusSchema, 'status');

@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { Conversation } from './conversation.model';
 import { ConversationParticipant } from './participant.model';
 import { Message } from './message.model';
+import { FileModel } from '../files/file.model';
 import { Project, ProjectTeamMember, ProjectInCharge } from '../companyadmin/projects/project.model';
 import { ProjectService } from '../companyadmin/projects/project.service';
 import { User } from '../users/user.model';
@@ -359,16 +360,32 @@ export class ChatService {
         // Sign media URLs for attached images, screen recordings, voice notes, and documents
         const formattedMessages = await Promise.all(
             messages.map(async (msg: any) => {
-                if (msg.fileId && (msg.fileId.storageKey || msg.fileId.storageUrl)) {
-                    const secureUrl = await StorageConfigurationService.signUrl(
-                        msg.fileId.storageKey || msg.fileId.storageUrl
-                    );
+                if (msg.fileId) {
+                    const fileObj = { ...msg.fileId };
+                    const fileIdStr = fileObj._id ? fileObj._id.toString() : fileObj.toString();
+                    fileObj.streamUrl = `/api/files/${fileIdStr}/stream`;
+
+                    if (fileObj.storageKey || fileObj.storageUrl) {
+                        fileObj.storageUrl = await StorageConfigurationService.signUrl(
+                            fileObj.storageKey || fileObj.storageUrl
+                        );
+                    }
+
+                    let videoMetadata = msg.videoMetadata;
+                    if (msg.messageType === 'VIDEO' && videoMetadata) {
+                        const cleanStorageUrl = fileObj.storageUrl || fileObj.streamUrl;
+                        const fallbackThumbnail = cleanStorageUrl ? cleanStorageUrl.replace(/\.[a-zA-Z0-9]+$/, '.jpg') : null;
+                        videoMetadata = {
+                            ...videoMetadata,
+                            thumbnailUrl: videoMetadata.thumbnailUrl || fallbackThumbnail,
+                            codec: videoMetadata.codec || 'h264',
+                        };
+                    }
+
                     return {
                         ...msg,
-                        fileId: {
-                            ...msg.fileId,
-                            storageUrl: secureUrl,
-                        },
+                        fileId: fileObj,
+                        videoMetadata: videoMetadata || msg.videoMetadata,
                     };
                 }
                 return msg;
@@ -378,6 +395,214 @@ export class ChatService {
         return {
             messages: formattedMessages.reverse(), // return in chronological order
             nextCursor,
+        };
+    }
+
+    /**
+     * Create real-time or REST message with full idempotency, attachment validation, and presence delivery detection.
+     */
+    static async createMessage(params: {
+        conversationId: string;
+        senderId: string;
+        companyId: string;
+        messageType: 'TEXT' | 'IMAGE' | 'DOCUMENT' | 'AUDIO' | 'VIDEO';
+        clientMessageId?: string | null;
+        text?: string | null;
+        fileId?: string | null;
+        audioMetadata?: {
+            duration?: number;
+            mimeType?: string;
+            fileSize?: number;
+            waveformData?: number[];
+        } | null;
+        videoMetadata?: {
+            duration?: number;
+            width?: number;
+            height?: number;
+            thumbnailUrl?: string | null;
+            mimeType?: string;
+            fileSize?: number;
+            codec?: string | null;
+        } | null;
+    }) {
+        const {
+            conversationId,
+            senderId,
+            companyId,
+            messageType,
+            clientMessageId,
+            text,
+            fileId,
+            audioMetadata,
+            videoMetadata,
+        } = params;
+
+        if (!conversationId || !Types.ObjectId.isValid(conversationId)) {
+            throw new Error('INVALID_CONVERSATION_ID');
+        }
+
+        // 1. Idempotency Check: if clientMessageId is provided, check if already recorded
+        if (clientMessageId) {
+            const existingMessage = await Message.findOne({
+                conversationId: new Types.ObjectId(conversationId),
+                senderId: new Types.ObjectId(senderId),
+                clientMessageId,
+                deletedAt: null,
+            })
+                .populate('senderId', 'name email avatar')
+                .populate('fileId')
+                .lean();
+
+            if (existingMessage) {
+                if (existingMessage.fileId) {
+                    const fileObj = existingMessage.fileId as any;
+                    const fileIdStr = fileObj._id ? fileObj._id.toString() : fileObj.toString();
+                    fileObj.streamUrl = `/api/files/${fileIdStr}/stream`;
+
+                    if (fileObj.storageKey || fileObj.storageUrl) {
+                        fileObj.storageUrl = await StorageConfigurationService.signUrl(fileObj.storageKey || fileObj.storageUrl);
+                    }
+                }
+                return {
+                    message: existingMessage,
+                    isDuplicate: true,
+                    otherUserId: null,
+                    conversation: null,
+                    otherParticipant: null,
+                };
+            }
+        }
+
+        // 2. Verify conversation and company
+        const conversation = await Conversation.findOne({
+            _id: conversationId,
+            companyId,
+        });
+        if (!conversation) {
+            throw new Error('CONVERSATION_NOT_FOUND');
+        }
+
+        // 3. Verify participant
+        const isParticipant = await ConversationParticipant.exists({
+            conversationId,
+            userId: senderId,
+        });
+        if (!isParticipant) {
+            throw new Error('FORBIDDEN_CONVERSATION_ACCESS');
+        }
+
+        // 4. Verify project access
+        const canAccess = await ProjectService.canAccessProject(
+            companyId,
+            senderId,
+            conversation.projectId.toString()
+        );
+        if (!canAccess) {
+            throw new Error('FORBIDDEN_PROJECT_ACCESS');
+        }
+
+        // 5. Validate file if attachment message
+        let fileDoc: any = null;
+        if (fileId) {
+            if (!Types.ObjectId.isValid(fileId)) {
+                throw new Error('INVALID_FILE_ID');
+            }
+
+            fileDoc = await FileModel.findOne({
+                _id: fileId,
+                companyId,
+                deletedAt: null,
+            });
+            if (!fileDoc) {
+                throw new Error('ATTACHED_FILE_NOT_FOUND');
+            }
+
+            // Link file to conversation
+            fileDoc.contextType = 'MESSAGE';
+            fileDoc.contextId = conversation._id;
+            await fileDoc.save();
+        }
+
+        // 6. Check recipient presence for immediate delivery receipt
+        const otherParticipant = await ConversationParticipant.findOne({
+            conversationId,
+            userId: { $ne: new Types.ObjectId(senderId) },
+        }).lean();
+
+        const otherUserId = otherParticipant?.userId?.toString();
+        const isRecipientOnline = otherUserId ? PresenceService.isUserOnline(otherUserId) : false;
+        const deliveredAt = isRecipientOnline ? new Date() : null;
+
+        // 7. Create message in MongoDB
+        const message = await Message.create({
+            conversationId: new Types.ObjectId(conversationId),
+            senderId: new Types.ObjectId(senderId),
+            messageType: messageType || 'TEXT',
+            clientMessageId: clientMessageId || null,
+            status: isRecipientOnline ? 'DELIVERED' : 'SENT',
+            text: text || null,
+            fileId: fileDoc ? fileDoc._id : null,
+            audioMetadata: audioMetadata ? {
+                duration: audioMetadata.duration || 0,
+                mimeType: audioMetadata.mimeType || 'audio/webm',
+                fileSize: audioMetadata.fileSize || 0,
+                waveformData: audioMetadata.waveformData || [],
+            } : null,
+            videoMetadata: videoMetadata ? {
+                duration: videoMetadata.duration || 0,
+                width: videoMetadata.width || 0,
+                height: videoMetadata.height || 0,
+                thumbnailUrl: videoMetadata.thumbnailUrl || (fileDoc?.storageUrl ? fileDoc.storageUrl.replace(/\.[a-zA-Z0-9]+$/, '.jpg') : null),
+                mimeType: videoMetadata.mimeType || 'video/mp4',
+                fileSize: videoMetadata.fileSize || (fileDoc ? fileDoc.size : 0),
+                codec: videoMetadata.codec || 'h264',
+            } : null,
+            deliveredAt,
+        });
+
+        // 8. Update conversation's last message
+        conversation.lastMessage = message._id as any;
+        conversation.lastMessageAt = message.createdAt || new Date();
+        await conversation.save();
+
+        // 9. Populate message for response/broadcast
+        const populatedMessage = await Message.findById(message._id)
+            .populate('senderId', 'name email avatar')
+            .populate('fileId')
+            .lean();
+
+        if (!populatedMessage) {
+            throw new Error('Failed to retrieve created message');
+        }
+
+        // Attach streamUrl and sign file storageUrl for secure media access
+        if (populatedMessage.fileId) {
+            const fileObj = populatedMessage.fileId as any;
+            const fileIdStr = fileObj._id ? fileObj._id.toString() : fileObj.toString();
+            fileObj.streamUrl = `/api/files/${fileIdStr}/stream`;
+
+            if (fileObj.storageKey || fileObj.storageUrl) {
+                const secureUrl = await StorageConfigurationService.signUrl(fileObj.storageKey || fileObj.storageUrl);
+                fileObj.storageUrl = secureUrl;
+            }
+
+            if (populatedMessage.messageType === 'VIDEO' && populatedMessage.videoMetadata) {
+                const cleanStorageUrl = fileObj.storageUrl || fileObj.streamUrl;
+                if (!populatedMessage.videoMetadata.thumbnailUrl && cleanStorageUrl) {
+                    populatedMessage.videoMetadata.thumbnailUrl = cleanStorageUrl.replace(/\.[a-zA-Z0-9]+$/, '.jpg');
+                }
+                if (!populatedMessage.videoMetadata.codec) {
+                    populatedMessage.videoMetadata.codec = 'h264';
+                }
+            }
+        }
+
+        return {
+            message: populatedMessage,
+            isDuplicate: false,
+            otherUserId,
+            conversation,
+            otherParticipant,
         };
     }
 

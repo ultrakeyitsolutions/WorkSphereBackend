@@ -132,6 +132,76 @@ export class ChatController {
     }
 
     /**
+     * POST /api/conversations/:conversationId/messages
+     */
+    static async sendMessage(req: AuthenticatedRequest, res: Response): Promise<Response> {
+        try {
+            const companyId = req.user?.companyId;
+            const userId = req.user?.userId;
+
+            if (!companyId || !userId) {
+                return sendError(res, 'Unauthorized context', 401);
+            }
+
+            const conversationId = req.params.conversationId as string;
+            const { messageType, clientMessageId, text, fileId, audioMetadata, videoMetadata } = req.body;
+
+            const result = await ChatService.createMessage({
+                conversationId,
+                senderId: userId,
+                companyId,
+                messageType,
+                clientMessageId,
+                text,
+                fileId,
+                audioMetadata,
+                videoMetadata,
+            });
+
+            // If not duplicate, broadcast over Socket.IO to other participants
+            if (!result.isDuplicate) {
+                const io = getSocketServer();
+                if (io) {
+                    const broadcastTarget = result.otherUserId
+                        ? io.to(`conversation:${conversationId}`).to(`user:${result.otherUserId}`)
+                        : io.to(`conversation:${conversationId}`);
+
+                    broadcastTarget.emit('new_message', {
+                        message: result.message,
+                    });
+
+                    if (result.otherUserId) {
+                        io.to(`user:${result.otherUserId}`).emit('chat_notification', {
+                            type: 'NEW_CHAT_MESSAGE',
+                            title: (result.message as any)?.senderId?.name || 'New Message',
+                            message: result.message.text || (result.message.fileId ? `Sent an attachment (${result.message.messageType})` : 'New message'),
+                            conversationId,
+                            sender: (result.message as any)?.senderId,
+                            createdAt: result.message.createdAt,
+                        });
+                    }
+                }
+            }
+
+            return sendSuccess(res, 'Message sent successfully', result.message, result.isDuplicate ? 200 : 201);
+        } catch (error: any) {
+            if (error.message === 'CONVERSATION_NOT_FOUND' || error.message === 'INVALID_CONVERSATION_ID') {
+                return sendError(res, 'Conversation not found', 404);
+            }
+            if (error.message === 'FORBIDDEN_CONVERSATION_ACCESS') {
+                return sendError(res, 'You are not a participant in this conversation', 403);
+            }
+            if (error.message === 'FORBIDDEN_PROJECT_ACCESS') {
+                return sendError(res, 'Project access denied', 403);
+            }
+            if (error.message === 'ATTACHED_FILE_NOT_FOUND' || error.message === 'INVALID_FILE_ID') {
+                return sendError(res, 'Attached file not found or invalid', 400);
+            }
+            return sendError(res, error.message || 'Failed to send message', 500);
+        }
+    }
+
+    /**
      * DELETE /api/messages/:messageId
      */
     static async deleteMessage(req: AuthenticatedRequest, res: Response): Promise<Response> {

@@ -113,10 +113,10 @@ describe('Manager Workspace Permission Resolution', () => {
         expect(access.effectiveModules.manager).toBe(true);
     });
 
-    it('Org ON + Individual INHERIT -> Manager enabled', async () => {
+    it('Org ON + Individual INHERIT -> Manager disabled (explicit grant required)', async () => {
         await ModuleAccessService.updateGlobalModuleAccess(companyId, { modules: { manager: true } }, adminId);
         const access = await ModuleAccessService.getEffectiveMemberModuleAccess(companyId, emp1Id);
-        expect(access.effectiveModules.manager).toBe(true);
+        expect(access.effectiveModules.manager).toBe(false);
     });
 
     it('Org OFF + Individual INHERIT -> Manager disabled', async () => {
@@ -131,7 +131,7 @@ describe('Manager Workspace Permission Resolution', () => {
         const emp1 = await ModuleAccessService.getEffectiveMemberModuleAccess(companyId, emp1Id);
         const emp2 = await ModuleAccessService.getEffectiveMemberModuleAccess(companyId, emp2Id);
         expect(emp1.effectiveModules.manager).toBe(false);
-        expect(emp2.effectiveModules.manager).toBe(true);
+        expect(emp2.effectiveModules.manager).toBe(false);
     });
 
     it('MemberResolutionService resolves by userId', async () => {

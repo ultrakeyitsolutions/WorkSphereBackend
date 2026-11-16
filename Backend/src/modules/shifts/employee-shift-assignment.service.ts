@@ -6,9 +6,11 @@ import {
     BulkAssignShiftDto,
     ShiftAssignmentListQuery,
     ResolvedEmployeeShift,
+    ShiftCalendarQuery,
 } from './shift.types';
 import CompanyMember from '../companyadmin/invitations/company-member.model';
 import User from '../users/user.model';
+import Team from '../teams/team.model';
 import { AppError } from '../../utils/AppError';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
@@ -180,13 +182,26 @@ export class EmployeeShiftAssignmentService {
         actorId: string,
         dto: BulkAssignShiftDto
     ) {
-        if (!dto.employeeIds || !Array.isArray(dto.employeeIds) || dto.employeeIds.length === 0) {
-            throw AppError.badRequest('Please provide at least one employeeId for bulk assignment.');
-        }
-
-        const uniqueEmployeeIds = Array.from(new Set(dto.employeeIds.map((id) => id.trim())));
         const companyObjId = new Types.ObjectId(companyId);
         const shiftObjId = new Types.ObjectId(dto.shiftId);
+
+        let candidateEmployeeIds = Array.isArray(dto.employeeIds) ? [...dto.employeeIds] : [];
+        if (dto.teamId) {
+            const team = await Team.findOne({
+                _id: new Types.ObjectId(dto.teamId),
+                companyId: companyObjId,
+                isActive: true,
+            }).lean();
+            if (team && Array.isArray(team.memberIds)) {
+                team.memberIds.forEach((m: any) => candidateEmployeeIds.push(m.toString()));
+            }
+        }
+
+        if (candidateEmployeeIds.length === 0) {
+            throw AppError.badRequest('Please provide at least one employeeId or a valid teamId for bulk assignment.');
+        }
+
+        const uniqueEmployeeIds = Array.from(new Set(candidateEmployeeIds.map((id) => id.trim())));
 
         // 1. Verify Shift in a single query
         const shift = await Shift.findOne({
@@ -435,6 +450,9 @@ export class EmployeeShiftAssignmentService {
                     gracePeriodMinutes: s.gracePeriodMinutes ?? 10,
                     earlyCheckoutGracePeriodMinutes: s.earlyCheckoutGracePeriodMinutes ?? 5,
                     workingDays: s.workingDays || [1, 2, 3, 4, 5],
+                    breakDurationMinutes: s.breakDurationMinutes ?? 0,
+                    halfDayThresholdMinutes: s.halfDayThresholdMinutes ?? 240,
+                    fullDayThresholdMinutes: s.fullDayThresholdMinutes ?? 480,
                     isAssigned: true,
                     assignmentId: assignment._id.toString(),
                 };
@@ -460,6 +478,9 @@ export class EmployeeShiftAssignmentService {
                 gracePeriodMinutes: defaultShift.gracePeriodMinutes ?? 10,
                 earlyCheckoutGracePeriodMinutes: defaultShift.earlyCheckoutGracePeriodMinutes ?? 5,
                 workingDays: defaultShift.workingDays || [1, 2, 3, 4, 5],
+                breakDurationMinutes: defaultShift.breakDurationMinutes ?? 0,
+                halfDayThresholdMinutes: defaultShift.halfDayThresholdMinutes ?? 240,
+                fullDayThresholdMinutes: defaultShift.fullDayThresholdMinutes ?? 480,
                 isAssigned: false,
             };
         }
@@ -484,6 +505,9 @@ export class EmployeeShiftAssignmentService {
                 gracePeriodMinutes: anyShift.gracePeriodMinutes ?? 10,
                 earlyCheckoutGracePeriodMinutes: anyShift.earlyCheckoutGracePeriodMinutes ?? 5,
                 workingDays: anyShift.workingDays || [1, 2, 3, 4, 5],
+                breakDurationMinutes: anyShift.breakDurationMinutes ?? 0,
+                halfDayThresholdMinutes: anyShift.halfDayThresholdMinutes ?? 240,
+                fullDayThresholdMinutes: anyShift.fullDayThresholdMinutes ?? 480,
                 isAssigned: false,
             };
         }
@@ -519,5 +543,67 @@ export class EmployeeShiftAssignmentService {
         });
 
         return assignment;
+    }
+
+    /**
+     * Get real employee shift calendar schedule for daily, weekly, and monthly views.
+     */
+    static async getScheduleCalendar(
+        companyId: string,
+        query: ShiftCalendarQuery
+    ) {
+        const companyObjId = new Types.ObjectId(companyId);
+
+        const now = new Date();
+        const start = query.startDate
+            ? this.parseStartDate(query.startDate)
+            : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        const end = query.endDate
+            ? this.parseEndDate(query.endDate) || new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999))
+            : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+        const assignmentFilter: Record<string, any> = {
+            companyId: companyObjId,
+            status: { $in: ['ACTIVE', 'SCHEDULED'] },
+            effectiveFrom: { $lte: end },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: start } }],
+        };
+
+        if (query.shiftId) {
+            assignmentFilter.shiftId = new Types.ObjectId(query.shiftId);
+        }
+
+        if (query.employeeId) {
+            assignmentFilter.employeeId = new Types.ObjectId(query.employeeId);
+        }
+
+        if (query.teamId) {
+            const team = await Team.findOne({
+                _id: new Types.ObjectId(query.teamId),
+                companyId: companyObjId,
+            }).lean();
+            if (team && Array.isArray(team.memberIds) && team.memberIds.length > 0) {
+                assignmentFilter.employeeId = { $in: team.memberIds };
+            }
+        }
+
+        const assignments = await EmployeeShiftAssignment.find(assignmentFilter)
+            .populate('employeeId', 'name fullName email avatar department designation status')
+            .populate('shiftId', 'name code startTime endTime crossesMidnight timezone workingDays breakDurationMinutes isDefault')
+            .sort({ effectiveFrom: 1 })
+            .lean();
+
+        const defaultShift = await Shift.findOne({
+            companyId: companyObjId,
+            isDefault: true,
+            isActive: true,
+        }).lean();
+
+        return {
+            startDate: start.toISOString().slice(0, 10),
+            endDate: end.toISOString().slice(0, 10),
+            assignments,
+            defaultShift: defaultShift || null,
+        };
     }
 }

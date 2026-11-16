@@ -207,7 +207,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
     });
 
     describe('2. Individual Employee Overrides & 3-State Model', () => {
-        it('should set an individual override to DISABLED for employee 1 while others inherit global', async () => {
+        it('should set an individual override to DISABLED for employee 1 while an ungranted employee is denied', async () => {
             // Global projects is enabled
             await ModuleAccessService.updateGlobalModuleAccess(
                 mockCompanyId,
@@ -233,7 +233,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
             );
 
             expect(emp1Access.effectiveModules.projects).toBe(false);
-            expect(emp2Access.effectiveModules.projects).toBe(true);
+            expect(emp2Access.effectiveModules.projects).toBe(false);
         });
 
         it('should allow employee ENABLED override when globally disabled (if permitted by company/plan)', async () => {
@@ -281,7 +281,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
             expect(details.employeeId).toBe(mockEmployee1Id);
             expect(['DENY', 'DISABLED']).toContain(details.overrides.dropbox);
             expect(details.effectiveAccess.dropbox).toBe(false);
-            expect(details.effectiveAccess.dashboard).toBe(true);
+            expect(details.effectiveAccess.dashboard).toBe(false);
             expect(details.overrideCount).toBe(1);
         });
 
@@ -307,8 +307,8 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                 mockEmployee1Id
             );
 
-            // Global chat is true, so inherited is true
-            expect(emp1Access.effectiveModules.chat).toBe(true);
+            // INHERIT is a denial; the global chat setting alone never grants access
+            expect(emp1Access.effectiveModules.chat).toBe(false);
         });
     });
 
@@ -426,7 +426,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
 
             expect(listResult.employees.length).toBe(2);
             expect(listResult.total).toBe(2);
-            expect(listResult.employees[0].effectiveAccess.dashboard).toBe(true);
+            expect(listResult.employees[0].effectiveAccess.dashboard).toBe(false);
         });
     });
 
@@ -488,10 +488,10 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
             expect(result.aggregate.leave.enabledCount).toBe(0);
             expect(result.aggregate.leave.disabledCount).toBe(2);
 
-            // Dashboard: Both inherit enabled -> ALL_ENABLED
-            expect(result.aggregate.dashboard.state).toBe('ALL_ENABLED');
-            expect(result.aggregate.dashboard.enabledCount).toBe(2);
-            expect(result.aggregate.dashboard.disabledCount).toBe(0);
+            // Dashboard: Neither member has an explicit grant -> ALL_DISABLED
+            expect(result.aggregate.dashboard.state).toBe('ALL_DISABLED');
+            expect(result.aggregate.dashboard.enabledCount).toBe(0);
+            expect(result.aggregate.dashboard.disabledCount).toBe(2);
         });
 
         it('should reject selection containing members from another organization', async () => {
@@ -592,7 +592,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
     });
 
     describe('10. Core Precedence Rules & Explicit False Preservation', () => {
-        it('1. Global enabled with no member override -> Enabled', async () => {
+        it('1. Global enabled with no member override -> Disabled (explicit grant required)', async () => {
             await ModuleAccessService.updateGlobalModuleAccess(
                 mockCompanyId,
                 { modules: { attendance: true } },
@@ -603,7 +603,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                 mockCompanyId,
                 mockEmployee1Id
             );
-            expect(access.effectiveModules.attendance).toBe(true);
+            expect(access.effectiveModules.attendance).toBe(false);
         });
 
         it('2. Global disabled with no member override -> Disabled', async () => {
@@ -710,8 +710,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                 { overrides: { dropbox: 'DISABLED' } },
                 mockAdminId
             );
-            // Employee 2: inherits global (no override)
-
+            // Employee 2: no explicit grant
             const emp1 = await ModuleAccessService.getEffectiveMemberModuleAccess(
                 mockCompanyId,
                 mockEmployee1Id
@@ -722,7 +721,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
             );
 
             expect(emp1.effectiveModules.dropbox).toBe(false);
-            expect(emp2.effectiveModules.dropbox).toBe(true);
+            expect(emp2.effectiveModules.dropbox).toBe(false);
         });
 
         describe('Manager module individual override precedence', () => {
@@ -767,7 +766,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                 expect(access.effectiveModules.manager).toBe(true);
             });
 
-            it('Organization ON + Employee INHERIT -> Manager enabled', async () => {
+            it('Organization ON + Employee INHERIT -> Manager disabled', async () => {
                 await ModuleAccessService.updateGlobalModuleAccess(
                     mockCompanyId,
                     { modules: { manager: true } },
@@ -778,7 +777,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                     mockCompanyId,
                     mockEmployee1Id
                 );
-                expect(access.effectiveModules.manager).toBe(true);
+                expect(access.effectiveModules.manager).toBe(false);
             });
 
             it('Organization OFF + Employee INHERIT -> Manager disabled', async () => {
@@ -817,7 +816,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                     mockEmployee2Id
                 );
                 expect(emp1.effectiveModules.manager).toBe(false);
-                expect(emp2.effectiveModules.manager).toBe(true);
+                expect(emp2.effectiveModules.manager).toBe(false);
             });
         });
 
@@ -884,7 +883,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
             );
 
             expect(emp1.effectiveModules.calendar).toBe(false);
-            expect(emp2.effectiveModules.calendar).toBe(true);
+            expect(emp2.effectiveModules.calendar).toBe(false);
         });
 
         it('9. Invalidate member access cache is called on global and member updates', async () => {
@@ -977,7 +976,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                 mockEmployee2Id
             );
 
-            expect(emp1.effectiveModules['detailed-monitoring']).toBe(true);
+            expect(emp1.effectiveModules['detailed-monitoring']).toBe(false);
             expect(emp2.effectiveModules['detailed-monitoring']).toBe(false);
         });
 
@@ -992,7 +991,7 @@ describe('WorkSphere Dynamic Sidebar & Module Access Engine', () => {
                 mockCompanyId,
                 mockEmployee1Id
             );
-            expect(defaultAccess.effectiveModules['user-reviews']).toBe(true);
+            expect(defaultAccess.effectiveModules['user-reviews']).toBe(false);
 
             // Explicit disable override
             await ModuleAccessService.updateEmployeeModuleAccess(

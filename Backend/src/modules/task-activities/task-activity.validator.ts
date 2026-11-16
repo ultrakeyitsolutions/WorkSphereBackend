@@ -26,8 +26,18 @@ export const createActivitySchema = z.object({
             duration: z.number(),
             mimeType: z.string(),
             size: z.number()
-        }).optional()
-    }).refine(data => data.content || data.audio || data.video, { message: 'Must provide content, audio, or video' })
+        }).optional(),
+        attachments: z.array(z.object({
+            fileId: z.string().optional(),
+            url: z.string().optional(),
+            filePath: z.string().optional(),
+            fileName: z.string().optional(),
+            originalName: z.string().optional(),
+            mimeType: z.string().optional(),
+            size: z.number().optional(),
+            fileType: z.string().optional(),
+        })).optional()
+    }).refine(data => data.content || data.audio || data.video || (data as any).attachments?.length, { message: 'Must provide content, audio, video, or attachments' })
 });
 
 // ─── Create Reply ─────────────────────────────────────────────────────────────
@@ -50,6 +60,16 @@ export const createReplySchema = z.object({
             duration: z.number(),
             mimeType: z.string(),
             size: z.number()
-        }).optional()
-    }).refine(data => data.content || data.audio || data.video, { message: 'Must provide content, audio, or video' })
+        }).optional(),
+        attachments: z.array(z.object({
+            fileId: z.string().optional(),
+            url: z.string().optional(),
+            filePath: z.string().optional(),
+            fileName: z.string().optional(),
+            originalName: z.string().optional(),
+            mimeType: z.string().optional(),
+            size: z.number().optional(),
+            fileType: z.string().optional(),
+        })).optional()
+    }).refine(data => data.content || data.audio || data.video || (data as any).attachments?.length, { message: 'Must provide content, audio, video, or attachments' })
 });

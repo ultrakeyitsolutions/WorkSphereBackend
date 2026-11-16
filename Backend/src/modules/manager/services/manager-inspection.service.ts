@@ -14,6 +14,7 @@ import { EscalationCase } from '../../escalation/models/EscalationCase';
 import { EscalationCaseStatus } from '../../escalation/constants/escalation.constants';
 import { TimeTracking } from '../../task-tracking/time-tracking.model';
 import { PresenceService } from '../../../sockets/presence.service';
+import '../../companyadmin/invitations/designation/designation.model';
 
 export class ManagerInspectionService {
     // ═══════════════════════════════════════════════════════════════════════════

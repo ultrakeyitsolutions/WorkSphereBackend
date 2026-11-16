@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { Readable } from 'stream';
+import { Response } from 'express';
 import { Types } from 'mongoose';
 import { FileModel } from './file.model';
 import { IFileDocument, FileContextType } from './file.types';
@@ -90,8 +92,10 @@ export class FileService {
                 throw new Error(`Failed to upload file to storage: ${uploadError.message}`);
             }
 
-            // 7. Extract extension
+            // 7. Extract extension, resource type, and compute SHA-256 checksum
             const extension = file.originalname.split('.').pop()?.toLowerCase() || '';
+            const checksum = crypto.createHash('sha256').update(file.buffer).digest('hex');
+            const resourceType = CloudinaryStorageProvider.resolveResourceType(uploadResult.storageKey || storageKey, file.mimetype);
 
             // 8. Persist metadata in MongoDB with rollback on failure
             try {
@@ -107,6 +111,10 @@ export class FileService {
                     provider: activeConfig.provider,
                     contextType,
                     contextId: (contextId ? (Types.ObjectId.isValid(contextId) ? new Types.ObjectId(contextId) : contextId) : undefined) as any,
+                    checksum,
+                    resourceType,
+                    publicId: (uploadResult.storageKey || storageKey).replace(/\.[a-zA-Z0-9]+$/, ''),
+                    processingStatus: 'READY',
                 });
 
                 if (reservation) {
@@ -209,6 +217,11 @@ export class FileService {
             return fileDoc.storageUrl;
         }
 
+        const effectiveKey =
+            fileDoc.storageKey && fileDoc.extension && !fileDoc.storageKey.endsWith(`.${fileDoc.extension}`)
+                ? `${fileDoc.storageKey}.${fileDoc.extension}`
+                : fileDoc.storageKey;
+
         try {
             const activeConfig = await StorageConfigurationService.getActiveConfiguration();
             if (activeConfig && activeConfig.enabled) {
@@ -217,9 +230,9 @@ export class FileService {
                     activeConfig.configuration
                 );
                 if (typeof (provider as any).getSignedUrl === 'function') {
-                    return (provider as any).getSignedUrl(fileDoc.storageKey, expiresInSeconds);
+                    return (provider as any).getSignedUrl(effectiveKey, expiresInSeconds);
                 }
-                return provider.getFileUrl(fileDoc.storageKey);
+                return provider.getFileUrl(effectiveKey);
             }
         } catch {
             // Fallback to stored URL
@@ -230,6 +243,124 @@ export class FileService {
             fallbackUrl = CloudinaryStorageProvider.toHttpsDeliveryUrl(fallbackUrl);
         }
         return fallbackUrl;
+    }
+
+    /**
+     * Resolve the authorized streaming URL for this file (points to /api/files/:fileId/stream with token).
+     */
+    static resolveFileStreamUrl(fileId: string, token?: string): string {
+        const query = token ? `?token=${encodeURIComponent(token)}` : '';
+        return `/api/files/${fileId}/stream${query}`;
+    }
+
+    /**
+     * Stream a protected file with byte-range (HTTP 206) support, correct MIME type and inline disposition.
+     */
+    static async streamFile(
+        fileId: string,
+        user: { userId: string; companyId?: string; role: string },
+        rangeHeader: string | undefined,
+        res: Response,
+        isHead = false,
+        disposition: 'inline' | 'attachment' = 'inline'
+    ): Promise<void> {
+        const file = await this.getAuthorizedFile(fileId, user);
+
+        const mimeType = file.mimeType || 'video/mp4';
+        const fileName = file.originalName || 'video.mp4';
+        const totalSize = file.size;
+
+        // Base response headers for all media streaming responses
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(fileName)}"`);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+
+        if (isHead) {
+            res.setHeader('Content-Length', totalSize.toString());
+            res.status(200).end();
+            return;
+        }
+
+        let streamed = false;
+
+        // Attempt 1: Fetch via storage provider getFileStream if storageKey exists
+        if (file.storageKey) {
+            try {
+                const activeConfig = await StorageConfigurationService.getActiveConfiguration();
+                if (activeConfig && activeConfig.enabled) {
+                    const provider = StorageProviderFactory.createProvider(
+                        activeConfig.provider,
+                        activeConfig.configuration
+                    );
+
+                    if (typeof (provider as any).getFileStream === 'function') {
+                        const effectiveKey =
+                            file.storageKey && file.extension && !file.storageKey.endsWith(`.${file.extension}`)
+                                ? `${file.storageKey}.${file.extension}`
+                                : file.storageKey;
+                        const streamResult = await (provider as any).getFileStream(effectiveKey, rangeHeader);
+                        res.status(streamResult.statusCode || (rangeHeader ? 206 : 200));
+
+                        if (streamResult.headers['content-range']) {
+                            res.setHeader('Content-Range', streamResult.headers['content-range'] as string);
+                        }
+                        if (streamResult.headers['content-length']) {
+                            res.setHeader('Content-Length', streamResult.headers['content-length'] as string);
+                        }
+
+                        streamResult.stream.pipe(res);
+                        res.on('close', () => {
+                            if (typeof (streamResult.stream as any).destroy === 'function') {
+                                (streamResult.stream as any).destroy();
+                            }
+                        });
+                        streamed = true;
+                        return;
+                    }
+                }
+            } catch (err: any) {
+                console.warn('[FileService] Provider stream error, falling back to direct media fetch:', err.message);
+            }
+        }
+
+        // Attempt 2: Fallback to direct fetch from resolved storageUrl with Range forwarding
+        if (!streamed) {
+            const mediaUrl = await this.resolveFileUrl(file);
+            const fetchHeaders: Record<string, string> = {};
+            if (rangeHeader) {
+                fetchHeaders['Range'] = rangeHeader;
+            }
+
+            const response = await fetch(mediaUrl, {
+                method: 'GET',
+                headers: fetchHeaders,
+            });
+
+            if (!response.ok && response.status !== 206) {
+                throw new Error(`Media fetch failed with status ${response.status}: ${response.statusText}`);
+            }
+
+            res.status(response.status);
+            const contentRange = response.headers.get('content-range');
+            const contentLength = response.headers.get('content-length');
+            const resolvedType = response.headers.get('content-type') || mimeType;
+
+            res.setHeader('Content-Type', resolvedType);
+            if (contentRange) res.setHeader('Content-Range', contentRange);
+            if (contentLength) res.setHeader('Content-Length', contentLength);
+
+            const stream = response.body
+                ? (Readable.fromWeb(response.body as any) as NodeJS.ReadableStream)
+                : Readable.from(Buffer.alloc(0));
+
+            stream.pipe(res);
+            res.on('close', () => {
+                if (typeof (stream as any).destroy === 'function') {
+                    (stream as any).destroy();
+                }
+            });
+        }
     }
 }
 export default FileService;

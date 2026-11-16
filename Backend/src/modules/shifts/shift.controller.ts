@@ -29,6 +29,16 @@ export class ShiftController {
         }
     }
 
+    static async getShiftOverview(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+        try {
+            const companyId = req.user?.companyId as string;
+            const overview = await ShiftService.getShiftOverview(companyId);
+            return sendSuccess(res, 'Shift overview metrics retrieved successfully', overview);
+        } catch (error) {
+            next(error);
+        }
+    }
+
     static async getShiftById(req: AuthenticatedRequest, res: Response, next: NextFunction) {
         try {
             const companyId = req.user?.companyId as string;
@@ -111,10 +121,23 @@ export class ShiftController {
         }
     }
 
+    static async getScheduleCalendar(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+        try {
+            const companyId = req.user?.companyId as string;
+            const calendar = await EmployeeShiftAssignmentService.getScheduleCalendar(companyId, req.query as any);
+            return sendSuccess(res, 'Shift calendar schedule retrieved successfully', calendar, 200);
+        } catch (error) {
+            next(error);
+        }
+    }
+
     static async getEmployeeShift(req: AuthenticatedRequest, res: Response, next: NextFunction) {
         try {
             const companyId = req.user?.companyId as string;
-            const employeeId = req.params.employeeId as string;
+            let employeeId = req.params.employeeId as string;
+            if (employeeId === 'me' || req.user?.role === 'EMPLOYEE' || req.user?.role === 'MEMBER') {
+                employeeId = req.user?.userId as string;
+            }
             const targetDate = req.query.date ? new Date(req.query.date as string) : new Date();
 
             const shift = await EmployeeShiftAssignmentService.resolveEmployeeShift(
@@ -131,7 +154,10 @@ export class ShiftController {
     static async getEmployeeShiftHistory(req: AuthenticatedRequest, res: Response, next: NextFunction) {
         try {
             const companyId = req.user?.companyId as string;
-            const employeeId = req.params.employeeId as string;
+            let employeeId = req.params.employeeId as string;
+            if (employeeId === 'me' || req.user?.role === 'EMPLOYEE' || req.user?.role === 'MEMBER') {
+                employeeId = req.user?.userId as string;
+            }
 
             const history = await EmployeeShiftAssignmentService.getEmployeeShiftHistory(
                 companyId,

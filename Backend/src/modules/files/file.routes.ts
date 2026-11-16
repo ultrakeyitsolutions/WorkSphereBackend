@@ -48,6 +48,13 @@ router.post(
 // GET /api/files/:fileId
 router.get('/:fileId', FileController.getFile);
 
+// GET /api/files/:fileId/stream (HTTP Range & 206 partial content streaming)
+router.get('/:fileId/stream', FileController.streamFile);
+router.head('/:fileId/stream', FileController.streamFile);
+
+// GET /api/files/:fileId/stream-url (Authorized media reference with refreshed access)
+router.get('/:fileId/stream-url', FileController.getStreamUrl);
+
 // GET /api/files/:fileId/download
 router.get('/:fileId/download', FileController.downloadFile);
 

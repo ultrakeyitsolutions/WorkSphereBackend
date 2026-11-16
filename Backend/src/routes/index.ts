@@ -132,7 +132,7 @@ router.use('/member/profile', userProfileRoutes);
 router.use('/projects', authenticate, requireModuleAccess('projects'), projectMemberRoutes);
 router.use('/conversations', authenticate, requireModuleAccess('chat'), chatRoutes);
 router.use('/messages', authenticate, requireModuleAccess('chat'), messageRoutes);
-router.use('/files', authenticate, requireModuleAccess('dropbox'), fileRoutes);
+router.use('/files', authenticate, fileRoutes);
 router.use('/calls', callRoutes);
 router.use('/notifications', notificationRoutes);
 
@@ -151,7 +151,7 @@ router.use('/v1/sticky-notes', stickyNoteRoutes);
 router.use('/v1/projects', authenticate, requireModuleAccess('projects'), projectMemberRoutes);
 router.use('/v1/conversations', authenticate, requireModuleAccess('chat'), chatRoutes);
 router.use('/v1/messages', authenticate, requireModuleAccess('chat'), messageRoutes);
-router.use('/v1/files', authenticate, requireModuleAccess('dropbox'), fileRoutes);
+router.use('/v1/files', authenticate, fileRoutes);
 router.use('/v1/calls', callRoutes);
 router.use('/v1/notifications', notificationRoutes);
 router.use('/v1/company/notification-preferences', notificationPreferenceRoutes);
@@ -222,6 +222,15 @@ router.use('/super-admin/managers', managerAdminRoutes);
 router.use('/v1/super-admin/managers', managerAdminRoutes);
 router.use('/companyadmin/managers', managerAdminRoutes);
 router.use('/v1/companyadmin/managers', managerAdminRoutes);
+
+// ── Status Updates Module (Member Daily Reports & Company Admin Monitoring) ──
+import { statusUpdateRoutes } from '../modules/status-updates';
+router.use('/status-updates', statusUpdateRoutes);
+router.use('/v1/status-updates', statusUpdateRoutes);
+router.use('/company/status-updates', statusUpdateRoutes);
+router.use('/v1/company/status-updates', statusUpdateRoutes);
+router.use('/member/status-updates', statusUpdateRoutes);
+router.use('/v1/member/status-updates', statusUpdateRoutes);
 
 // ── Legacy / Plan / Storage Super Admin Routes ────────────────────────────────
 router.use('/super-admin', superAdminRoutes);

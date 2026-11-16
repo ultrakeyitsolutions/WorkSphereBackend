@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Readable } from 'stream';
 import { StorageProvider } from '../storage-provider.interface';
 
 export interface BunnyConfig {
@@ -331,6 +332,54 @@ export class BunnyStorageProvider implements StorageProvider {
         } catch {
             return normalizedUrl;
         }
+    }
+
+    /**
+     * Stream a file buffer or chunk stream from Bunny Storage.
+     */
+    async getFileStream(
+        storageKey: string,
+        range?: string
+    ): Promise<{
+        stream: NodeJS.ReadableStream;
+        statusCode: number;
+        headers: Record<string, string | number | undefined>;
+    }> {
+        const cleanKey = this.sanitizeKey(storageKey);
+        const url = `${this.getStorageHost()}/${this.config.storageZone}/${cleanKey}`;
+
+        const reqHeaders: Record<string, string> = {
+            AccessKey: this.config.accessKey,
+        };
+        if (range) {
+            reqHeaders['Range'] = range;
+        }
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: reqHeaders,
+        });
+
+        if (!response.ok && response.status !== 206) {
+            throw new Error(`Bunny storage fetch failed with status ${response.status}: ${response.statusText}`);
+        }
+
+        const stream = response.body
+            ? (Readable.fromWeb(response.body as any) as NodeJS.ReadableStream)
+            : Readable.from(Buffer.alloc(0));
+
+        return {
+            stream,
+            statusCode: response.status,
+            headers: {
+                'content-type': response.headers.get('content-type') || 'video/mp4',
+                'content-length': response.headers.get('content-length') || undefined,
+                'content-range': response.headers.get('content-range') || undefined,
+                'accept-ranges': response.headers.get('accept-ranges') || 'bytes',
+                'etag': response.headers.get('etag') || undefined,
+                'last-modified': response.headers.get('last-modified') || undefined,
+            },
+        };
     }
 
     /**

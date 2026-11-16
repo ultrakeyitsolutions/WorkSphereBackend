@@ -16,12 +16,14 @@ export const authenticate = async (
     next: NextFunction
 ) => {
     try {
+        let token: string | undefined;
         const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return sendError(res, 'Authorization token is required', 401);
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.split(' ')[1];
+        } else if (req.query?.token && typeof req.query.token === 'string') {
+            token = req.query.token;
         }
 
-        const token = authHeader.split(' ')[1];
         if (!token) {
             return sendError(res, 'Authorization token is required', 401);
         }

@@ -5,14 +5,21 @@ const isValidObjectId = (val?: string) => !val || Types.ObjectId.isValid(val);
 
 const periodEnum = z.enum([
     'today',
+    'yesterday',
     'week',
     'this_week',
     'last_7_days',
+    '7days',
     'month',
     'this_month',
     'last_month',
     'last_30_days',
+    '30days',
+    'last_90_days',
     'last_3_months',
+    'last_6_months',
+    'this_year',
+    'last_year',
     'custom'
 ]).optional().default('today');
 
@@ -54,7 +61,7 @@ export const deliveryTrendsQuerySchema = z.object({
         endDate: z.string().regex(dateRegex, 'endDate must be in YYYY-MM-DD format').optional(),
         timezone: z.string().optional(),
         projectId: z.string().refine(isValidObjectId, 'Invalid projectId format').optional(),
-        interval: z.enum(['day', 'week', 'month']).optional(),
+        interval: z.enum(['hour', 'day', 'week', 'month']).optional(),
     }).refine(validateDateRange, {
         message: 'startDate and endDate are required, startDate must be <= endDate, and range must not exceed 365 days',
         path: ['startDate'],
@@ -64,10 +71,17 @@ export const deliveryTrendsQuerySchema = z.object({
 // 3. Project Health
 export const projectHealthQuerySchema = z.object({
     query: z.object({
+        period: periodEnum,
+        startDate: z.string().regex(dateRegex, 'startDate must be in YYYY-MM-DD format').optional(),
+        endDate: z.string().regex(dateRegex, 'endDate must be in YYYY-MM-DD format').optional(),
+        timezone: z.string().optional(),
         projectId: z.string().refine((val) => !val || val === 'all' || Types.ObjectId.isValid(val), 'Invalid projectId format').optional(),
         status: z.enum(['on_track', 'at_risk', 'delayed']).optional(),
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(100).default(20),
+    }).refine(validateDateRange, {
+        message: 'startDate and endDate are required, startDate must be <= endDate, and range must not exceed 365 days',
+        path: ['startDate'],
     }),
 });
 
@@ -91,17 +105,32 @@ export const workloadQuerySchema = z.object({
 // 5. Attention Items
 export const attentionQuerySchema = z.object({
     query: z.object({
+        period: periodEnum,
+        startDate: z.string().regex(dateRegex, 'startDate must be in YYYY-MM-DD format').optional(),
+        endDate: z.string().regex(dateRegex, 'endDate must be in YYYY-MM-DD format').optional(),
+        timezone: z.string().optional(),
+        interval: z.enum(['day', 'week', 'month']).optional(),
         limit: z.coerce.number().int().min(1).max(30).default(10),
+    }).refine(validateDateRange, {
+        message: 'startDate and endDate are required, startDate must be <= endDate, and range must not exceed 365 days',
+        path: ['startDate'],
     }),
 });
 
 // 6. Milestones
 export const milestonesQuerySchema = z.object({
     query: z.object({
-        projectId: z.string().refine(isValidObjectId, 'Invalid projectId format').optional(),
+        period: periodEnum,
+        startDate: z.string().regex(dateRegex, 'startDate must be in YYYY-MM-DD format').optional(),
+        endDate: z.string().regex(dateRegex, 'endDate must be in YYYY-MM-DD format').optional(),
+        timezone: z.string().optional(),
+        projectId: z.string().refine((val) => !val || val === 'all' || Types.ObjectId.isValid(val), 'Invalid projectId format').optional(),
         status: z.enum(['PLANNED', 'IN_PROGRESS', 'READY_TO_SHIP', 'RELEASED', 'CANCELLED']).optional(),
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(50).default(10),
+    }).refine(validateDateRange, {
+        message: 'startDate and endDate are required, startDate must be <= endDate, and range must not exceed 365 days',
+        path: ['startDate'],
     }),
 });
 

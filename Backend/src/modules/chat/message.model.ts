@@ -20,6 +20,17 @@ const messageSchema = new Schema<IMessageDocument>(
             enum: ['TEXT', 'IMAGE', 'DOCUMENT', 'AUDIO', 'VIDEO'],
             required: true,
         },
+        clientMessageId: {
+            type: String,
+            trim: true,
+            default: null,
+            index: true,
+        },
+        status: {
+            type: String,
+            enum: ['PENDING', 'UPLOADING', 'PROCESSING', 'SENT', 'DELIVERED', 'READ', 'FAILED'],
+            default: 'SENT',
+        },
         text: {
             type: String,
             trim: true,
@@ -30,6 +41,21 @@ const messageSchema = new Schema<IMessageDocument>(
             ref: 'File',
             default: null,
             index: true,
+        },
+        audioMetadata: {
+            duration: { type: Number, default: 0 },
+            mimeType: { type: String, default: null },
+            fileSize: { type: Number, default: 0 },
+            waveformData: { type: [Number], default: [] },
+        },
+        videoMetadata: {
+            duration: { type: Number, default: 0 },
+            width: { type: Number, default: 0 },
+            height: { type: Number, default: 0 },
+            thumbnailUrl: { type: String, default: null },
+            mimeType: { type: String, default: null },
+            fileSize: { type: Number, default: 0 },
+            codec: { type: String, default: null },
         },
         deliveredAt: {
             type: Date,
@@ -53,6 +79,7 @@ const messageSchema = new Schema<IMessageDocument>(
 // Indexes
 messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ conversationId: 1, deletedAt: 1 });
+messageSchema.index({ conversationId: 1, clientMessageId: 1 }, { sparse: true });
 
 export const Message = model<IMessageDocument>('Message', messageSchema);
 export default Message;

@@ -9,6 +9,7 @@ import { PresenceService } from '../../sockets/presence.service';
 import { NotificationEventBus } from '../notifications/notification.event-bus';
 import { StorageConfigurationService } from '../super-admin/storage/storage-config.service';
 import { FeatureAccessService } from '../companyadmin/settings/feature-access.service';
+import { ChatService } from './chat.service';
 
 export const registerChatHandlers = (io: Server, socket: Socket): void => {
     const user = socket.data.user;
@@ -67,7 +68,7 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
     });
 
     /**
-     * Send real-time message (TEXT, IMAGE, DOCUMENT, AUDIO, VIDEO).
+     * Send real-time message (TEXT, IMAGE, DOCUMENT, AUDIO, VIDEO) with idempotency and optimistic reconciliation.
      */
     socket.on(
         'send_message',
@@ -75,13 +76,29 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
             data: {
                 conversationId: string;
                 messageType: 'TEXT' | 'IMAGE' | 'DOCUMENT' | 'AUDIO' | 'VIDEO';
+                clientMessageId?: string;
                 text?: string;
                 fileId?: string;
+                audioMetadata?: {
+                    duration?: number;
+                    mimeType?: string;
+                    fileSize?: number;
+                    waveformData?: number[];
+                };
+                videoMetadata?: {
+                    duration?: number;
+                    width?: number;
+                    height?: number;
+                    thumbnailUrl?: string | null;
+                    mimeType?: string;
+                    fileSize?: number;
+                    codec?: string | null;
+                };
             },
             callback?: (response: any) => void
         ) => {
             try {
-                const { conversationId, messageType, text, fileId } = data;
+                const { conversationId, messageType, clientMessageId, text, fileId, audioMetadata, videoMetadata } = data;
 
                 const chatAccess = await FeatureAccessService.checkAccess(user.companyId, 'enableChat');
                 if (!chatAccess.allowed) {
@@ -94,163 +111,98 @@ export const registerChatHandlers = (io: Server, socket: Socket): void => {
                     return;
                 }
 
-                // Verify conversation and company
-                const conversation = await Conversation.findOne({
-                    _id: conversationId,
+                // Delegate to ChatService with idempotency checking
+                const result = await ChatService.createMessage({
+                    conversationId,
+                    senderId: user.userId,
                     companyId: user.companyId,
-                });
-                if (!conversation) {
-                    if (callback) callback({ success: false, message: 'Conversation not found' });
-                    return;
-                }
-
-                // Verify participant
-                const isParticipant = await ConversationParticipant.exists({
-                    conversationId,
-                    userId: user.userId,
-                });
-                if (!isParticipant) {
-                    if (callback) callback({ success: false, message: 'Not a participant' });
-                    return;
-                }
-
-                // Verify project access
-                const canAccess = await ProjectService.canAccessProject(
-                    user.companyId,
-                    user.userId,
-                    conversation.projectId.toString()
-                );
-                if (!canAccess) {
-                    if (callback) callback({ success: false, message: 'Project access denied' });
-                    return;
-                }
-
-                // Validate file if attachment message
-                let fileDoc: any = null;
-                if (fileId) {
-                    if (!Types.ObjectId.isValid(fileId)) {
-                        if (callback) callback({ success: false, message: 'Invalid fileId' });
-                        return;
-                    }
-
-                    fileDoc = await FileModel.findOne({
-                        _id: fileId,
-                        companyId: user.companyId,
-                        deletedAt: null,
-                    });
-                    if (!fileDoc) {
-                        if (callback) callback({ success: false, message: 'Attached file not found' });
-                        return;
-                    }
-
-                    // Link file to conversation
-                    fileDoc.contextType = 'MESSAGE';
-                    fileDoc.contextId = conversation._id;
-                    await fileDoc.save();
-                }
-
-                // Check recipient presence for immediate delivery receipt
-                const otherParticipant = await ConversationParticipant.findOne({
-                    conversationId,
-                    userId: { $ne: new Types.ObjectId(user.userId) },
-                }).lean();
-
-                const otherUserId = otherParticipant?.userId?.toString();
-                const isRecipientOnline = otherUserId ? PresenceService.isUserOnline(otherUserId) : false;
-                const deliveredAt = isRecipientOnline ? new Date() : null;
-
-                // Create message in MongoDB
-                const message = await Message.create({
-                    conversationId: new Types.ObjectId(conversationId),
-                    senderId: new Types.ObjectId(user.userId),
-                    messageType: messageType || 'TEXT',
-                    text: text || null,
-                    fileId: fileDoc ? fileDoc._id : null,
-                    deliveredAt,
+                    messageType,
+                    clientMessageId,
+                    text,
+                    fileId,
+                    audioMetadata,
+                    videoMetadata,
                 });
 
-                // Update conversation's last message
-                conversation.lastMessage = message._id as any;
-                conversation.lastMessageAt = message.createdAt || new Date();
-                await conversation.save();
+                const populatedMessage = result.message;
+                const otherUserId = result.otherUserId;
 
-                // Populate message for broadcast
-                const populatedMessage = await Message.findById(message._id)
-                    .populate('senderId', 'name email avatar')
-                    .populate('fileId')
-                    .lean();
-
-                if (!populatedMessage) {
-                    throw new Error('Failed to retrieve created message');
-                }
-
-                // Sign file storageUrl for secure media access (images, screen recordings, voice notes)
-                if (populatedMessage.fileId && ((populatedMessage.fileId as any).storageKey || (populatedMessage.fileId as any).storageUrl)) {
-                    const fileObj = populatedMessage.fileId as any;
-                    const secureUrl = await StorageConfigurationService.signUrl(fileObj.storageKey || fileObj.storageUrl);
-                    fileObj.storageUrl = secureUrl;
-                }
-
-                // Emit new_message to conversation room AND recipient's personal room
-                // Socket.IO automatically de-duplicates sockets present in multiple target rooms
-                const broadcastTarget = otherUserId
-                    ? io.to(`conversation:${conversationId}`).to(`user:${otherUserId}`)
-                    : io.to(`conversation:${conversationId}`);
-
-                broadcastTarget.emit('new_message', {
-                    message: populatedMessage,
-                });
-
-                // Also emit notification & unread count to recipient's personal room
-                if (otherUserId) {
-                    const recipientLastRead = otherParticipant?.lastReadAt || new Date(0);
-                    const unreadCount = await Message.countDocuments({
-                        conversationId,
-                        senderId: { $ne: new Types.ObjectId(otherUserId) },
-                        createdAt: { $gt: recipientLastRead },
-                        deletedAt: null,
+                // Broadcast to conversation room EXCLUDING sender socket (to prevent duplicate message rendering on sender UI)
+                // Sender UI receives the server-confirmed message in the acknowledgment callback below
+                if (!result.isDuplicate) {
+                    socket.to(`conversation:${conversationId}`).emit('new_message', {
+                        message: populatedMessage,
                     });
 
-                    io.to(`user:${otherUserId}`).emit('unread_count_update', {
-                        conversationId,
-                        unreadCount,
+                    // Emit to other devices of current user so sender's other tabs/devices sync
+                    socket.to(`user:${user.userId}`).emit('new_message', {
+                        message: populatedMessage,
                     });
 
-                    // Dispatch fire-and-forget notification to central Notification Service
-                    const senderName = (populatedMessage.senderId as any)?.name || 'Someone';
-                    const msgPreview = text
-                        ? (text.length > 50 ? text.substring(0, 47) + '...' : text)
-                        : `${messageType || 'File'} attachment`;
+                    // If other participant is not currently in conversation room, broadcast to their user room
+                    if (otherUserId) {
+                        socket.to(`user:${otherUserId}`).emit('new_message', {
+                            message: populatedMessage,
+                        });
 
-                    NotificationEventBus.getInstance().publish({
-                        type: 'CHAT_MESSAGE',
-                        companyId: user.companyId,
-                        actorId: user.userId,
-                        entityId: conversationId,
-                        entityType: 'CONVERSATION',
-                        conversationId,
-                        recipientIds: otherUserId ? [otherUserId] : undefined,
-                        metadata: {
-                            actorName: senderName,
-                            messagePreview: msgPreview,
+                        // Calculate recipient unread count
+                        const recipientLastRead = (result.otherParticipant as any)?.lastReadAt || new Date(0);
+                        const unreadCount = await Message.countDocuments({
                             conversationId,
-                        },
-                    });
+                            senderId: { $ne: new Types.ObjectId(otherUserId) },
+                            createdAt: { $gt: recipientLastRead },
+                            deletedAt: null,
+                        });
 
-                    // Emit real-time notification alert to recipient's personal room
-                    io.to(`user:${otherUserId}`).emit('chat_notification', {
-                        type: 'NEW_CHAT_MESSAGE',
-                        title: (populatedMessage as any)?.senderId?.name || 'New Message',
-                        message: populatedMessage.text || (populatedMessage.fileId ? `Sent an attachment (${populatedMessage.messageType})` : 'New message'),
-                        conversationId,
-                        projectId: conversation.projectId,
-                        sender: (populatedMessage as any)?.senderId,
-                        unreadCount,
-                        createdAt: populatedMessage.createdAt,
-                    });
+                        io.to(`user:${otherUserId}`).emit('unread_count_update', {
+                            conversationId,
+                            unreadCount,
+                        });
+
+                        // Dispatch fire-and-forget notification to central Notification Service
+                        const senderName = (populatedMessage.senderId as any)?.name || 'Someone';
+                        const msgPreview = text
+                            ? (text.length > 50 ? text.substring(0, 47) + '...' : text)
+                            : `${messageType || 'File'} attachment`;
+
+                        NotificationEventBus.getInstance().publish({
+                            type: 'CHAT_MESSAGE',
+                            companyId: user.companyId,
+                            actorId: user.userId,
+                            entityId: conversationId,
+                            entityType: 'CONVERSATION',
+                            conversationId,
+                            recipientIds: otherUserId ? [otherUserId] : undefined,
+                            metadata: {
+                                actorName: senderName,
+                                messagePreview: msgPreview,
+                                conversationId,
+                            },
+                        });
+
+                        // Emit real-time notification alert to recipient's personal room
+                        io.to(`user:${otherUserId}`).emit('chat_notification', {
+                            type: 'NEW_CHAT_MESSAGE',
+                            title: (populatedMessage as any)?.senderId?.name || 'New Message',
+                            message: populatedMessage.text || (populatedMessage.fileId ? `Sent an attachment (${populatedMessage.messageType})` : 'New message'),
+                            conversationId,
+                            projectId: result.conversation?.projectId,
+                            sender: (populatedMessage as any)?.senderId,
+                            unreadCount,
+                            createdAt: populatedMessage.createdAt,
+                        });
+                    }
                 }
 
-                if (callback) callback({ success: true, message: populatedMessage });
+                // Return acknowledgement with confirmed server message and original clientMessageId
+                if (callback) {
+                    callback({
+                        success: true,
+                        message: populatedMessage,
+                        clientMessageId: populatedMessage.clientMessageId || clientMessageId,
+                        isDuplicate: result.isDuplicate,
+                    });
+                }
             } catch (error: any) {
                 console.error('[ChatSocket] Error in send_message:', error);
                 if (callback) callback({ success: false, message: error.message || 'Failed to send message' });

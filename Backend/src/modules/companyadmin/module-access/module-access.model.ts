@@ -73,6 +73,7 @@ const companyModuleAccessSchema = new Schema<ICompanyModuleAccessDocument>(
             'status-updates': { type: Boolean, default: DEFAULT_GLOBAL_MODULE_SETTINGS['status-updates'] },
             calendar: { type: Boolean, default: DEFAULT_GLOBAL_MODULE_SETTINGS.calendar },
             shifts: { type: Boolean, default: DEFAULT_GLOBAL_MODULE_SETTINGS.shifts },
+            manager: { type: Boolean, default: DEFAULT_GLOBAL_MODULE_SETTINGS.manager },
         },
         employeeOverrides: [employeeOverrideSchema],
         auditHistory: [auditEntrySchema],

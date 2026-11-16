@@ -51,9 +51,10 @@ export class CompanyDashboardController {
     });
 
     public static getProjectHealth = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-        const { companyId } = await CompanyDashboardController.resolveCompanyContext(req);
+        const { companyId, companyTimezone } = await CompanyDashboardController.resolveCompanyContext(req);
         const query = req.query as any;
 
+        const dateRange = query.period ? DashboardDateRangeService.resolve(query, companyTimezone) : undefined;
         const page = Math.max(1, Number(query.page) || 1);
         const limit = Math.min(Math.max(1, Number(query.limit) || 20), 100);
         const status = query.status as any;
@@ -61,7 +62,7 @@ export class CompanyDashboardController {
             ? new Types.ObjectId(query.projectId)
             : undefined;
 
-        const data = await ProjectHealthAnalytics.getHealth(companyId, status, page, limit, filterProjectId);
+        const data = await ProjectHealthAnalytics.getHealth(companyId, status, page, limit, filterProjectId, new Date(), dateRange);
         return sendSuccess(res, 'Project health retrieved successfully', data);
     });
 
@@ -87,24 +88,59 @@ export class CompanyDashboardController {
     });
 
     public static getAttention = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-        const { companyId } = await CompanyDashboardController.resolveCompanyContext(req);
+        const { companyId, companyTimezone } = await CompanyDashboardController.resolveCompanyContext(req);
         const query = req.query as any;
 
+        const dateRange = query.period
+            ? DashboardDateRangeService.resolve(query, companyTimezone)
+            : DashboardDateRangeService.resolve({ period: 'last_7_days' }, companyTimezone);
         const limit = Math.min(Math.max(1, Number(query.limit) || 10), 30);
-        const data = await AttentionAnalytics.getAttentionItems(companyId, limit);
+        const interval = query.interval as ('day' | 'week' | 'month') | undefined;
+        const data = await AttentionAnalytics.getAttentionItems(companyId, limit, dateRange, interval);
         return sendSuccess(res, 'Attention items retrieved successfully', data);
     });
 
     public static getMilestones = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-        const { companyId } = await CompanyDashboardController.resolveCompanyContext(req);
+        const { companyId, companyTimezone } = await CompanyDashboardController.resolveCompanyContext(req);
         const query = req.query as any;
 
-        const projectId = query.projectId ? new Types.ObjectId(query.projectId) : undefined;
+        const dateRange = query.period ? DashboardDateRangeService.resolve(query, companyTimezone) : undefined;
+        const projectId = query.projectId && query.projectId !== 'all' && Types.ObjectId.isValid(query.projectId)
+            ? new Types.ObjectId(query.projectId)
+            : undefined;
         const status = query.status as string | undefined;
         const page = Math.max(1, Number(query.page) || 1);
         const limit = Math.min(Math.max(1, Number(query.limit) || 10), 50);
 
-        const data = await MilestonesAnalytics.getMilestones(companyId, projectId, status, page, limit);
+        const data = await MilestonesAnalytics.getMilestones(companyId, projectId, status, page, limit, new Date(), dateRange);
         return sendSuccess(res, 'Milestones retrieved successfully', data);
+    });
+
+    public static getAnalytics = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+        const { companyId, companyTimezone } = await CompanyDashboardController.resolveCompanyContext(req);
+        const query = req.query as any;
+
+        const dateRange = DashboardDateRangeService.resolve(query, companyTimezone);
+        const filterProjectId = query.projectId && query.projectId !== 'all' && Types.ObjectId.isValid(query.projectId)
+            ? new Types.ObjectId(query.projectId)
+            : undefined;
+
+        const [overview, deliveryTrends, projectHealth, workload, attention, milestones] = await Promise.all([
+            CompanyOverviewAnalytics.getOverview(companyId, dateRange, filterProjectId),
+            DeliveryTrendsAnalytics.getTrends(companyId, dateRange, query.interval, filterProjectId),
+            ProjectHealthAnalytics.getHealth(companyId, undefined, 1, 20, filterProjectId, new Date(), dateRange),
+            WorkloadAnalytics.getWorkload(companyId, dateRange, undefined, filterProjectId, 1, 10),
+            AttentionAnalytics.getAttentionItems(companyId, 10, dateRange, query.interval),
+            MilestonesAnalytics.getMilestones(companyId, filterProjectId, undefined, 1, 10, new Date(), dateRange),
+        ]);
+
+        return sendSuccess(res, 'Company dashboard analytics retrieved successfully', {
+            overview,
+            deliveryTrends,
+            projectHealth,
+            workload,
+            attention,
+            milestones,
+        });
     });
 }

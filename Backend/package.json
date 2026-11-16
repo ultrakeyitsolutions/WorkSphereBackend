@@ -11,6 +11,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "seed": "tsx src/scripts/db-init.ts",
+    "seed:qa": "tsx src/scripts/seed-qa.ts",
+    "seed:qa:clean": "tsx src/scripts/seed-qa.ts --clean",
+    "seed:qa:user": "tsx src/scripts/seed-qa.ts --target-email=manoharyalla83@gmail.com",
     "db:init": "tsx src/scripts/db-init.ts",
     "db:seed": "tsx src/scripts/db-init.ts",
     "db:seed:dry-run": "tsx src/scripts/db-init.ts --dry-run",
@@ -18,7 +21,11 @@
     "seed:company-settings": "tsx src/scripts/seed-company-settings.ts",
     "patch:permissions": "tsx src/scripts/patch-super-admin-permissions.ts",
     "migrate:search-indexes": "tsx src/scripts/add-global-search-indexes.ts",
-    "repair:meetings": "tsx src/scripts/repair-meetings.ts"
+    "repair:meetings": "tsx src/scripts/repair-meetings.ts",
+    "seed:manager-workspace": "tsx src/scripts/seed-manager-workspace.ts",
+    "seed:manager-workspace:validate": "tsx src/scripts/validate-manager-workspace.ts",
+    "seed:manager-workspace:reset": "tsx src/scripts/seed-manager-workspace.ts --reset",
+    "seed:delivery-trends": "tsx src/scripts/seed-delivery-trends.ts"
   },
   "keywords": [],
   "author": "",

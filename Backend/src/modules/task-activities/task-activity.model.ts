@@ -34,6 +34,16 @@ export interface ITaskActivity extends Document {
         mimeType: string;
         size: number;
     };
+    attachments?: Array<{
+        fileId?: string;
+        url?: string;
+        filePath?: string;
+        fileName?: string;
+        originalName?: string;
+        mimeType?: string;
+        size?: number;
+        fileType?: string;
+    }>;
     isResolved?: boolean;
     routedToRole?: string;
     routedToUserId?: Types.ObjectId;
@@ -64,6 +74,18 @@ const taskActivitySchema = new Schema<ITaskActivity>(
             mimeType: { type: String },
             size: { type: Number }
         },
+        attachments: [
+            {
+                fileId: { type: String },
+                url: { type: String },
+                filePath: { type: String },
+                fileName: { type: String },
+                originalName: { type: String },
+                mimeType: { type: String },
+                size: { type: Number },
+                fileType: { type: String }
+            }
+        ],
         isResolved: { type: Boolean, default: false },
         routedToRole: { type: String },
         routedToUserId: { type: Schema.Types.ObjectId, ref: 'User' },

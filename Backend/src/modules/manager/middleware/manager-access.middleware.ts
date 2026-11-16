@@ -2,9 +2,6 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../../auth/auth.types';
 import { sendError } from '../../../utils/response';
 import { TeamAccessService, ManagerAccessScope } from '../services/team-access.service';
-import { CompanyMember } from '../../companyadmin/invitations/company-member.model';
-import { ManagerAssignment } from '../models/manager-assignment.model';
-import { MANAGER_PERMISSIONS } from '../constants/manager.constants';
 
 export interface ManagerRequest extends AuthenticatedRequest {
     managerScope?: ManagerAccessScope;
@@ -49,27 +46,10 @@ export const requireManagerWorkspace = async (
             }
         }
 
-        // Verify if user is an authorized manager or admin
-        if (!isCompanyAdmin) {
-            const [member, activeAssignmentCount] = await Promise.all([
-                CompanyMember.findOne({ companyId: effectiveCompanyId, userId, status: 'ACTIVE' }).lean(),
-                ManagerAssignment.countDocuments({
-                    companyId: effectiveCompanyId,
-                    managerId: userId,
-                    isActive: true,
-                    startDate: { $lte: new Date() },
-                    $or: [{ endDate: null }, { endDate: { $gt: new Date() } }],
-                }),
-            ]);
-
-            const isManagerMember = member?.memberType === 'MANAGER';
-            const hasAssignments = activeAssignmentCount > 0;
-
-            if (!isManagerMember && !hasAssignments) {
-                return sendError(res, 'Forbidden: You do not have manager privileges in this organization', 403);
-            }
-        }
-
+        // The explicit per-member 'manager' module grant is the authority for
+        // non-admins. A Manager role alone never grants access, and an explicit
+        // grant must work even before a team assignment exists. The resolved
+        // scope still limits every response to assigned teams/resources.
         // Resolve manager access scope
         const scope = await TeamAccessService.resolveScope(effectiveCompanyId, userId, userRole);
 

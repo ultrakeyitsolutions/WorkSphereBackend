@@ -8,7 +8,7 @@ import { Project, ProjectInCharge, ProjectTeamMember } from '../../companyadmin/
 import { Task } from '../../tasks/task.model';
 import { User } from '../../users/user.model';
 import { CompanyMember } from '../../companyadmin/invitations/company-member.model';
-import { ManagerAssignmentType, ManagerPermissionKey, ALL_MANAGER_PERMISSION_KEYS } from '../constants/manager.constants';
+import { ManagerAssignmentType, ManagerPermissionKey, ALL_MANAGER_PERMISSION_KEYS, DEFAULT_MANAGER_PERMISSIONS } from '../constants/manager.constants';
 
 export interface ManagerAccessScope {
     companyId: Types.ObjectId;
@@ -146,6 +146,11 @@ export class TeamAccessService {
         } else if (permissionDoc) {
             const restrictions = new Set(permissionDoc.restrictions || []);
             effectivePermissions = (permissionDoc.permissions || []).filter((p) => !restrictions.has(p));
+        } else {
+            // Missing permission records behave like newly created manager
+            // records: they receive the documented default permission set.
+            // The resolved scope still restricts access to assigned resources.
+            effectivePermissions = [...DEFAULT_MANAGER_PERMISSIONS];
         }
 
         // If CompanyAdmin / SuperAdmin: Return full company access

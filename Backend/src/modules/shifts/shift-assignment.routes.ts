@@ -6,6 +6,7 @@ import {
     bulkAssignShiftSchema,
     listShiftAssignmentQuerySchema,
     employeeParamSchema,
+    shiftCalendarQuerySchema,
     idSchema,
 } from './shift.validator';
 import { z } from 'zod';
@@ -27,6 +28,7 @@ const assignmentParamSchema = z.object({
 // GET    /api/v1/company/shift-assignments/employees/:employeeId/history
 
 router.get('/', validateRequest(listShiftAssignmentQuerySchema), ShiftController.getShiftAssignments);
+router.get('/calendar', validateRequest(shiftCalendarQuerySchema), ShiftController.getScheduleCalendar);
 router.post('/', validateRequest(assignShiftSchema), ShiftController.assignShift);
 router.post('/bulk', validateRequest(bulkAssignShiftSchema), ShiftController.bulkAssignShift);
 router.delete('/:assignmentId', validateRequest(assignmentParamSchema), ShiftController.endAssignment);

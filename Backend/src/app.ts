@@ -17,7 +17,11 @@ const trustProxySetting = env.TRUST_PROXY !== undefined
 app.set('trust proxy', trustProxySetting);
 
 // Security Middlewares
-app.use(helmet());
+app.use(
+    helmet({
+        crossOriginResourcePolicy: { policy: 'cross-origin' },
+    })
+);
 app.use(hpp());
 
 // Logging
@@ -76,8 +80,26 @@ const corsOptions: cors.CorsOptions = {
         return callback(null, true);
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'idempotency-key', 'X-Requested-With', 'Accept', 'Origin', 'x-razorpay-signature'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'Idempotency-Key',
+        'idempotency-key',
+        'X-Requested-With',
+        'Accept',
+        'Origin',
+        'x-razorpay-signature',
+        'Range',
+        'range',
+    ],
+    exposedHeaders: [
+        'Content-Range',
+        'Accept-Ranges',
+        'Content-Length',
+        'Content-Type',
+        'Content-Disposition',
+    ],
     optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
@@ -108,6 +130,7 @@ app.get('/health', (req, res) => {
 
 // Mounted Routes
 app.use('/api', routes);
+app.use('/public/api', routes);
 
 // Error Handling
 app.use(errorHandler);

@@ -29,7 +29,8 @@ router.get('/calendar', AttendanceController.getCalendar);
 router.get('/summary', (req, res, next) => {
     const role = (req as any).user?.role;
     const isAdmin = role === 'COMPANY_ADMIN' || role === 'Admin' || role === 'SUPER_ADMIN';
-    if (isAdmin && (req.baseUrl.includes('company') || req.baseUrl.includes('admin') || (!req.query.employeeId && (req.query.date || req.query.startDate)))) {
+    // If Admin specifically requests organization-level daily/date-range summary without individual month/employee parameters
+    if (isAdmin && !req.query.month && !req.query.employeeId && (req.query.date || (req.query.startDate && !req.query.year))) {
         return AttendanceController.getCompanyAttendanceSummary(req as any, res, next);
     }
     return AttendanceController.getSummary(req as any, res, next);

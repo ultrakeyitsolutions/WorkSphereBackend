@@ -1,7 +1,11 @@
 import { Types } from 'mongoose';
 import { Shift } from './shift.model';
 import { EmployeeShiftAssignment } from './employee-shift-assignment.model';
-import { CreateShiftDto, UpdateShiftDto, ShiftListQuery } from './shift.types';
+import { CreateShiftDto, UpdateShiftDto, ShiftListQuery, ShiftOverviewCounts } from './shift.types';
+import CompanyMember from '../companyadmin/invitations/company-member.model';
+import User from '../users/user.model';
+import { Attendance } from '../attendance/attendance.model';
+import { AttendanceEvaluationService } from './attendance-evaluation.service';
 import { AppError } from '../../utils/AppError';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { AuditAction } from '../audit-logs/audit-log.types';
@@ -44,6 +48,7 @@ export class ShiftService {
             gracePeriodMinutes: dto.gracePeriodMinutes ?? 10,
             earlyCheckoutGracePeriodMinutes: dto.earlyCheckoutGracePeriodMinutes ?? 5,
             workingDays: dto.workingDays && dto.workingDays.length > 0 ? dto.workingDays : [1, 2, 3, 4, 5],
+            breakDurationMinutes: dto.breakDurationMinutes ?? 0,
             halfDayThresholdMinutes: dto.halfDayThresholdMinutes ?? 240,
             fullDayThresholdMinutes: dto.fullDayThresholdMinutes ?? 480,
             isActive: dto.isActive !== undefined ? dto.isActive : true,
@@ -225,6 +230,7 @@ export class ShiftService {
         if (dto.gracePeriodMinutes !== undefined) shift.gracePeriodMinutes = dto.gracePeriodMinutes;
         if (dto.earlyCheckoutGracePeriodMinutes !== undefined) shift.earlyCheckoutGracePeriodMinutes = dto.earlyCheckoutGracePeriodMinutes;
         if (dto.workingDays && dto.workingDays.length > 0) shift.workingDays = dto.workingDays;
+        if (dto.breakDurationMinutes !== undefined) shift.breakDurationMinutes = dto.breakDurationMinutes;
         if (dto.halfDayThresholdMinutes !== undefined) shift.halfDayThresholdMinutes = dto.halfDayThresholdMinutes;
         if (dto.fullDayThresholdMinutes !== undefined) shift.fullDayThresholdMinutes = dto.fullDayThresholdMinutes;
         if (dto.isActive !== undefined) shift.isActive = dto.isActive;
@@ -280,5 +286,96 @@ export class ShiftService {
         });
 
         return shift;
+    }
+
+    /**
+     * Get aggregate shift overview metrics computed from real database records.
+     */
+    static async getShiftOverview(companyId: string): Promise<ShiftOverviewCounts> {
+        const companyObjId = new Types.ObjectId(companyId);
+        const now = new Date();
+        const todayStr = AttendanceEvaluationService.formatDateString(now);
+
+        // 1. Shifts counts
+        const [totalShifts, activeShifts, overnightShifts, defaultShift] = await Promise.all([
+            Shift.countDocuments({ companyId: companyObjId }),
+            Shift.countDocuments({ companyId: companyObjId, isActive: true }),
+            Shift.countDocuments({ companyId: companyObjId, isActive: true, crossesMidnight: true }),
+            Shift.findOne({ companyId: companyObjId, isDefault: true, isActive: true }).select('name').lean(),
+        ]);
+
+        // 2. Total active members in company
+        const [activeCompanyMembersCount, activeUsersCount] = await Promise.all([
+            CompanyMember.countDocuments({ companyId: companyObjId, status: 'ACTIVE' }),
+            User.countDocuments({ companyId: companyObjId, isActive: true, isDeleted: false }),
+        ]);
+        const totalEmployees = Math.max(activeCompanyMembersCount, activeUsersCount);
+
+        // 3. Assigned employees currently covered by an active/scheduled assignment
+        const assignedEmployeeIds = await EmployeeShiftAssignment.distinct('employeeId', {
+            companyId: companyObjId,
+            status: { $in: ['ACTIVE', 'SCHEDULED'] },
+            effectiveFrom: { $lte: now },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }],
+        });
+        const assignedEmployees = assignedEmployeeIds.length;
+        const noAssignment = Math.max(0, totalEmployees - assignedEmployees);
+
+        // 4. Currently working: active check-in today without checkout
+        const currentlyWorking = await Attendance.countDocuments({
+            companyId: companyObjId,
+            date: todayStr,
+            'actual.firstCheckIn': { $ne: null },
+            'actual.lastCheckOut': null,
+        });
+
+        // 5. Today's day of week (1=Monday ... 7=Sunday)
+        const jsDay = now.getDay();
+        const currentIsoDay = jsDay === 0 ? 7 : jsDay;
+
+        // Find active shifts operating today
+        const activeTodayShifts = await Shift.find({
+            companyId: companyObjId,
+            isActive: true,
+            workingDays: currentIsoDay,
+        }).lean();
+
+        const currentHour = now.getHours();
+        const currentMin = now.getMinutes();
+        const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
+
+        // Upcoming shifts starting later today
+        const upcomingShifts = activeTodayShifts.filter((s) => s.startTime > currentTimeStr).length;
+
+        // Employees scheduled for today who haven't checked in yet
+        const activeTodayShiftIds = activeTodayShifts.map((s) => s._id);
+        const scheduledTodayEmployees = await EmployeeShiftAssignment.distinct('employeeId', {
+            companyId: companyObjId,
+            shiftId: { $in: activeTodayShiftIds },
+            status: { $in: ['ACTIVE', 'SCHEDULED'] },
+            effectiveFrom: { $lte: now },
+            $or: [{ effectiveTo: null }, { effectiveTo: { $gte: now } }],
+        });
+
+        const checkedInTodayEmployees = await Attendance.distinct('employeeId', {
+            companyId: companyObjId,
+            date: todayStr,
+            'actual.firstCheckIn': { $ne: null },
+        });
+
+        const checkedInSet = new Set(checkedInTodayEmployees.map((id) => id.toString()));
+        const notCheckedIn = scheduledTodayEmployees.filter((id) => !checkedInSet.has(id.toString())).length;
+
+        return {
+            totalShifts,
+            activeShifts,
+            assignedEmployees,
+            currentlyWorking,
+            notCheckedIn,
+            upcomingShifts,
+            noAssignment,
+            overnightShifts,
+            defaultShiftName: defaultShift?.name || null,
+        };
     }
 }

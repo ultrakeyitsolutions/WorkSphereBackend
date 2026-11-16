@@ -14,8 +14,10 @@ export const createShiftSchema = z.object({
         gracePeriodMinutes: z.number().min(0).max(240).optional().default(10),
         earlyCheckoutGracePeriodMinutes: z.number().min(0).max(240).optional().default(5),
         workingDays: z.array(z.number().min(1).max(7)).optional().default([1, 2, 3, 4, 5]),
+        breakDurationMinutes: z.number().min(0).max(240).optional().default(0),
         halfDayThresholdMinutes: z.number().min(0).optional().default(240),
         fullDayThresholdMinutes: z.number().min(0).optional().default(480),
+        overtimeThresholdMinutes: z.number().min(0).optional().default(0),
         isActive: z.boolean().optional().default(true),
         isDefault: z.boolean().optional().default(false),
         description: z.string().trim().max(500).optional().default(''),
@@ -35,8 +37,10 @@ export const updateShiftSchema = z.object({
         gracePeriodMinutes: z.number().min(0).max(240).optional(),
         earlyCheckoutGracePeriodMinutes: z.number().min(0).max(240).optional(),
         workingDays: z.array(z.number().min(1).max(7)).optional(),
+        breakDurationMinutes: z.number().min(0).max(240).optional(),
         halfDayThresholdMinutes: z.number().min(0).optional(),
         fullDayThresholdMinutes: z.number().min(0).optional(),
+        overtimeThresholdMinutes: z.number().min(0).optional(),
         isActive: z.boolean().optional(),
         isDefault: z.boolean().optional(),
         description: z.string().trim().max(500).optional(),
@@ -72,12 +76,16 @@ export const assignShiftSchema = z.object({
 
 export const bulkAssignShiftSchema = z.object({
     body: z.object({
-        employeeIds: z.array(idSchema).min(1, 'Please select at least one employee'),
+        employeeIds: z.array(idSchema).optional(),
+        teamId: idSchema.optional(),
         shiftId: idSchema,
         effectiveFrom: z.string().or(z.date()),
         effectiveTo: z.string().or(z.date()).optional().nullable(),
         reason: z.string().trim().max(500).optional().nullable(),
-    }),
+    }).refine(
+        (data) => (Array.isArray(data.employeeIds) && data.employeeIds.length > 0) || Boolean(data.teamId),
+        { message: 'Please select at least one employee or a team' }
+    ),
 });
 
 export const listShiftAssignmentQuerySchema = z.object({
@@ -96,6 +104,20 @@ export const listShiftAssignmentQuerySchema = z.object({
 
 export const employeeParamSchema = z.object({
     params: z.object({
-        employeeId: idSchema,
+        employeeId: z.string().refine(
+            (val) => val === 'me' || objectIdRegex.test(val),
+            { message: 'Invalid employeeId' }
+        ),
+    }),
+});
+
+export const shiftCalendarQuerySchema = z.object({
+    query: z.object({
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        shiftId: idSchema.optional(),
+        employeeId: idSchema.optional(),
+        teamId: idSchema.optional(),
+        departmentId: idSchema.optional(),
     }),
 });

@@ -575,7 +575,7 @@ export class AttendanceService {
                 employeeId: new Types.ObjectId(employeeId),
                 date: { $gte: startDate, $lte: endDate },
             })
-                .populate('shiftId', 'name code startTime endTime crossesMidnight')
+                .populate('shiftId', 'name code startTime endTime crossesMidnight breakDurationMinutes gracePeriodMinutes earlyCheckoutGracePeriodMinutes workingHours')
                 .lean(),
             Holiday.find({
                 companyId: new Types.ObjectId(companyId),
@@ -595,11 +595,51 @@ export class AttendanceService {
             ),
         ]);
 
+        const attendanceIds = attendanceRecords.map((a) => a._id);
+
+        const [adjustments, events] = await Promise.all([
+            AttendanceAdjustment.find({
+                companyId: new Types.ObjectId(companyId),
+                employeeId: new Types.ObjectId(employeeId),
+                date: { $gte: startDate, $lte: endDate },
+            })
+                .populate('approvedBy', 'name email')
+                .populate('requestedBy', 'name email')
+                .sort({ createdAt: -1 })
+                .lean(),
+            attendanceIds.length > 0
+                ? AttendanceEvent.find({
+                    companyId: new Types.ObjectId(companyId),
+                    employeeId: new Types.ObjectId(employeeId),
+                    attendanceId: { $in: attendanceIds },
+                })
+                    .sort({ timestamp: 1 })
+                    .lean()
+                : Promise.resolve([]),
+        ]);
+
         const attendanceMap = new Map<string, any>();
         attendanceRecords.forEach((att) => attendanceMap.set(att.date, att));
 
         const holidayMap = new Map<string, any>();
         holidays.forEach((h) => holidayMap.set(h.date, h));
+
+        const adjustmentMap = new Map<string, any[]>();
+        adjustments.forEach((adj: any) => {
+            const list = adjustmentMap.get(adj.date) || [];
+            list.push(adj);
+            adjustmentMap.set(adj.date, list);
+        });
+
+        const eventsMap = new Map<string, any[]>();
+        events.forEach((ev: any) => {
+            const key = ev.attendanceId?.toString();
+            if (key) {
+                const list = eventsMap.get(key) || [];
+                list.push(ev);
+                eventsMap.set(key, list);
+            }
+        });
 
         // Construct daily timeline
         const days = dateList.map((dateStr) => {
@@ -615,21 +655,224 @@ export class AttendanceService {
                 else if (isWeekOff) dayStatus = AttendanceStatus.WEEK_OFF;
             }
 
+            const activeShift: any = att?.shiftId || resolvedShift.shift;
+            const attEvents: any[] = att ? (eventsMap.get(att._id.toString()) || []) : [];
+            const dayAdjustments = adjustmentMap.get(dateStr) || [];
+            const latestAdjustment = dayAdjustments.length > 0 ? dayAdjustments[0] : null;
+
+            // Compute real work sessions from check-in and check-out events
+            const sessions: Array<{
+                sessionNumber: number;
+                title: string;
+                startTime: string;
+                endTime: string | null;
+                durationMinutes: number;
+                status: 'COMPLETED' | 'IN_PROGRESS';
+            }> = [];
+
+            if (attEvents.length > 0) {
+                let currentCheckIn: any = null;
+                let sessionIdx = 1;
+
+                for (const ev of attEvents) {
+                    if (ev.type === 'CHECK_IN') {
+                        currentCheckIn = ev;
+                    } else if (ev.type === 'CHECK_OUT' && currentCheckIn) {
+                        const start = new Date(currentCheckIn.timestamp);
+                        const end = new Date(ev.timestamp);
+                        const diffMin = Math.max(0, Math.round((end.getTime() - start.getTime()) / (60 * 1000)));
+                        sessions.push({
+                            sessionNumber: sessionIdx,
+                            title: `Session ${sessionIdx}`,
+                            startTime: new Date(currentCheckIn.timestamp).toISOString(),
+                            endTime: new Date(ev.timestamp).toISOString(),
+                            durationMinutes: diffMin,
+                            status: 'COMPLETED',
+                        });
+                        sessionIdx++;
+                        currentCheckIn = null;
+                    }
+                }
+
+                if (currentCheckIn) {
+                    const start = new Date(currentCheckIn.timestamp);
+                    const now = new Date();
+                    const diffMin = Math.max(0, Math.round((now.getTime() - start.getTime()) / (60 * 1000)));
+                    sessions.push({
+                        sessionNumber: sessionIdx,
+                        title: `Session ${sessionIdx}`,
+                        startTime: new Date(currentCheckIn.timestamp).toISOString(),
+                        endTime: null,
+                        durationMinutes: diffMin,
+                        status: 'IN_PROGRESS',
+                    });
+                }
+            }
+
+            // Fallback to actual firstCheckIn / lastCheckOut if no raw events exist
+            if (sessions.length === 0 && att?.actual?.firstCheckIn) {
+                const start = new Date(att.actual.firstCheckIn);
+                const end = att.actual.lastCheckOut ? new Date(att.actual.lastCheckOut) : null;
+                const diffMin = end
+                    ? Math.max(0, Math.round((end.getTime() - start.getTime()) / (60 * 1000)))
+                    : Math.max(0, Math.round((new Date().getTime() - start.getTime()) / (60 * 1000)));
+
+                sessions.push({
+                    sessionNumber: 1,
+                    title: 'Session 1',
+                    startTime: start.toISOString(),
+                    endTime: end ? end.toISOString() : null,
+                    durationMinutes: att.actual.workedMinutes || diffMin,
+                    status: end ? 'COMPLETED' : 'IN_PROGRESS',
+                });
+            }
+
+            // Compute real penalties
+            const lateMinutes = att?.metrics?.lateMinutes || 0;
+            const gracePeriodMinutes = att?.scheduled?.gracePeriodMinutes ?? activeShift?.gracePeriodMinutes ?? 0;
+            const isLate = lateMinutes > 0 || att?.punchStatus === 'LATE';
+
+            const earlyLeaveMinutes = att?.metrics?.earlyLeaveMinutes || 0;
+            const earlyCheckoutGraceMinutes = att?.scheduled?.earlyCheckoutGraceMinutes ?? activeShift?.earlyCheckoutGracePeriodMinutes ?? 0;
+            const isEarlyLeave = earlyLeaveMinutes > 0 || att?.checkoutStatus === 'EARLY_OUT';
+
+            const scheduledWorkingMinutes = att?.scheduled?.workingMinutes || (activeShift?.workingHours ? activeShift.workingHours * 60 : 480);
+            const workedMinutes = att?.actual?.workedMinutes || 0;
+            const shortfallMinutes = (dayStatus === AttendanceStatus.PRESENT || dayStatus === AttendanceStatus.HALF_DAY)
+                ? Math.max(0, scheduledWorkingMinutes - workedMinutes)
+                : 0;
+            const isHalfDay = dayStatus === AttendanceStatus.HALF_DAY;
+            const overtimeMinutes = att?.metrics?.overtimeMinutes || 0;
+
+            const penaltyList: Array<{
+                type: string;
+                label: string;
+                value: string;
+                minutes?: number;
+                description: string;
+                severity: 'danger' | 'warning' | 'info' | 'success';
+            }> = [];
+
+            if (isLate) {
+                penaltyList.push({
+                    type: 'LATE_ARRIVAL',
+                    label: 'Late Arrival',
+                    value: `${lateMinutes}m Late`,
+                    minutes: lateMinutes,
+                    description: `Clocked in ${lateMinutes}m past shift grace period (${gracePeriodMinutes}m)`,
+                    severity: 'warning',
+                });
+            }
+
+            if (isEarlyLeave) {
+                penaltyList.push({
+                    type: 'EARLY_DEPARTURE',
+                    label: 'Early Departure',
+                    value: `${earlyLeaveMinutes}m Early`,
+                    minutes: earlyLeaveMinutes,
+                    description: `Clocked out ${earlyLeaveMinutes}m before scheduled shift conclusion`,
+                    severity: 'danger',
+                });
+            }
+
+            if (shortfallMinutes > 0 && dayStatus !== AttendanceStatus.ABSENT && dayStatus !== AttendanceStatus.WEEK_OFF && dayStatus !== AttendanceStatus.HOLIDAY) {
+                penaltyList.push({
+                    type: 'SHORTFALL',
+                    label: 'Hours Shortfall',
+                    value: `${shortfallMinutes}m Deficit`,
+                    minutes: shortfallMinutes,
+                    description: `Worked ${workedMinutes}m of scheduled ${scheduledWorkingMinutes}m`,
+                    severity: 'warning',
+                });
+            }
+
+            if (isHalfDay) {
+                penaltyList.push({
+                    type: 'HALF_DAY',
+                    label: 'Half Day Penalty',
+                    value: 'Half Day Recorded',
+                    description: 'Did not meet minimum full-day working hours threshold',
+                    severity: 'danger',
+                });
+            }
+
+            if (overtimeMinutes > 0) {
+                penaltyList.push({
+                    type: 'OVERTIME',
+                    label: 'Overtime Credit',
+                    value: `+${overtimeMinutes}m`,
+                    minutes: overtimeMinutes,
+                    description: `Approved overtime worked beyond scheduled shift`,
+                    severity: 'info',
+                });
+            }
+
+            if (penaltyList.length === 0 && dayStatus === AttendanceStatus.PRESENT) {
+                penaltyList.push({
+                    type: 'COMPLIANT',
+                    label: 'Shift Compliant',
+                    value: '100% On-Time',
+                    description: 'Full shift completed with timely punch-in and punch-out',
+                    severity: 'success',
+                });
+            }
+
             return {
+                attendanceId: att?._id ? att._id.toString() : null,
                 date: dateStr,
                 status: dayStatus,
-                shift: att?.shiftId || resolvedShift.shift,
+                shift: activeShift ? {
+                    _id: activeShift._id ? activeShift._id.toString() : undefined,
+                    name: activeShift.name,
+                    code: activeShift.code,
+                    startTime: activeShift.startTime,
+                    endTime: activeShift.endTime,
+                    workingHours: activeShift.workingHours,
+                    breakDurationMinutes: activeShift.breakDurationMinutes,
+                    gracePeriodMinutes: activeShift.gracePeriodMinutes,
+                    earlyCheckoutGracePeriodMinutes: activeShift.earlyCheckoutGracePeriodMinutes,
+                } : null,
+                scheduled: att?.scheduled || {
+                    startTime: activeShift?.startTime,
+                    endTime: activeShift?.endTime,
+                    workingMinutes: (activeShift?.workingHours || 8) * 60,
+                    shiftName: activeShift?.name || 'General Shift',
+                    shiftCode: activeShift?.code || 'GEN',
+                },
                 checkIn: att?.actual?.firstCheckIn || null,
                 checkOut: att?.actual?.lastCheckOut || null,
-                workedMinutes: att?.actual?.workedMinutes || 0,
-                lateMinutes: att?.metrics?.lateMinutes || 0,
-                earlyLeaveMinutes: att?.metrics?.earlyLeaveMinutes || 0,
-                overtimeMinutes: att?.metrics?.overtimeMinutes || 0,
+                workedMinutes,
+                lateMinutes,
+                earlyLeaveMinutes,
+                overtimeMinutes,
                 punchStatus: att?.punchStatus || 'ON_TIME',
                 checkoutStatus: att?.checkoutStatus || 'ON_TIME',
                 leave: lev ? { id: lev._id, type: lev.leaveType, durationType: lev.durationType } : null,
                 holiday: hol ? { id: hol._id, name: hol.name } : null,
                 isWeekOff,
+                sessions,
+                events: attEvents.map((e: any) => ({
+                    _id: e._id.toString(),
+                    type: e.type,
+                    timestamp: new Date(e.timestamp).toISOString(),
+                    source: e.source,
+                    location: e.location,
+                })),
+                penalties: {
+                    lateMinutes,
+                    gracePeriodMinutes,
+                    isLate,
+                    earlyLeaveMinutes,
+                    earlyCheckoutGraceMinutes,
+                    isEarlyLeave,
+                    scheduledWorkingMinutes,
+                    shortfallMinutes,
+                    isHalfDay,
+                    overtimeMinutes,
+                    penaltyList,
+                },
+                adjustments: dayAdjustments,
+                latestAdjustment,
             };
         });
 
@@ -709,6 +952,8 @@ export class AttendanceService {
 
         const workingDaysInPeriod = Math.max(1, dateList.length - holidayDays - weekOffDays);
         const attendancePercentage = Math.round((presentDays / workingDaysInPeriod) * 10000) / 100;
+        const avgWorkedMinutes = presentDays > 0 ? Math.round(totalWorkedMinutes / presentDays) : 0;
+        const penaltyDays = absentDays + halfDays;
 
         return {
             startDate,
@@ -722,6 +967,8 @@ export class AttendanceService {
             halfDays,
             lateDays,
             earlyLeaveDays,
+            penaltyDays,
+            avgWorkedMinutes,
             totalWorkedMinutes,
             totalOvertimeMinutes,
             attendancePercentage,

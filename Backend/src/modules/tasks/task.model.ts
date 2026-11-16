@@ -1,4 +1,6 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import './status.model';
+import './stage.model';
 
 export enum TaskPriority {
     LOW = 'LOW',

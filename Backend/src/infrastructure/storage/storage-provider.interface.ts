@@ -13,6 +13,7 @@ export interface StorageProvider {
         storageKey: string;
         storageUrl: string;
         size: number;
+        thumbnailUrl?: string;
     }>;
 
     /**
@@ -39,4 +40,18 @@ export interface StorageProvider {
      * @param expiresInSeconds Optional expiry duration in seconds (default: 3600)
      */
     getSignedUrl?(storageKey: string, expiresInSeconds?: number): string;
+
+    /**
+     * Stream a file from storage, optionally with byte range headers for media playback.
+     * @param storageKey Path / key within the storage provider
+     * @param range Optional HTTP Range header string (e.g. 'bytes=0-1024')
+     */
+    getFileStream?(
+        storageKey: string,
+        range?: string
+    ): Promise<{
+        stream: NodeJS.ReadableStream | any;
+        statusCode: number;
+        headers: Record<string, string | number | undefined>;
+    }>;
 }

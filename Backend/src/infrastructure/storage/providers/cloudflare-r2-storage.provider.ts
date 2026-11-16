@@ -1,6 +1,7 @@
 import {
     S3Client,
     PutObjectCommand,
+    GetObjectCommand,
     DeleteObjectCommand,
     HeadObjectCommand,
 } from '@aws-sdk/client-s3';
@@ -128,6 +129,41 @@ export class CloudflareR2StorageProvider implements StorageProvider {
             }
             throw err;
         }
+    }
+
+    /**
+     * Stream a file from Cloudflare R2 with native S3 Range support.
+     */
+    async getFileStream(
+        storageKey: string,
+        range?: string
+    ): Promise<{
+        stream: NodeJS.ReadableStream;
+        statusCode: number;
+        headers: Record<string, string | number | undefined>;
+    }> {
+        const cleanKey = this.sanitizeStorageKey(storageKey);
+        const command = new GetObjectCommand({
+            Bucket: this.config.bucketName,
+            Key: cleanKey,
+            Range: range,
+        });
+
+        const response = await this.client.send(command);
+        const statusCode = range && response.ContentRange ? 206 : 200;
+
+        return {
+            stream: response.Body as NodeJS.ReadableStream,
+            statusCode,
+            headers: {
+                'content-type': response.ContentType || 'video/mp4',
+                'content-length': response.ContentLength,
+                'content-range': response.ContentRange,
+                'accept-ranges': response.AcceptRanges || 'bytes',
+                'etag': response.ETag,
+                'last-modified': response.LastModified?.toUTCString(),
+            },
+        };
     }
 
     /**

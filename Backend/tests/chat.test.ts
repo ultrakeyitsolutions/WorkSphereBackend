@@ -351,4 +351,110 @@ describe('Chat, Global File Security & Calling System', () => {
             PresenceService.removeConnection('socket_b_1');
         });
     });
+
+    describe('5. Message Idempotency & Delivery Resilience', () => {
+        it('Prevents duplicate message creation when clientMessageId is already recorded', async () => {
+            const mockConvId = new Types.ObjectId().toString();
+            const clientMsgId = 'cmsg_test_idempotency_123';
+
+            const existingMockMsg = {
+                _id: new Types.ObjectId(),
+                conversationId: new Types.ObjectId(mockConvId),
+                senderId: { _id: userA, name: 'Alice' },
+                clientMessageId: clientMsgId,
+                messageType: 'TEXT',
+                text: 'Hello idempotency',
+                fileId: null,
+            };
+
+            (Message.findOne as any).mockReturnValue({
+                populate: vi.fn().mockReturnValue({
+                    populate: vi.fn().mockReturnValue({
+                        lean: vi.fn().mockResolvedValue(existingMockMsg),
+                    }),
+                }),
+            });
+
+            const result = await ChatService.createMessage({
+                conversationId: mockConvId,
+                senderId: userA,
+                companyId: mockCompanyId,
+                messageType: 'TEXT',
+                clientMessageId: clientMsgId,
+                text: 'Hello idempotency',
+            });
+
+            expect(result).toBeDefined();
+            expect(result.isDuplicate).toBe(true);
+            expect(result.message._id).toEqual(existingMockMsg._id);
+            expect(Message.create).not.toHaveBeenCalled();
+        });
+
+        it('Creates new message when clientMessageId is unique', async () => {
+            const mockConvId = new Types.ObjectId();
+            const clientMsgId = 'cmsg_test_unique_456';
+
+            // No existing message found
+            (Message.findOne as any).mockReturnValue({
+                populate: vi.fn().mockReturnValue({
+                    populate: vi.fn().mockReturnValue({
+                        lean: vi.fn().mockResolvedValue(null),
+                    }),
+                }),
+            });
+
+            const mockConvDoc = {
+                _id: mockConvId,
+                companyId: mockCompanyId,
+                projectId: new Types.ObjectId(mockProjectId),
+                save: vi.fn().mockResolvedValue(true),
+            };
+            (Conversation.findOne as any).mockResolvedValue(mockConvDoc);
+            (ConversationParticipant.exists as any).mockResolvedValue(true);
+            vi.spyOn(ProjectService, 'canAccessProject').mockResolvedValue(true);
+
+            (ConversationParticipant.findOne as any).mockReturnValue({
+                lean: vi.fn().mockResolvedValue({ userId: new Types.ObjectId(userB) }),
+            });
+
+            const createdMsgId = new Types.ObjectId();
+            (Message.create as any).mockResolvedValue({
+                _id: createdMsgId,
+                createdAt: new Date(),
+            });
+
+            (Message.findById as any).mockReturnValue({
+                populate: vi.fn().mockReturnValue({
+                    populate: vi.fn().mockReturnValue({
+                        lean: vi.fn().mockResolvedValue({
+                            _id: createdMsgId,
+                            clientMessageId: clientMsgId,
+                            text: 'Brand new unique message',
+                            messageType: 'TEXT',
+                            senderId: { _id: userA, name: 'Alice' },
+                        }),
+                    }),
+                }),
+            });
+
+            const result = await ChatService.createMessage({
+                conversationId: mockConvId.toString(),
+                senderId: userA,
+                companyId: mockCompanyId,
+                messageType: 'TEXT',
+                clientMessageId: clientMsgId,
+                text: 'Brand new unique message',
+            });
+
+            expect(result).toBeDefined();
+            expect(result.isDuplicate).toBe(false);
+            expect(result.message.clientMessageId).toBe(clientMsgId);
+            expect(Message.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    clientMessageId: clientMsgId,
+                    text: 'Brand new unique message',
+                })
+            );
+        });
+    });
 });

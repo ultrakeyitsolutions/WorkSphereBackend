@@ -7,6 +7,8 @@ import { Task } from '../../tasks/task.model';
 import {
     CompanyMilestonesData,
     MilestoneCardItem,
+    FunnelStage,
+    ResolvedDateRange,
 } from '../dashboard.types';
 
 export class MilestonesAnalytics {
@@ -16,7 +18,8 @@ export class MilestonesAnalytics {
         statusFilter?: string,
         page = 1,
         limit = 10,
-        now = new Date()
+        now = new Date(),
+        dateRange?: ResolvedDateRange
     ): Promise<CompanyMilestonesData> {
         const releaseMatch: any = { companyId };
         if (filterProjectId) {
@@ -26,6 +29,17 @@ export class MilestonesAnalytics {
             releaseMatch.status = statusFilter;
         } else {
             releaseMatch.status = { $ne: ReleaseStatus.CANCELLED };
+        }
+        if (dateRange) {
+            releaseMatch.$or = [
+                { targetDate: { $gte: dateRange.startDate, $lte: dateRange.endDate } },
+                {
+                    $and: [
+                        { startDate: { $lte: dateRange.endDate } },
+                        { targetDate: { $gte: dateRange.startDate } },
+                    ],
+                },
+            ];
         }
 
         // 1. Fetch releases
@@ -79,6 +93,18 @@ export class MilestonesAnalytics {
             if (filterProjectId) {
                 projectMatch._id = filterProjectId;
             }
+            if (dateRange) {
+                projectMatch.$or = [
+                    { endDate: { $gte: dateRange.startDate, $lte: dateRange.endDate } },
+                    {
+                        $and: [
+                            { startDate: { $lte: dateRange.endDate } },
+                            { endDate: { $gte: dateRange.startDate } },
+                        ],
+                    },
+                    { endDate: null, createdAt: { $lte: dateRange.endDate } },
+                ];
+            }
 
             const activeProjects = await Project.find(projectMatch)
                 .sort({ endDate: 1 })
@@ -120,6 +146,17 @@ export class MilestonesAnalytics {
                     ? Math.round((stats.completed / stats.total) * 10000) / 100
                     : 0;
 
+                let milestoneStatus: string = 'PLANNED';
+                if (proj.status === ProjectStatus.COMPLETED || progressPercentage >= 100) {
+                    milestoneStatus = 'RELEASED';
+                } else if (progressPercentage >= 80) {
+                    milestoneStatus = 'READY_TO_SHIP';
+                } else if (progressPercentage > 0 || stats.completed > 0) {
+                    milestoneStatus = 'IN_PROGRESS';
+                } else {
+                    milestoneStatus = 'PLANNED';
+                }
+
                 milestoneItems.push({
                     id: String(proj._id),
                     name: `${proj.name} Delivery Target`,
@@ -127,7 +164,7 @@ export class MilestonesAnalytics {
                     projectId: String(proj._id),
                     projectName: proj.name,
                     targetDate: targetDate.toISOString(),
-                    status: proj.status,
+                    status: milestoneStatus,
                     progressPercentage,
                     totalTasks: stats.total,
                     completedTasks: stats.completed,
@@ -137,27 +174,86 @@ export class MilestonesAnalytics {
             }
         }
 
-        // 4. Calculate summaries
+        // 4. Calculate summaries & pipeline funnel
         const total = milestoneItems.length;
-        const completed = milestoneItems.filter((m) => m.status === 'RELEASED' || m.status === 'Completed').length;
+        const completed = milestoneItems.filter(
+            (m) => m.status === 'RELEASED' || m.status === 'Completed' || m.status === 'Released'
+        ).length;
         const overdue = milestoneItems.filter((m) => m.isOverdue).length;
-        const upcoming = total - completed - overdue;
+        const upcoming = Math.max(0, total - completed - overdue);
+
+        const plannedCount = milestoneItems.filter((m) => m.status === 'PLANNED' || m.status === 'Planned').length;
+        const inProgressCount = milestoneItems.filter(
+            (m) => m.status === 'IN_PROGRESS' || m.status === 'Active' || m.status === 'In Progress'
+        ).length;
+        const readyCount = milestoneItems.filter(
+            (m) => m.status === 'READY_TO_SHIP' || m.status === 'Ready to Ship'
+        ).length;
+        const releasedCount = completed;
+
+        const stage1Count = total;
+        const stage2Count = inProgressCount + readyCount + releasedCount;
+        const stage3Count = readyCount + releasedCount;
+        const stage4Count = releasedCount;
+
+        const stages: FunnelStage[] = [
+            {
+                id: 'planned',
+                label: 'Planned',
+                count: stage1Count,
+                stageCount: plannedCount,
+                percentage: total > 0 ? 100 : 0,
+                color: '#84cc16',
+            },
+            {
+                id: 'in_progress',
+                label: 'In Progress',
+                count: stage2Count,
+                stageCount: inProgressCount,
+                percentage: total > 0 ? Math.round((stage2Count / total) * 100) : 0,
+                color: '#3b82f6',
+            },
+            {
+                id: 'ready_to_ship',
+                label: 'Ready to Ship',
+                count: stage3Count,
+                stageCount: readyCount,
+                percentage: total > 0 ? Math.round((stage3Count / total) * 100) : 0,
+                color: '#a855f7',
+            },
+            {
+                id: 'released',
+                label: 'Released',
+                count: stage4Count,
+                stageCount: releasedCount,
+                percentage: total > 0 ? Math.round((stage4Count / total) * 100) : 0,
+                color: '#ec4899',
+            },
+        ];
 
         // 5. Paginate
         const totalPages = Math.ceil(total / limit) || 1;
         const startIndex = (page - 1) * limit;
         const paginatedMilestones = milestoneItems.slice(startIndex, startIndex + limit);
 
+        const completionPercentage = total > 0 ? Math.round((releasedCount / total) * 1000) / 10 : 0;
+
         return {
             meta: {
                 generatedAt: now.toISOString(),
-                timezone: 'UTC',
+                timezone: dateRange?.timezone || 'UTC',
+                period: dateRange?.period,
             },
             summary: {
                 total,
-                upcoming: Math.max(0, upcoming),
-                completed,
+                upcoming,
+                completed: releasedCount,
                 overdue,
+                percentageChange: completionPercentage,
+            },
+            funnel: {
+                totalVolume: total || 0,
+                stages,
             },
             milestones: paginatedMilestones,
             pagination: {

@@ -21,6 +21,16 @@ export class TaskActivityService {
             );
         }
 
+        if (Array.isArray(plain.attachments)) {
+            for (const att of plain.attachments) {
+                if (att.filePath || att.url) {
+                    att.url = await StorageConfigurationService.signUrl(
+                        att.filePath || att.url
+                    );
+                }
+            }
+        }
+
         return plain;
     }
 
@@ -54,6 +64,7 @@ export class TaskActivityService {
             parentId: parentId,
             audio: data.audio,
             video: data.video,
+            attachments: data.attachments,
             routedToRole: data.routedToRole,
             routedToUserId: data.routedToUserId
         });

@@ -2,14 +2,19 @@ import { Types } from 'mongoose';
 
 export type DashboardPeriod =
     | 'today'
+    | 'yesterday'
     | 'week'
     | 'this_week'
     | 'last_7_days'
     | 'last_30_days'
+    | 'last_90_days'
     | 'month'
     | 'this_month'
     | 'last_month'
     | 'last_3_months'
+    | 'last_6_months'
+    | 'this_year'
+    | 'last_year'
     | 'custom';
 export type DashboardScopeType = 'COMPANY' | 'SELF' | 'PROJECTS' | 'TEAM';
 
@@ -324,16 +329,48 @@ export interface CompanyDashboardOverviewData {
         completed: number;
         total: number;
         deliveryRate: number;
+        delayed: number;
+        onHold: number;
+        periodDue: number;
+        periodCompleted: number;
+        periodDeliveryRate: number | null;
+        lifetimeDeliveryRate: number;
+        progressDistribution?: {
+            range: string;
+            count: number;
+            percentage: number;
+        }[];
     };
     tasks: {
         total: number;
         completed: number;
         open: number;
         overdue: number;
+        pending: number;
+        inProgress: number;
+        cancelled: number;
+        overduePercentage: number;
+        completionRate: number;
+        statusDistribution?: {
+            status: string;
+            count: number;
+            percentage: number;
+            color: string;
+        }[];
+    };
+    workloadSummary?: {
+        totalMembers: number;
+        overloaded: number;
+        balanced: number;
+        underCapacity: number;
+        unassignedTasks: number;
+        averageTasksPerMember: number;
     };
     periodMetrics: {
         completedTasks: number;
         createdTasks: number;
+        dueTasks: number;
+        relevantTasks: number;
         completionRate: number | null;
         trackedHours: number;
         attendanceHours: number;
@@ -342,6 +379,9 @@ export interface CompanyDashboardOverviewData {
         completedTasks: MetricComparison;
         createdTasks: MetricComparison;
         trackedHours: MetricComparison;
+        attendanceHours?: MetricComparison;
+        projectsCompleted?: MetricComparison;
+        overdueTasks?: MetricComparison;
     };
 }
 
@@ -353,6 +393,9 @@ export interface DeliveryTrendBucket {
     plannedTasks: number;
     completedTasks: number;
     completionRate: number | null;
+    trackedHours?: number;
+    projectsPlanned?: number;
+    projectsCompleted?: number;
 }
 
 export interface CompanyDeliveryTrendsData {
@@ -368,6 +411,9 @@ export interface CompanyDeliveryTrendsData {
 export interface ProjectHealthCardItem {
     projectId: string;
     projectName: string;
+    category?: string;
+    type?: string;
+    priority?: string;
     status: string;
     healthStatus: ProjectHealthStatus;
     progressPercentage: number;
@@ -379,11 +425,45 @@ export interface ProjectHealthCardItem {
     reasons: string[];
 }
 
+export interface ProjectCategoryHealthSummary {
+    categoryId: string;
+    categoryName: string;
+    totalProjects: number;
+    completedProjects: number;
+    activeProjects: number;
+    inProgressProjects: number;
+    pendingProjects: number;
+    onHoldProjects: number;
+    overdueProjects: number;
+    completionPercentage: number;
+}
+
+export interface ProjectStatusDistributionItem {
+    statusId: string;
+    statusName: string;
+    count: number;
+    percentage: number;
+    healthStatus?: ProjectHealthStatus;
+}
+
+export interface PipelineStageItem {
+    id: string;
+    label: string;
+    count: number;
+    percentage: number;
+    color: string;
+}
+
 export interface CompanyProjectHealthData {
     meta: {
         generatedAt: string;
         timezone: string;
         projectId?: string;
+        dateRange?: {
+            period?: string;
+            startDate: string;
+            endDate: string;
+        };
     };
     summary: {
         totalEvaluated: number;
@@ -391,6 +471,12 @@ export interface CompanyProjectHealthData {
         atRisk: { count: number; percentage: number };
         delayed: { count: number; percentage: number };
     };
+    pipeline?: {
+        totalProjects: number;
+        stages: PipelineStageItem[];
+    };
+    categories?: ProjectCategoryHealthSummary[];
+    statusDistribution?: ProjectStatusDistributionItem[];
     projects: ProjectHealthCardItem[];
     pagination: {
         page: number;
@@ -409,7 +495,10 @@ export interface MemberWorkloadItem {
     assignedTasks: number;
     openTasks: number;
     completedTasks: number;
+    pendingTasks?: number;
+    inProgressTasks?: number;
     overdueTasks: number;
+    activeProjects?: number;
     trackedHours: number;
     workloadStatus: 'under_capacity' | 'balanced' | 'overloaded';
 }
@@ -421,6 +510,10 @@ export interface CompanyWorkloadData {
         underCapacity: number;
         balanced: number;
         overloaded: number;
+        unassignedTasks?: number;
+        underCapacityPercentage?: number;
+        balancedPercentage?: number;
+        overloadedPercentage?: number;
     };
     members: MemberWorkloadItem[];
     pagination: {
@@ -473,10 +566,25 @@ export interface AttentionTimesheetItem {
     submittedAt?: string;
 }
 
+export interface AttentionTrendBucket {
+    date: string;
+    label: string;
+    periodStart: string;
+    periodEnd: string;
+    overdue: number;
+    deadlines: number;
+    pending: number;
+    total: number;
+}
+
 export interface CompanyAttentionData {
     meta: {
         generatedAt: string;
         timezone: string;
+        period?: string;
+        startDate?: string;
+        endDate?: string;
+        interval?: 'day' | 'week' | 'month';
     };
     counts: {
         overdueTasks: number;
@@ -484,9 +592,20 @@ export interface CompanyAttentionData {
         atRiskProjects: number;
         pendingLeaves: number;
         pendingTimesheets: number;
+        tasksInReview?: number;
+        blockedTasks?: number;
+        overdueMilestones?: number;
     };
+    summary?: {
+        totalAttention: number;
+        percentageChange?: number | null;
+    };
+    trends?: AttentionTrendBucket[];
     overdueTasks: AttentionTaskItem[];
     upcomingDeadlines: AttentionTaskItem[];
+    tasksInReview?: AttentionTaskItem[];
+    blockedTasks?: AttentionTaskItem[];
+    overdueMilestones?: any[];
     atRiskProjects: AttentionProjectItem[];
     pendingLeaves: AttentionLeaveItem[];
     pendingTimesheets: AttentionTimesheetItem[];
@@ -508,16 +627,31 @@ export interface MilestoneCardItem {
     isOverdue: boolean;
 }
 
+export interface FunnelStage {
+    id: string;
+    label: string;
+    count: number;
+    stageCount?: number;
+    percentage: number;
+    color: string;
+}
+
 export interface CompanyMilestonesData {
     meta: {
         generatedAt: string;
         timezone: string;
+        period?: string;
     };
     summary: {
         total: number;
         upcoming: number;
         completed: number;
         overdue: number;
+        percentageChange?: number | null;
+    };
+    funnel?: {
+        totalVolume: number;
+        stages: FunnelStage[];
     };
     milestones: MilestoneCardItem[];
     pagination: {

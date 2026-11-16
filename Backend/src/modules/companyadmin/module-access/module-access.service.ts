@@ -318,9 +318,9 @@ export class ModuleAccessService {
                     if (state === 'DENY' || state === 'DISABLED') disabledOverrideCount++;
                 });
 
-                // Effective status for standard inheriting employee
-                const effectiveForInheriting =
-                    isPermittedByPlan && isPermittedByCompany && isGloballyEnabled;
+                // INHERIT never grants access: visibility requires an explicit
+                // per-member ALLOW, so a standard inheriting employee is denied.
+                const effectiveForInheriting = false;
 
                 return {
                     ...mod,
@@ -559,8 +559,6 @@ export class ModuleAccessService {
                 const isCompanyPermitted = mod.featureFlag
                     ? (companyFeatures[mod.featureFlag] ?? true)
                     : true;
-                const isGloballyEnabled = Boolean(moduleAccessDoc.globalSettings[mod.key]);
-
                 featureRestrictions[mod.key] = {
                     disabledByPlan: !isPlanPermitted,
                     disabledByCompany: !isCompanyPermitted,
@@ -568,9 +566,10 @@ export class ModuleAccessService {
 
                 // Precedence Rule Execution:
                 // 1. Subscription Plan restriction (hard deny)
-                // 2. Individual override DENY (overrides org default) -> false
-                // 3. Individual override ALLOW (overrides org default) -> true
-                // 4. INHERIT / No override -> Inherit Organization Default (isGloballyEnabled)
+                // 2. Company feature flag restriction (hard deny)
+                // 3. Individual override DENY -> false
+                // 4. Individual override ALLOW / ENABLED -> true
+                // 5. INHERIT / No override -> false (explicit grant required)
                 if (!isPlanPermitted) {
                     effectiveAccess[mod.key] = false;
                 } else if (!isCompanyPermitted) {
@@ -580,7 +579,7 @@ export class ModuleAccessService {
                 } else if (overrideState === 'ALLOW' || overrideState === 'ENABLED') {
                     effectiveAccess[mod.key] = true;
                 } else {
-                    effectiveAccess[mod.key] = Boolean(isGloballyEnabled);
+                    effectiveAccess[mod.key] = false;
                 }
             });
 
@@ -694,7 +693,6 @@ export class ModuleAccessService {
             const isCompanyPermitted = mod.featureFlag
                 ? (companyFeatures[mod.featureFlag] ?? true)
                 : true;
-            const isGloballyEnabled = Boolean(moduleAccessDoc.globalSettings[mod.key]);
 
             featureRestrictions[mod.key] = {
                 disabledByPlan: !isPlanPermitted,
@@ -710,7 +708,7 @@ export class ModuleAccessService {
             } else if (overrideState === 'ALLOW' || overrideState === 'ENABLED') {
                 effectiveAccess[mod.key] = true;
             } else {
-                effectiveAccess[mod.key] = Boolean(isGloballyEnabled);
+                effectiveAccess[mod.key] = false;
             }
         }
 
@@ -845,8 +843,6 @@ export class ModuleAccessService {
                 const isCompanyPermitted = mod.featureFlag
                     ? (companyFeatures[mod.featureFlag] ?? true)
                     : true;
-                const isGloballyEnabled = Boolean(moduleAccessDoc.globalSettings[mod.key]);
-
                 featureRestrictions[mod.key] = {
                     disabledByPlan: !isPlanPermitted,
                     disabledByCompany: !isCompanyPermitted,
@@ -861,7 +857,7 @@ export class ModuleAccessService {
                 } else if (overrideState === 'ALLOW' || overrideState === 'ENABLED') {
                     effectiveAccess[mod.key] = true;
                 } else {
-                    effectiveAccess[mod.key] = Boolean(isGloballyEnabled);
+                    effectiveAccess[mod.key] = false;
                 }
             });
 
@@ -1405,18 +1401,15 @@ export class ModuleAccessService {
                 isCompanyPermitted = companyFeatures[mod.featureFlag] ?? true;
             }
 
-            // Tier 3: Company Global Module Setting
-            // A missing organization setting must NOT silently grant access.
-            const isGloballyEnabled = Boolean(record.globalSettings[mod.key]);
-
-            // Tier 4: Employee Override (Safely resolved without falsy coercion)
+            // Tier 3: Employee Override (Safely resolved without falsy coercion)
             const employeeOverride = resolveOverrideState(rawOverrides[mod.key]);
 
             // Precedence Resolution:
             // 1. Plan Entitlement (hard deny if tenant subscription doesn't include the module)
-            // 2. Individual member override DENY -> Revoke access (overriding organization default)
-            // 3. Individual member override ALLOW -> Grant access (overriding organization default)
-            // 4. No individual override (INHERIT) -> Inherit organization default (isGloballyEnabled)
+            // 2. Company feature toggle (hard deny)
+            // 3. Individual member override DENY -> revoke access
+            // 4. Individual member override ALLOW -> grant access
+            // 5. No individual override (INHERIT) -> deny (explicit grant required)
             if (!isPermittedByPlan) {
                 effectiveModules[mod.key] = false;
                 denialReasons[mod.key] = 'PLAN_NOT_INCLUDED';
@@ -1441,14 +1434,12 @@ export class ModuleAccessService {
             } else if (employeeOverride === 'ALLOW' || employeeOverride === 'ENABLED') {
                 effectiveModules[mod.key] = true;
             } else {
-                effectiveModules[mod.key] = Boolean(isGloballyEnabled);
-                if (!isGloballyEnabled) {
-                    denialReasons[mod.key] = 'COMPANY_DISABLED';
-                    restrictions[mod.key] = {
-                        code: 'COMPANY_DISABLED',
-                        message: 'Module is globally disabled for all members',
-                    };
-                }
+                effectiveModules[mod.key] = false;
+                denialReasons[mod.key] = 'NO_EXPLICIT_GRANT';
+                restrictions[mod.key] = {
+                    code: 'NO_EXPLICIT_GRANT',
+                    message: 'Access has not been granted by your organization administrator',
+                };
             }
         }
 

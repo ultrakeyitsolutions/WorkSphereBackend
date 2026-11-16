@@ -1,4 +1,5 @@
 import { v2 as cloudinary } from 'cloudinary';
+import { Readable } from 'stream';
 import { StorageProvider } from '../storage-provider.interface';
 
 export interface CloudinaryConfig {
@@ -110,6 +111,7 @@ export class CloudinaryStorageProvider implements StorageProvider {
         storageKey: string;
         storageUrl: string;
         size: number;
+        thumbnailUrl?: string;
     }> {
         const cleanKey = storageKey.replace(/^\/+/, '');
 
@@ -118,12 +120,20 @@ export class CloudinaryStorageProvider implements StorageProvider {
         if (mimeType?.startsWith('image/')) resourceType = 'image';
         else if (mimeType?.startsWith('video/')) resourceType = 'video';
         else if (mimeType?.startsWith('audio/')) resourceType = 'video';
-        else if (mimeType?.startsWith('text/') || mimeType?.includes('pdf') || mimeType?.includes('document')) resourceType = 'raw';
+        else if (mimeType?.startsWith('text/') || mimeType?.includes('document') || mimeType?.includes('pdf') || mimeType?.includes('csv') || mimeType?.includes('sheet')) resourceType = 'raw';
+
+        // For image and video assets, Cloudinary automatically appends the format extension when generating delivery URLs.
+        // Stripping the trailing file extension from public_id prevents double extensions (.mp4.mp4, .webm.webm, .png.png).
+        // Raw files retain their extension in public_id as required by Cloudinary raw assets.
+        let uploadPublicId = cleanKey;
+        if (resourceType === 'image' || resourceType === 'video') {
+            uploadPublicId = cleanKey.replace(/\.[a-zA-Z0-9]+$/, '');
+        }
 
         return new Promise((resolve, reject) => {
             const uploadStream = this.client.uploader.upload_stream(
                 {
-                    public_id: cleanKey,
+                    public_id: uploadPublicId,
                     resource_type: resourceType,
                     overwrite: true,
                     use_filename: false,
@@ -145,10 +155,26 @@ export class CloudinaryStorageProvider implements StorageProvider {
                         }
                     }
 
+                    // Generate thumbnail URL for video assets
+                    let thumbnailUrl: string | undefined = undefined;
+                    if (resourceType === 'video') {
+                        thumbnailUrl = this.client.url(result.public_id, {
+                            resource_type: 'video',
+                            format: 'jpg',
+                            secure: true,
+                        });
+                    }
+
+                    const formatExt = result.format ? `.${result.format}` : '';
+                    const returnStorageKey = cleanKey.endsWith(formatExt)
+                        ? cleanKey
+                        : `${result.public_id}${formatExt}`;
+
                     resolve({
-                        storageKey: result.public_id,
+                        storageKey: returnStorageKey,
                         storageUrl,
                         size: result.bytes || buffer.length,
+                        thumbnailUrl,
                     });
                 }
             );
@@ -158,11 +184,16 @@ export class CloudinaryStorageProvider implements StorageProvider {
     }
 
     /**
-     * Resolves resource type ('image' | 'video' | 'raw') based on filename extension.
+     * Resolves resource type ('image' | 'video' | 'raw') based on filename extension and optional MIME type.
      */
-    static resolveResourceType(key: string): 'image' | 'video' | 'raw' {
+    static resolveResourceType(key: string, mimeType?: string): 'image' | 'video' | 'raw' {
+        if (mimeType) {
+            if (mimeType.startsWith('image/')) return 'image';
+            if (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) return 'video';
+            if (mimeType.startsWith('text/') || mimeType.includes('pdf') || mimeType.includes('document')) return 'raw';
+        }
         const lower = key.toLowerCase();
-        if (/\.(mp4|mov|webm|mkv|avi|m4a|mp3|wav|ogg|aac)$/.test(lower)) return 'video';
+        if (/\.(mp4|mov|webm|mkv|avi|m4a|mp3|wav|ogg|aac|flac|mka)$/.test(lower)) return 'video';
         if (/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|csv|txt|json|zip|tar|gz)$/.test(lower)) return 'raw';
         return 'image';
     }
@@ -208,6 +239,21 @@ export class CloudinaryStorageProvider implements StorageProvider {
         if (/^https?:\/\//i.test(trimmed)) {
             try {
                 const parsed = new URL(trimmed);
+                // Check if this is a Cloudinary URL that is missing resource_type/upload segments
+                // e.g. https://res.cloudinary.com/kjl8mluw/worksphere/companies/.../file.pdf
+                if (parsed.hostname === 'res.cloudinary.com' || parsed.hostname.endsWith('.cloudinary.com')) {
+                    const segments = parsed.pathname.replace(/^\/+/, '').split('/');
+                    if (segments.length >= 2) {
+                        const cloudName = segments[0];
+                        const secondSegment = segments[1];
+                        // If the segment immediately following cloudName is NOT a valid Cloudinary resource_type
+                        if (!['image', 'video', 'raw'].includes(secondSegment)) {
+                            const remainingPath = segments.slice(1).join('/');
+                            const resourceType = CloudinaryStorageProvider.resolveResourceType(remainingPath);
+                            return `https://${parsed.hostname}/${cloudName}/${resourceType}/upload/${remainingPath}${parsed.search}`;
+                        }
+                    }
+                }
                 return parsed.toString();
             } catch {
                 return trimmed;
@@ -216,13 +262,61 @@ export class CloudinaryStorageProvider implements StorageProvider {
 
         // 3. Storage key / public ID
         const cleanKey = trimmed.replace(/^\/+/, '');
+        const resourceType = CloudinaryStorageProvider.resolveResourceType(cleanKey);
+
         if (customDeliveryUrl && /^https?:\/\//i.test(customDeliveryUrl)) {
-            return `${customDeliveryUrl.replace(/\/+$/, '')}/${cleanKey}`;
+            const base = customDeliveryUrl.replace(/\/+$/, '');
+            // If custom delivery URL points to res.cloudinary.com (e.g. https://res.cloudinary.com/<cloudName>)
+            // without /upload/, ensure /<resourceType>/upload/ is included
+            if (base.includes('res.cloudinary.com') && !base.includes('/upload')) {
+                return `${base}/${resourceType}/upload/${cleanKey}`;
+            }
+            return `${base}/${cleanKey}`;
         }
 
         const cloud = fallbackCloudName || 'worksphere';
-        const resourceType = CloudinaryStorageProvider.resolveResourceType(cleanKey);
         return `https://res.cloudinary.com/${cloud}/${resourceType}/upload/${cleanKey}`;
+    }
+
+    /**
+     * Generate an authorized expiring signed Cloudinary delivery URL with signature.
+     * For raw assets (e.g. PDFs, CSVs, documents), Cloudinary restricts public delivery.
+     * We use private_download_url with the API key/secret to grant authorized access.
+     * For image/video assets, canonical delivery URLs are returned to avoid signature mismatches.
+     */
+    getSignedUrl(storageKey: string, expiresInSeconds = 3600): string {
+        const cleanKey = storageKey.replace(/^\/+/, '');
+        const resourceType = CloudinaryStorageProvider.resolveResourceType(cleanKey);
+
+        if (resourceType === 'raw') {
+            try {
+                return this.client.utils.private_download_url(cleanKey, '', {
+                    resource_type: 'raw',
+                    type: 'upload',
+                    expires_at: Math.floor(Date.now() / 1000) + expiresInSeconds,
+                });
+            } catch {
+                return this.getFileUrl(storageKey);
+            }
+        }
+
+        return this.getFileUrl(storageKey);
+    }
+
+    /**
+     * Get a thumbnail preview URL for a video asset (converts frame to JPG).
+     */
+    getThumbnailUrl(storageKey: string): string {
+        const cleanKey = storageKey.replace(/^\/+/, '');
+        const resourceType = CloudinaryStorageProvider.resolveResourceType(cleanKey);
+        if (resourceType === 'video') {
+            return this.client.url(cleanKey, {
+                resource_type: 'video',
+                format: 'jpg',
+                secure: true,
+            });
+        }
+        return this.getFileUrl(cleanKey);
     }
 
     /**
@@ -282,6 +376,87 @@ export class CloudinaryStorageProvider implements StorageProvider {
             storageKey,
             this.config.cloudName,
             this.config.deliveryUrl
+        );
+    }
+
+    /**
+     * Stream a file from Cloudinary HTTPS delivery URL with byte range support.
+     * Uses resilient candidate URL resolution (private_download_url for restricted raw files,
+     * canonical delivery URLs and double-extension fallbacks for videos/audio).
+     */
+    async getFileStream(
+        storageKey: string,
+        range?: string
+    ): Promise<{
+        stream: NodeJS.ReadableStream;
+        statusCode: number;
+        headers: Record<string, string | number | undefined>;
+    }> {
+        const cleanKey = storageKey.replace(/^\/+/, '');
+        const resourceType = CloudinaryStorageProvider.resolveResourceType(cleanKey);
+        const ext = cleanKey.split('.').pop()?.toLowerCase();
+
+        const candidateUrls: string[] = [];
+        if (resourceType === 'raw') {
+            // Raw files (PDFs, CSVs, DOCX): Use private_download_url first (bypasses ACL restrictions), then canonical URL
+            try {
+                candidateUrls.push(
+                    this.client.utils.private_download_url(cleanKey, '', { resource_type: 'raw', type: 'upload' })
+                );
+            } catch {}
+            candidateUrls.push(this.getFileUrl(cleanKey));
+        } else {
+            // Video and image files: Try canonical delivery URL, then format-appended URL (for legacy double-extension assets)
+            candidateUrls.push(this.getFileUrl(cleanKey));
+            if (ext) {
+                candidateUrls.push(this.getFileUrl(`${cleanKey}.${ext}`));
+            }
+            try {
+                candidateUrls.push(
+                    this.client.utils.private_download_url(cleanKey, '', { resource_type: resourceType, type: 'upload' })
+                );
+            } catch {}
+        }
+
+        const reqHeaders: Record<string, string> = {};
+        if (range) {
+            reqHeaders['Range'] = range;
+        }
+
+        let lastResponse: Response | null = null;
+        for (const candidateUrl of candidateUrls) {
+            try {
+                const response = await fetch(candidateUrl, {
+                    method: 'GET',
+                    headers: reqHeaders,
+                });
+
+                if (response.ok || response.status === 206) {
+                    const stream = response.body
+                        ? (Readable.fromWeb(response.body as any) as NodeJS.ReadableStream)
+                        : Readable.from(Buffer.alloc(0));
+
+                    return {
+                        stream,
+                        statusCode: response.status,
+                        headers: {
+                            'content-type': response.headers.get('content-type') || (resourceType === 'video' ? 'video/mp4' : 'application/octet-stream'),
+                            'content-length': response.headers.get('content-length') || undefined,
+                            'content-range': response.headers.get('content-range') || undefined,
+                            'accept-ranges': response.headers.get('accept-ranges') || 'bytes',
+                            'etag': response.headers.get('etag') || undefined,
+                            'last-modified': response.headers.get('last-modified') || undefined,
+                        },
+                    };
+                }
+                lastResponse = response;
+            } catch {
+                // Continue to next candidate URL
+            }
+        }
+
+        throw new Error(
+            `Cloudinary media fetch failed with status ${lastResponse?.status || 404}: ${lastResponse?.statusText || 'Asset not found on Cloudinary'}`
         );
     }
 

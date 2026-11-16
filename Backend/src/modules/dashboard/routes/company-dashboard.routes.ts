@@ -20,6 +20,18 @@ router.use(authenticate);
 router.use(authorizeRoles('COMPANY_ADMIN', 'Admin', 'SUPER_ADMIN'));
 
 /**
+ * @route   GET /api/v1/company/dashboard/analytics
+ * @desc    Centralized company dashboard analytics combining overview, trends, health, workload, attention & milestones
+ * @access  Private (Company Admin, Admin, Super Admin)
+ */
+router.get(
+    '/analytics',
+    requireFeature('DASHBOARD_ANALYTICS'),
+    validateRequest(deliveryTrendsQuerySchema),
+    CompanyDashboardController.getAnalytics
+);
+
+/**
  * @route   GET /api/v1/company/dashboard/overview
  * @desc    Company overview KPI metrics, delivery rate, task progress, and period comparisons
  * @access  Private (Company Admin, Admin, Super Admin)

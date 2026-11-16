@@ -39,10 +39,15 @@ export class WorkloadAnalytics {
             )
             .lean();
 
-        // Filter for active users only
-        const activeMembers = members.filter(
-            (m) => m.userId && m.userId.isActive && m.userId.status !== 'DEACTIVATED'
-        );
+        // Filter and deduplicate active users
+        const seenUserIds = new Set<string>();
+        const activeMembers = members.filter((m) => {
+            if (!m.userId || !m.userId.isActive || m.userId.status === 'DEACTIVATED') return false;
+            const uId = String(m.userId._id);
+            if (seenUserIds.has(uId)) return false;
+            seenUserIds.add(uId);
+            return true;
+        });
 
         if (activeMembers.length === 0) {
             return {
@@ -60,6 +65,10 @@ export class WorkloadAnalytics {
                     underCapacity: 0,
                     balanced: 0,
                     overloaded: 0,
+                    unassignedTasks: 0,
+                    underCapacityPercentage: 0,
+                    balancedPercentage: 0,
+                    overloadedPercentage: 0,
                 },
                 members: [],
                 pagination: {
@@ -75,7 +84,6 @@ export class WorkloadAnalytics {
 
         const taskMatch: any = {
             companyId,
-            assignedToId: { $in: userIds },
             isArchived: { $ne: true },
             isDeleted: { $ne: true },
         };
@@ -83,19 +91,20 @@ export class WorkloadAnalytics {
             taskMatch.projectId = filterProjectId;
         }
 
-        // 2. Parallel aggregations for tasks & tracked time
-        const [incompleteTaskStats, periodCompletedStats, timeStats] = await Promise.all([
-            // Incomplete & Overdue tasks
+        // 2. Parallel aggregations for tasks, time, and unassigned tasks (using 'status' collection)
+        const [incompleteTaskStats, periodCompletedStats, timeStats, unassignedCount, activeProjectsStats] = await Promise.all([
+            // Incomplete, Overdue, InProgress & Pending tasks per user
             Task.aggregate([
                 {
                     $match: {
                         ...taskMatch,
+                        assignedToId: { $in: userIds },
                         completedDate: null,
                     },
                 },
                 {
                     $lookup: {
-                        from: 'statuses',
+                        from: 'status',
                         localField: 'statusId',
                         foreignField: '_id',
                         as: 'statusDoc',
@@ -109,13 +118,27 @@ export class WorkloadAnalytics {
                 },
                 {
                     $match: {
-                        'statusDoc.name': { $not: /completed|done|closed|cancelled/i },
+                        'statusDoc.name': { $not: /completed|done|closed|cancelled|reject/i },
                     },
                 },
                 {
                     $group: {
                         _id: '$assignedToId',
                         openTasks: { $sum: 1 },
+                        inProgressTasks: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $regexMatch: {
+                                            input: { $ifNull: ['$statusDoc.name', ''] },
+                                            regex: /in[- ]?progress|doing|ongoing|active/i,
+                                        },
+                                    },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
                         overdueTasks: {
                             $sum: {
                                 $cond: [
@@ -134,11 +157,12 @@ export class WorkloadAnalytics {
                 },
             ]),
 
-            // Period completed tasks
+            // Period completed tasks per user
             Task.aggregate([
                 {
                     $match: {
                         ...taskMatch,
+                        assignedToId: { $in: userIds },
                         completedDate: { $gte: dateRange.startDate, $lte: dateRange.endDate },
                     },
                 },
@@ -150,7 +174,7 @@ export class WorkloadAnalytics {
                 },
             ]),
 
-            // Tracked seconds in period
+            // Tracked seconds in period per user
             TimeTracking.aggregate([
                 {
                     $match: {
@@ -167,11 +191,44 @@ export class WorkloadAnalytics {
                     },
                 },
             ]),
+
+            // Unassigned incomplete tasks
+            Task.countDocuments({
+                ...taskMatch,
+                assignedToId: null,
+                completedDate: null,
+            }),
+
+            // Active distinct projects per user
+            Task.aggregate([
+                {
+                    $match: {
+                        ...taskMatch,
+                        assignedToId: { $in: userIds },
+                        completedDate: null,
+                    },
+                },
+                {
+                    $group: {
+                        _id: { userId: '$assignedToId', projectId: '$projectId' },
+                    },
+                },
+                {
+                    $group: {
+                        _id: '$_id.userId',
+                        activeProjectsCount: { $sum: 1 },
+                    },
+                },
+            ]),
         ]);
 
-        const openMap = new Map<string, { open: number; overdue: number }>();
+        const openMap = new Map<string, { open: number; inProgress: number; overdue: number }>();
         incompleteTaskStats.forEach((s) =>
-            openMap.set(String(s._id), { open: s.openTasks, overdue: s.overdueTasks })
+            openMap.set(String(s._id), {
+                open: s.openTasks,
+                inProgress: s.inProgressTasks || 0,
+                overdue: s.overdueTasks || 0,
+            })
         );
 
         const compMap = new Map<string, number>();
@@ -180,14 +237,20 @@ export class WorkloadAnalytics {
         const timeMap = new Map<string, number>();
         timeStats.forEach((s) => timeMap.set(String(s._id), s.totalSeconds));
 
+        const activeProjMap = new Map<string, number>();
+        activeProjectsStats.forEach((s) => activeProjMap.set(String(s._id), s.activeProjectsCount));
+
         // 3. Assemble member workload cards
         const workloadItems: MemberWorkloadItem[] = activeMembers.map((m) => {
             const uIdStr = String(m.userId._id);
-            const openInfo = openMap.get(uIdStr) || { open: 0, overdue: 0 };
+            const openInfo = openMap.get(uIdStr) || { open: 0, inProgress: 0, overdue: 0 };
             const completed = compMap.get(uIdStr) || 0;
+            const pending = Math.max(0, openInfo.open - openInfo.inProgress);
             const trackedSeconds = timeMap.get(uIdStr) || 0;
             const trackedHours = Math.round((trackedSeconds / 3600) * 100) / 100;
+            const activeProjects = activeProjMap.get(uIdStr) || 0;
 
+            // Strict deterministic classification
             let workloadStatus: 'under_capacity' | 'balanced' | 'overloaded' = 'under_capacity';
             if (openInfo.open > 10 || openInfo.overdue > 3) {
                 workloadStatus = 'overloaded';
@@ -204,7 +267,10 @@ export class WorkloadAnalytics {
                 assignedTasks: openInfo.open + completed,
                 openTasks: openInfo.open,
                 completedTasks: completed,
+                pendingTasks: pending,
+                inProgressTasks: openInfo.inProgress,
                 overdueTasks: openInfo.overdue,
+                activeProjects,
                 trackedHours,
                 workloadStatus,
             };
@@ -221,8 +287,12 @@ export class WorkloadAnalytics {
             else underCapacity++;
         }
 
-        // 5. Paginate
         const total = workloadItems.length;
+        const underCapacityPercentage = total > 0 ? Math.round((underCapacity / total) * 100) : 0;
+        const balancedPercentage = total > 0 ? Math.round((balanced / total) * 100) : 0;
+        const overloadedPercentage = total > 0 ? Math.round((overloaded / total) * 100) : 0;
+
+        // 5. Paginate
         const totalPages = Math.ceil(total / limit) || 1;
         const startIndex = (page - 1) * limit;
         const paginatedMembers = workloadItems.slice(startIndex, startIndex + limit);
@@ -242,6 +312,10 @@ export class WorkloadAnalytics {
                 underCapacity,
                 balanced,
                 overloaded,
+                unassignedTasks: unassignedCount,
+                underCapacityPercentage,
+                balancedPercentage,
+                overloadedPercentage,
             },
             members: paginatedMembers,
             pagination: {

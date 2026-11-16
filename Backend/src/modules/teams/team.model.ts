@@ -1,5 +1,6 @@
 import { Schema, model } from 'mongoose';
 import { ITeamDocument } from './team.types';
+import '../companyadmin/invitations/designation/designation.model';
 
 const teamSchema = new Schema<ITeamDocument>(
     {

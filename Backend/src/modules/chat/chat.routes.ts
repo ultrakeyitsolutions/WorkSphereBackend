@@ -4,6 +4,7 @@ import { authenticate } from '../../middleware/auth.middleware';
 import { validateRequest } from '../../middleware/validateRequest';
 import {
     createConversationSchema,
+    createMessageSchema,
     listMessagesSchema,
 } from './chat.validator';
 import { requireCompanyFeature } from '../../middleware/feature-toggle.middleware';
@@ -32,6 +33,13 @@ router.get(
     '/:conversationId/messages',
     validateRequest(listMessagesSchema),
     ChatController.getMessages
+);
+
+// POST /api/conversations/:conversationId/messages
+router.post(
+    '/:conversationId/messages',
+    validateRequest(createMessageSchema),
+    ChatController.sendMessage
 );
 
 export default router;

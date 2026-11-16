@@ -84,8 +84,14 @@ export class AttendanceController {
 
     static getCalendar = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
         const companyId = req.user?.companyId;
-        const userId = req.user?.userId;
+        let userId = req.user?.userId;
         if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const role = req.user?.role;
+        const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'COMPANY_ADMIN';
+        if (isAdmin && req.query.employeeId) {
+            userId = String(req.query.employeeId);
+        }
 
         const calendar = await AttendanceService.getEmployeeCalendar(companyId, userId, req.query);
         sendSuccess(res, 'Attendance calendar retrieved.', calendar, 200);
@@ -93,8 +99,14 @@ export class AttendanceController {
 
     static getSummary = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
         const companyId = req.user?.companyId;
-        const userId = req.user?.userId;
+        let userId = req.user?.userId;
         if (!companyId || !userId) throw AppError.unauthorized('Unauthorized');
+
+        const role = req.user?.role;
+        const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'COMPANY_ADMIN';
+        if (isAdmin && req.query.employeeId) {
+            userId = String(req.query.employeeId);
+        }
 
         const summary = await AttendanceService.getEmployeeSummary(companyId, userId, req.query);
         sendSuccess(res, 'Attendance summary retrieved.', summary, 200);

@@ -13,8 +13,10 @@ export interface IShift {
     gracePeriodMinutes: number; // e.g. 10 mins
     earlyCheckoutGracePeriodMinutes: number; // e.g. 5 mins
     workingDays: number[]; // 1 = Monday ... 7 = Sunday
+    breakDurationMinutes?: number; // unpaid break included in the shift span
     halfDayThresholdMinutes?: number;
     fullDayThresholdMinutes?: number;
+    overtimeThresholdMinutes?: number;
     isActive: boolean;
     isDefault: boolean;
     description?: string;
@@ -56,8 +58,10 @@ export interface CreateShiftDto {
     gracePeriodMinutes?: number;
     earlyCheckoutGracePeriodMinutes?: number;
     workingDays?: number[];
+    breakDurationMinutes?: number;
     halfDayThresholdMinutes?: number;
     fullDayThresholdMinutes?: number;
+    overtimeThresholdMinutes?: number;
     isActive?: boolean;
     isDefault?: boolean;
     description?: string;
@@ -72,8 +76,10 @@ export interface UpdateShiftDto {
     gracePeriodMinutes?: number;
     earlyCheckoutGracePeriodMinutes?: number;
     workingDays?: number[];
+    breakDurationMinutes?: number;
     halfDayThresholdMinutes?: number;
     fullDayThresholdMinutes?: number;
+    overtimeThresholdMinutes?: number;
     isActive?: boolean;
     isDefault?: boolean;
     description?: string;
@@ -88,7 +94,8 @@ export interface AssignShiftDto {
 }
 
 export interface BulkAssignShiftDto {
-    employeeIds: string[];
+    employeeIds?: string[];
+    teamId?: string;
     shiftId: string;
     effectiveFrom: string | Date;
     effectiveTo?: string | Date | null;
@@ -132,8 +139,33 @@ export interface ResolvedEmployeeShift {
     gracePeriodMinutes: number;
     earlyCheckoutGracePeriodMinutes: number;
     workingDays: number[];
+    breakDurationMinutes?: number;
+    halfDayThresholdMinutes?: number;
+    fullDayThresholdMinutes?: number;
+    overtimeThresholdMinutes?: number;
     isAssigned: boolean;
     assignmentId?: string;
+}
+
+export interface ShiftOverviewCounts {
+    totalShifts: number;
+    activeShifts: number;
+    assignedEmployees: number;
+    currentlyWorking: number;
+    notCheckedIn: number;
+    upcomingShifts: number;
+    noAssignment: number;
+    overnightShifts: number;
+    defaultShiftName: string | null;
+}
+
+export interface ShiftCalendarQuery {
+    startDate?: string;
+    endDate?: string;
+    shiftId?: string;
+    employeeId?: string;
+    teamId?: string;
+    departmentId?: string;
 }
 
 export interface CheckInEvaluationResult {

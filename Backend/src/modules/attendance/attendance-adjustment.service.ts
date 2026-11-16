@@ -24,18 +24,65 @@ export class AttendanceAdjustmentService {
     ) {
         const companyObjId = new Types.ObjectId(companyId);
         const employeeObjId = new Types.ObjectId(employeeId);
-        const attendanceObjId = new Types.ObjectId(dto.attendanceId);
 
-        // Verify Attendance record exists and belongs to employee
-        const attendance = await Attendance.findOne({
-            _id: attendanceObjId,
-            companyId: companyObjId,
-            employeeId: employeeObjId,
-        });
+        // Verify or resolve Attendance record
+        let attendance: any = null;
+        if (dto.attendanceId && Types.ObjectId.isValid(dto.attendanceId)) {
+            attendance = await Attendance.findOne({
+                _id: new Types.ObjectId(dto.attendanceId),
+                companyId: companyObjId,
+                employeeId: employeeObjId,
+            });
+        }
+
+        if (!attendance && dto.date) {
+            attendance = await Attendance.findOne({
+                companyId: companyObjId,
+                employeeId: employeeObjId,
+                date: dto.date,
+            });
+        }
+
+        // If no attendance record exists yet for this date, create a record so it can be regularized
+        if (!attendance && dto.date) {
+            const shiftResolution = await AttendanceCalculationService.resolveShiftSchedule(
+                companyId,
+                employeeId,
+                new Date(`${dto.date}T12:00:00Z`)
+            );
+            attendance = await Attendance.create({
+                companyId: companyObjId,
+                employeeId: employeeObjId,
+                date: dto.date,
+                status: AttendanceStatus.ABSENT,
+                shiftId: shiftResolution.shift?._id || null,
+                scheduled: {
+                    startTime: shiftResolution.scheduledStartTime || null,
+                    endTime: shiftResolution.scheduledEndTime || null,
+                    workingMinutes: (shiftResolution.shift?.workingHours || 8) * 60,
+                    shiftName: shiftResolution.shift?.name || 'General Shift',
+                    shiftCode: shiftResolution.shift?.code || 'GEN',
+                    gracePeriodMinutes: shiftResolution.gracePeriodMinutes || 0,
+                    earlyCheckoutGraceMinutes: shiftResolution.earlyCheckoutGraceMinutes || 0,
+                },
+                actual: {
+                    firstCheckIn: null,
+                    lastCheckOut: null,
+                    workedMinutes: 0,
+                },
+                metrics: {
+                    lateMinutes: 0,
+                    earlyLeaveMinutes: 0,
+                    overtimeMinutes: 0,
+                },
+            });
+        }
 
         if (!attendance) {
             throw AppError.notFound('Attendance record not found for this date.');
         }
+
+        const attendanceObjId = attendance._id;
 
         // Check if pending adjustment already exists for this attendance record
         const existingPending = await AttendanceAdjustment.findOne({
